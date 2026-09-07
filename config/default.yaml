@@ -1,0 +1,30 @@
+database: var/state.sqlite3
+artifacts: var/artifacts
+documents: var/documents
+
+label_studio:
+  url: http://localhost:8080
+  project_id: null
+  token: null
+
+gpu:
+  url: http://localhost:9000
+  token: null
+  model: Qwen/Qwen3-VL-4B-Instruct
+
+experiment:
+  batch_size: 50
+  rounds: 6
+  seed: 824
+  train_ratio: 0.7
+  validation_ratio: 0.1
+  test_ratio: 0.2
+
+training:
+  epochs: 3
+  batch_size: 1
+  gradient_accumulation: 16
+  bf16: true
+  freeze_vision_encoder: true
+
+poll_seconds: 30
