@@ -131,3 +131,18 @@ fine-tuning and inference are implemented.
 
 SQLite state, imported data, predictions, checkpoints, and reports belong under `var/`, which is
 ignored by Git. API tokens belong in `.env` and are also ignored.
+
+## Persistent FYP agent system
+
+Use **Manager** for project control and **QA & Understand** for explanations. The seven existing
+Codex tasks use a shared, ignored `.agent-local/` directory for durable memory and native task
+messages for communication. Existing tasks require no repeated setup.
+
+The [operating guide](coordination/README.md), [constitution](AGENTS.md), role Skills,
+templates and checks are versioned. Machine/task identifiers, assignments, routine progress,
+setup history and operational inventory stay local. Research notes, approved plans and small
+reproducibility records belong in Git when ready; datasets, checkpoints and raw logs stay ignored.
+
+Run `python3 scripts/validate_agent_system.py` for portable file checks; `--live` additionally
+requires and validates the installed local team. A fresh clone contains reusable instructions,
+not this computer's live agent memory. See the guide for backup and worktree behavior.

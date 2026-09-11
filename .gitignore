@@ -22,3 +22,12 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# Optional manually managed specialist worktrees
+.worktrees/
+
+# Shared local agent memory, machine registry and setup evidence (including symlinks)
+.agent-local
+
+# Local scratch/downloads; publish only reviewed research outputs
+.local/
