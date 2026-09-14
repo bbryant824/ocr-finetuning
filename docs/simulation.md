@@ -52,8 +52,10 @@ illegible text; legacy `Region` normalization is not applied. Raw manifest bytes
 artifacts. Use a dedicated directory, not the legacy runtime location. Creation freezes manifest
 bytes, membership/splits, image bytes and SHA-256s, full config/seed, backend and fit policy.
 Python/Pydantic/Pillow versions and Git revision are recorded (`-dirty` for source/config changes;
-installed-package runs without Git report an unknown revision). Source manifest/images must remain
-available and unchanged. Each round/resume checks source and frozen inputs. Changed GT, membership
+installed-package runs without Git report an unknown revision). **Resume requires unchanged code,
+software environment and versioned adapters.** Code/software provenance is captured at creation;
+resume does not check it against the current installation. Start a new run after code or dependency
+upgrades; mixed-version resume is not verified. Source manifest/images must remain available and unchanged. Each round/resume checks source and frozen inputs. Changed GT, membership
 or bytes fail instead of silently adapting. Resume uses stored settings; `step_simulation(config=...)`
 optionally asserts an exact match. Different backend, fit policy or evaluator ID is rejected.
 Use a new run for changed inputs/settings. Direct SQLite tampering is unsupported.
@@ -115,4 +117,7 @@ Verification: `python -m pytest`, `ruff check src tests examples`, and the examp
 Tests cover oracle/model isolation, hidden-label perturbation, matched first samples, interleaved
 runs, invalid predictions, failures before/after commit, stale writers, mutation, restart, optional
 validation, budget boundaries and exports. This verifies fixture engineering only; independent
-review is required before integration.
+review accepted implementation `2d24c6493ce8051e9a6ae95d9d30fd5f7b8e55d7` with the code/environment
+resume limit above. All 63 tests and Ruff passed; independent probes checked separate-process CLI,
+SQLite rollback and concurrent stale writes, reset-fit retries, held-out validation isolation and
+3+2 page-budget completion. This acceptance covers the documented synchronous fixture scope.

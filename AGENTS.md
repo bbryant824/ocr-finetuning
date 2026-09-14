@@ -4,8 +4,16 @@
 
 The project studies whether active-learning strategies reduce the human annotation needed
 to adapt OCR to historical and low-resource documents. Page images are the acquisition unit;
-human annotations contain line boxes and transcriptions. The practical objective is a small,
-reproducible, understandable pipeline with fair strategy comparisons.
+the current research simulates annotation by revealing existing source ground truth only for
+selected training pages. Ground truth contains the source's line boxes and transcriptions.
+The practical objective is a small, reproducible, understandable pipeline with fair comparisons.
+
+Prioritize the complete local active-learning loop with simple interchangeable dataset/model
+interfaces. Real dataset adapters, OCR models, GPU servers and labeling frontends come later.
+Keep implementations minimal, straightforward and correct; do not add speculative infrastructure.
+The oracle must not expose unrevealed or held-out labels to fitting or acquisition. Revealed-page
+counts represent simulated annotation budgets, not measured human annotation time. Fixture model
+outputs verify plumbing only and never establish OCR quality or active-learning improvement.
 
 The local Python pipeline exists. The configured model is `Qwen/Qwen3-VL-4B-Instruct`, but
 model loading, prediction, fine-tuning and GPU execution remain placeholders. Corpus/language,
@@ -13,17 +21,23 @@ checkpoint revision and final experimental methodology are not yet established b
 
 ## Architecture summary
 
-CURRENTLY IMPLEMENTED: Pydantic models and one `Pipeline` orchestrator; JSONL/CSV image import
-and deterministic document-level splits; SQLite JSON records and content-addressed artifacts;
-random/least-confidence/entropy ranking; Label Studio payload/client integration; lightweight GPU
-HTTP client; CLI/controller; metric functions; FastAPI health endpoint. Runtime state is in ignored
-`var/`. Local dependencies are separate from the `gpu` optional group in `pyproject.toml`.
+CURRENTLY IMPLEMENTED: one `Pipeline` orchestrator with a local simulation path; a normalized
+JSONL source/true-label oracle; frozen images/source/config and run identity; cumulative reset-fit
+model interface and deterministic fixture; random/least-confidence/entropy selection; atomic SQLite
+round snapshots, resume and JSON/CSV exports; optional isolated validation evaluator; CLI/example.
+Fixture scores and empty OCR predictions are not research findings. Resume assumes unchanged code,
+dependencies and versioned adapters; code/environment changes are not automatically detected.
 
-Flow: manifest → staged page images → selection → Label Studio line annotation → remote training
-request → remote scoring request → next round; evaluation helpers are separate from selection.
-Tests use fakes for the remote loop. `integrations/qwen.py` and GPU job endpoints are placeholders.
-The remote image-access contract is missing: training sends annotations without page-image
-metadata, prediction sends page IDs; no worker-side resolver is implemented. See the local `.agent-local/PROJECT.md` for current project priorities.
+Simulation flow: frozen source → select train pages → reveal selected labels → fit cumulative
+examples → predict remaining pool → optional isolated validation → commit round → next batch.
+Only the evaluator receives validation truth; final-test evaluation is deferred. See docs/simulation.md.
+
+Optional older code remains: JSONL/CSV image import with document-hash splits, Label Studio
+payload/client, GPU HTTP client, polling controller, metrics and health endpoint. Qwen and GPU job
+execution remain placeholders. Their remote image resolver is missing and they are not needed by
+simulation. Runtime state stays ignored; simulation uses its own configured database/artifacts.
+The configured Qwen model is not a limitation of the new model interface. Current priorities live
+in shared local `.agent-local/PROJECT.md`.
 
 Preserve the shallow module design: algorithms in `active_learning.py`, metrics in `evaluation.py`,
 coordination in `pipeline.py`, external/model boundaries in `integrations/`, launchers in `entrypoints/`.
