@@ -1,10 +1,11 @@
 # Plan — real OCR with simulated annotation on Modal
 
-Owner: Planning. Version: **0.2**, 2026-09-14. Status: **DRAFT successor for review**.
-Phase-A v0.1 at `af91ad45592d5815d8e371f8eabf9152e7974292` was accepted as
-planning evidence and integrated on main. That acceptance did not approve implementation,
-experimental methodology or paid execution. Version 0.2 and its slice-1 release proposal have
-**not** been accepted yet. No real-code candidate or model execution is claimed here.
+Owner: Planning. Version: **0.2**, 2026-09-14. Status: **Roadmap accepted; candidate 1A released**.
+Manager reviewed the exact successor at `d659c48f38639e54e19ac6aceff1b5adf853355a`
+and accepts its roadmap and bounded local candidate 1A under the user's engineering authorization.
+Independent Testing is required before accepting that implementation. Converter admission,
+later candidates, experimental methodology and paid execution retain the gates below.
+Phase-A v0.1 remains in Git history. No real-code candidate or model execution is claimed here.
 
 Inspected control: `8b4e418dc4c5e4ae0287de0b76f13a94e29f5645`; application remains the
 simulation implementation `2d24c6493ce8051e9a6ae95d9d30fd5f7b8e55d7`.
@@ -106,11 +107,11 @@ a declared lossy view; keep diplomatic spelling/flags/blank text. Recheck unusua
 Reject invalid transforms, ambiguous TIFF frames, missing/duplicate images, traversal and mutated
 bytes. No PAGE converter, ground-truth editing or real-source snapshot is released by slice 1.
 
-## Exact first release proposal — candidate 1A: local contracts only
+## Approved first implementation scope — candidate 1A: local contracts only
 
-Manager can release this candidate under existing engineering authorization after reviewing
-this exact successor and acceptance map. It is independent of Modal login, weights, corpus
-conversion, document grouping, layout scoring and uncertainty research. **Not self-approved.**
+Manager has released this bounded candidate under existing engineering authorization after
+reviewing the exact successor and acceptance map. It is independent of Modal login, weights,
+corpus conversion, document grouping, layout scoring and uncertainty research.
 
 ### Owned files and exclusions
 
@@ -501,4 +502,5 @@ remove later source/method/hardware gates. No production code or job was changed
   archive evidence without independence claims; defines exact local slice1A and gated converter;
   separates baseline step and identity from telemetry; unifies recipe/schedules; represents
   undefined CER/WER independently; holds layout/score implementation with precise later rules.
-  Awaiting Manager acceptance and an explicit implementation release.
+  Manager accepted this roadmap and released only candidate 1A after reviewing exact publication
+  `d659c48f38639e54e19ac6aceff1b5adf853355a`; all later gates remain as stated above.
