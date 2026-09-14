@@ -1,581 +1,504 @@
 # Plan — real OCR with simulated annotation on Modal
 
-Owner: Planning. Version: 0.1, 2026-09-14. Status: DRAFT, phase A.
-Inspected code: `a6f31e42b9bbcb33ad2773b91845fa66f9824e34`.
-Manager acceptance: NONE. Dataset/model/method/resource acceptance: PENDING.
-Research input: RES-002, provisional recommendation; Platform input: EXP-002, phase-A
-preflight received. Final scientific/resource evidence and Manager acceptance remain pending.
-This version specifies proposed engineering contracts and bounded workloads; it neither
-authorizes implementation nor launches or approves a paid experiment.
+Owner: Planning. Version: **0.2**, 2026-09-14. Status: **DRAFT successor for review**.
+Phase-A v0.1 at `af91ad45592d5815d8e371f8eabf9152e7974292` was accepted as
+planning evidence and integrated on main. That acceptance did not approve implementation,
+experimental methodology or paid execution. Version 0.2 and its slice-1 release proposal have
+**not** been accepted yet. No real-code candidate or model execution is claimed here.
 
-## Goal and current system
+Inspected control: `8b4e418dc4c5e4ae0287de0b76f13a94e29f5645`; application remains the
+simulation implementation `2d24c6493ce8051e9a6ae95d9d30fd5f7b8e55d7`.
+Scientific input: accepted [RES-002](../research/RES-002-real-ocr-pilot.md) at
+`8a173197fd4ef12f91da3fde0d0197bc4bda21b6`. Development, independent Testing and QA
+preparation informed this reconciliation; they are not verdicts on a real implementation.
 
-Deliver one reproducible path from public page images and source line annotations to actual
-model adaptation, validation OCR metrics and a learning curve against revealed-page budget.
-Use the existing local oracle and Pipeline. Keep one synchronous model adapter backed by one
-Modal GPU Function, existing SQLite state, and one Volume where feasible. Start with random
-acquisition; add a scored comparator only after an exact score definition is accepted and tested.
-Implement one concrete recipe with plain records/functions and explicit identity equality checks;
-no capability registry, generic deployment framework or automatic GPU/model fallback.
+## Goal, decisions and current evidence
 
-The proposed 4/8/12-page **engineering pilot** has only 1/2/3 optimizer updates per fit under
-the example one-epoch recipe. It verifies execution, saved predictions, metrics and recovery;
-it cannot establish adequate training or an active-learning advantage. A later comparison needs
-calibrated training duration, a larger accepted subset, paired seeds and a separately costed release.
+Build on one Pipeline, the source-label oracle and existing SQLite. Implement three sequential
+candidates: **local contracts → Qwen → Modal and CLI**. Source conversion is a separate gated
+part of candidate 1; it must not hold up records, baseline and metric work on synthetic data.
+Use plain records/functions, one concrete recipe and direct equality checks. No registry,
+capability framework, service, extra database, queue or automatic model/GPU fallback.
 
-HYPOTHESIS for the later comparison: a specified image-only uncertainty strategy lowers
-validation character error at matched revealed-page budgets versus random acquisition under
-paired seeds and identical reset-fit conditions. A working random pilot tests feasibility, not
-this hypothesis. A negative comparison is a valid result. Revealed pages measure simulated
-annotation, never human minutes or proven annotation-time savings.
+The first real result is pinned base and adapted page OCR with validation metrics and verified
+checkpoint/recovery evidence. It is not necessarily useful OCR or evidence of an AL advantage.
+The later falsifiable hypothesis is that an accepted uncertainty strategy lowers validation error
+at matched revealed-page budgets versus random with paired seeds and the same reset-fit recipe.
+A null/worse result is admissible. Revealed pages are simulated annotation budget, not human time.
 
-### Inspected implementation and gaps
+### What v0.2 resolves
 
-| Existing code / behavior | Required extension for real evidence |
+| Issue in v0.1 / differing proposals | Single v0.2 decision |
 | --- | --- |
-| `integrations/simulation.py`: `SourcePage`, `_read_source`, `LocalOracle.freeze/reveal/evaluate_validation` | One source-specific public adapter; explicit source reading order, provenance, image transforms and source-split audit. Existing checksum/document/exact-byte leakage checks remain. |
-| `SimulationModel.fit(examples, seed)` and `predict(pages, experiment_id, round_number, model_id)` | Real reset-fit, immutable checkpoints, explicit runtime/model recipes and remote operation ownership. |
-| `FixtureModel` returns hash scores and empty regions | Retain fixture backend. Real backend must never substitute these scores or claim empty fixture output is OCR. |
-| `Pipeline.create_simulation/step_simulation/run_simulation` | Base evaluation, real-backend selection, strict real-run identity checks and remote-effect reconciliation before retry. |
-| `SimulationRun.kind` defaults to fixture for every backend; `SimulationConfig` has only backend/fit-policy/evaluator IDs | Explicit run kind/schema version and frozen typed real-model, training, decoding, score, evaluation and runtime identity. |
-| `Prediction.round_number >= 1`; no baseline record; zero budget immediately completes | Separate baseline record with zero revealed pages and round-zero prediction ownership; no fake first acquisition round. |
-| Random skips pool prediction unless reporting enabled; validation hook is separate | Preserve this efficiency. Require baseline and per-round validation for real result runs even with random selection. |
-| `Prediction.regions` has positive-size boxes but no image-bound/finite-box/output-order check | Validate every output against original page coordinates, unique region IDs, text/order/schema and explicit generation-failure status. |
-| `QwenRunner` load/train/predict are placeholders; `parse_output` only checks a JSON regions list | Implement only the chosen model in its integration; parsing alone is not functioning OCR. |
-| `runtime_identity()` records Git plus Python/Pydantic/Pillow; resume checks backend/fit policy and config, not runtime identity | Guard code, full environment, deployed image, revisions and adapter policies on every real restart/call. |
-| `SQLiteStore.compare_and_swap` atomically commits whole rounds | Retain. It does not prevent duplicated paid work before a round commits; add a small local operation journal in the same store. |
-| `evaluation.py` has per-string CER, IoU and trapezoidal area; no WER/corpus aggregation/line assignment | Versioned validation policy with explicit text/order/empty cases and complete detection accounting. |
-| CLI `simulation run/resume` constructs the fixture implicitly | Add explicit real configuration/adapter construction; no implicit fallback to fixture. |
+| Baseline could share a step with acquisition; positive rounds were described as already constrained | Commit baseline in its own step and return; add an explicit positive `SimulationRound.number` constraint. Prediction purpose determines whether zero is legal. |
+| Remote CUDA/device/peak-memory identity required before a first run | Freeze expected code/dependency/model/build identities without GPU work. Observed runtime telemetry is separate and never equality-compared as an identity. |
+| Seven overlapping workstreams | Three sequential candidates, with a small exact local slice 1 below. PAGE conversion, real model and remote work have their own gates. |
+| LoRA r8/alpha16/one epoch versus Research r16/alpha32/three epochs | Adopt r16/alpha32/three epochs as the sole future calibration proposal, unmeasured. Explicit text q/v module names remain a candidate-2 prerequisite. |
+| Several incompatible page schedules | One stage table below: 2-page smoke; 10/20 random engineering pilot; conditional 20/40/60 paired comparison. Other v0.1/Platform counts are superseded as execution proposals. |
+| Greedy versus maximum-IoU layout matching | No layout scoring in slice 1. Later use the precisely defined maximum-total-IoU rule below; remove greedy as a default. |
+| Reject versus represent all-empty reference metrics | Keep edit counts; omit each undefined rate independently and emit numeric defined flags. Never store NaN or invent a rate. |
+| Character offsets for uncertainty | Later original-token serialized-byte-span rule from Research, not decode/retokenize; random/score=none now. |
+| Dataset metadata treated as still entirely unknown | Archive/structure evidence is now available. Document independence and a few semantic mappings remain unresolved; no fabricated document IDs. |
 
-Evidence inspected: the files above, `models.py`, `entrypoints/cli.py`, `config.py`,
-`integrations/storage.py`, `tests/test_simulation.py`, `pyproject.toml`, and
-[simulation guide](../docs/simulation.md). The tests cover fixture isolation, ownership, source
-mutation, resume and transaction failure. They do not demonstrate real OCR, CUDA training or
-Modal recovery. No test suite or GPU workload was executed while writing this plan.
+### Inspected implementation
 
-Exclusions: a Label Studio service, HTTP GPU server, queue/broker, new database service,
-dashboard, distributed training, concurrent experiments, full parameter sweep, new acquisition
-algorithm, final-test evaluation, and automatic use of gated assets. Legacy integrations remain
-outside the new path. Preserve all existing fixtures and accepted same-version simulation behavior.
+`integrations/simulation.py` already freezes source/images, exposes only cumulative TRAIN
+examples to `fit`, and supplies validation truth only to `ValidationEvaluator`. `pipeline.py`
+selects a deterministic random first batch, reset-fits, optionally predicts the pool, evaluates
+validation and commits a whole round with `SQLiteStore.compare_and_swap`. `models.py` lacks
+real config/baseline/purpose/failure records; `Prediction.round_number >= 1`, while
+`SimulationRound.number` currently has **no positive constraint**. Zero budget completes at
+creation, before evaluation. Runtime identity is recorded once, not checked on resume.
+`evaluation.py` has per-string CER/IoU/AUC but lacks edit-count aggregation and WER. The CLI
+reconstructs FixtureModel; Qwen and legacy GPU jobs remain placeholders. The current oracle's
+source artifact sits beside image artifacts, so uploading the artifact root leaks full GT.
 
-## Exact design
+Inspected source/config/tests and [simulation guide](../docs/simulation.md), plus the exact
+Development/Testing readiness findings. Historical 63-test/Ruff evidence covers the fixture
+candidate only. This planning turn ran no application tests or cloud workloads.
 
-### 1. Public assets and local oracle
+### READ2016 asset evidence and the grouping boundary
 
-Provisional first pair from Research: READ2016/Bozen **1.2.0**,
-[Zenodo 1297399](https://zenodo.org/records/1297399), with
-[Qwen3-VL-4B-Instruct at ebb281ec70b05090aa6165b016eac8ec08e71b17](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct/tree/ebb281ec70b05090aa6165b016eac8ec08e71b17).
-Use that model repository revision for processor/tokenizer too, subject to resolved file hashes.
-Research reports CC BY 4.0 train/validation archive of 493,223,531 bytes with publisher MD5
-`654f2d2c62055f1847f65ba83bd5d744`; compute SHA-256 on staged bytes. Do not mix its changed
-GT with the older Zenodo 1164045 release. Research's archive metadata verification remains
-provisional evidence here; Planning's direct Zenodo fetch was rate-limited and no archive was
-inspected. Planning verified the pinned model tree/Apache-2.0 listing; Research reports
-8,875,719,344 bytes of weight shards. Neither establishes page OCR/geometry quality.
-Keep test downloads excluded. Florence-2-base-ft is Research's proposed smaller comparator,
-not an automatic fallback; any word/region-to-line mismatch requires a method decision.
+The selected staging pair is [READ2016 1.2.0](https://zenodo.org/records/1297399), CC BY 4.0,
+and Qwen/Qwen3-VL-4B-Instruct / processor at
+`ebb281ec70b05090aa6165b016eac8ec08e71b17`, Apache-2.0. Asset selection is established;
+loadability, model quality and scientific suitability are not.
 
-Research must supply the exact dataset release, license, download URLs, approximate bytes,
-document grouping, official split identities and annotation semantics. Platform verifies access,
-space and hashes after Manager's asset release. Candidate corpus/model names are not accepted
-identities; do not use default 70/10/20 splitting on an actual corpus merely because it exists.
+Platform's actual archive audit records 493,223,531 archive bytes, publisher MD5
+`654f2d2c62055f1847f65ba83bd5d744`, SHA-256
+`f4748c58af757e06804e638a6e84c2150daab19f50d55e10aac3115e6bfc1756`, and 804 regular
+extracted files totaling 499,592,094 bytes. All 400 archive symlinks were omitted after checking
+that their image targets exist; originals remain unchanged. No test subtree was staged.
+Planning read the actual archive/page audit records and checked XML multiplicity/metadata.
+This is structural evidence, not an independent repeat of every download checksum test.
 
-Proposed source-specific `normalize_source(...)` in new `integrations/public_dataset.py`
-produces the existing `SourcePage` JSONL plus a small provenance JSON. Choose exactly one source
-parser after acceptance, not a registry/framework. Validate:
+Completed staging provenance is published at
+`6317fe0c26c008d8e853a1ca8e6df254a72cab5a:experiments/assets/read2016-qwen3vl4b.json`.
+Both model shards match their expected hashes; the index/header audit covers 713 tensors.
+Manager independently rehashed the archive and all 15 model/support files against that record.
+No model was loaded or executed. The Apache-2.0 declaration comes from publisher metadata;
+the separately retained standard license text is not a license file from the pinned repository.
 
-- Stable corpus-qualified page/document/line IDs; derive documents from source evidence, never
-  one document per page to bypass leakage checks. Preserve official splits. If they mix a real
-  document across splits, stop and propose a decision; no silent repartition.
-- Source text and illegibility flags verbatim. `regions=None` means unavailable; `regions=()`
-  means an explicitly annotated blank page. No text normalization during import.
-- Preserve an explicit line order from source reading-order metadata. Record the rule and its
-  version; reject ambiguous order for page-transcript evaluation until Research resolves it.
-- `Box` describes an axis-aligned line rectangle in original image pixels. For a polygon
-  source, preserve the original annotation file/hash and describe an enclosing-rectangle
-  projection as a lossy adapter view, subject to methodology acceptance. No fabricated boxes
-  from transcription length; word/baseline annotations are not silently reclassified as lines.
-- Verify image bytes, orientation, width/height, colour conversion and TIFF frame selection.
-  First slice accepts one explicit PNG/JPEG/TIFF page per record. Reject ambiguous multipage
-  TIFF; PDF rasterization is out of scope. Hash original and any derived image plus transform.
-- Audit exact-byte duplicates, document leakage and source provenance; review near-duplicate
-  scans/contact sheets before acceptance. Exact-byte checks alone cannot prove independence.
-
-Provenance fields: source release/URL/license, archive SHA-256 and bytes, adapter version/code
-SHA, source annotation checksums, ordered source-to-page mapping, derived-image checksums,
-split manifest/hash, subset rule/hash, counts and known exclusions. All derived subsets are
-document-preserving, selected without labels or model scores, and explicitly approved before use.
-Source test partition stays local and excluded from all phase-A/B remote work.
-
-`LocalOracle.freeze` continues to own full truth locally. The frozen source, original corpus
-archive, SQLite run dump and local memory must never be uploaded or included in a Modal Image.
-The upload allowlist is constructed from image-only page records, not by copying the run's
-artifact directory: that directory currently also contains `simulation-source` with all labels.
-
-### 2. Frozen real-run configuration and baseline
-
-Add one typed optional `RealOCRConfig` to `SimulationConfig` in `models.py`; fixture defaults stay
-compatible. The table groups fields for readability, not a requirement for six classes. Keep a
-single executable recipe and direct validations in existing modules. Required real fields:
-
-| Record | Required identity/configuration |
+| Observed property | Consequence |
 | --- | --- |
-| Model recipe | backend/version; model repo and immutable commit; processor/tokenizer repo and commit; file checksums; architecture; precision; adapter target names/rank/alpha/dropout; initial adapter if any; preprocessing/prompt/output-schema versions |
-| Training recipe | reset-fit policy; epochs or fixed optimizer-step policy; batch/accumulation; optimizer/lr/scheduler/warmup/weight decay/clip; seed; image/token limits; masking/truncation/illegibility/blank-page rules; package-lock hash |
-| Decode/score recipe | decoding algorithm, max output length, stop tokens, score definition or `none`, text-token mask, normalization and page aggregation versions |
-| Evaluation recipe | evaluator ID/version, normalization, source/prediction line order, matching threshold/algorithm, corpus aggregation, explicit validation IDs/hash, final-test disabled |
-| Runtime identity | clean source SHA and source bundle hash, local lock/environment fingerprint, remote Image/deployment identity, resolved remote package versions/CUDA/device details, schema version |
-| Resource limits | approved GPU/device count, CPU/RAM, per-call startup/execution limits, absolute phase deadline, operation limit and total currency ceiling plus estimate provenance |
+| 350 TRAIN / 50 VALIDATION images/pages; 8,367 / 1,043 lines | Preserve official partitions and all source records; no implicit 70/10/20 split. |
+| PAGE namespace `2013-07-15`; complete indexed region and line reading order recorded by Platform | Use `RegionRefIndexed` plus line `custom` reading-order indices, validate uniqueness/coverage/contiguity; XML sequence agrees but is not the semantic rule. |
+| Every line has exactly one `TextEquiv` and one `Unicode` (Planning XML check) | Select that Unicode verbatim for this source version; reject future ambiguous alternatives instead of choosing by confidence. |
+| Four empty Unicode lines: one TRAIN, three VALIDATION | Preserve empty strings. They are annotated empty lines, not missing annotations or blank pages. |
+| Two TRAIN lines lack `Baseline`; coordinates and reading-order metadata exist | A polygon-envelope view need not fabricate baselines. Missing structure type is a separate metadata issue, not a reason to drop text. |
+| No geometry issues or cross-split exact image duplicates/filename overlap in audit | Useful checks only; near-duplicate and source-document independence are not proved. |
+| Both `doc.xml` exports have `docId=-1`, title `page`, split-local `pageNr` | These are placeholders. Filename sequence, page number and one-ID-per-page are not document provenance. |
 
-Real creation fails on missing required values, `unknown`/dirty code, mutable revisions,
-unsupported score/backend combination or absent nonempty validation set. Define
-`kind = real-ocr-simulated-annotation-v1` only for an explicitly real backend with verified
-identity; keep `fixture-simulation-not-ocr-evidence` for fixture runs. This is an experiment-kind
-marker, not an assertion of model quality or successful completion.
+**Current disposition:** keep this source in a group-unknown engineering staging area, outside
+comparative runs. Slice 1 does not ingest it or change `Page.document_id`/oracle leakage checks.
+Before conversion/execution, Manager must obtain an explicit limited engineering-only decision
+or source-evidenced grouping. An engineering exception would preserve official splits and record
+`grouping=unknown`/no independence claim in an explicitly reviewed representation; this document
+does not implement or authorize a bypass. Do not insert synthetic per-page document IDs, reuse
+`-1` and waive the error, or silently repartition. If a safe representation is not agreed, keep
+using synthetic contract fixtures. Comparative document-independent claims require evidence or
+an explicitly revised research design, and final-test changes require separate approval.
 
-Proposed `SimulationBaseline` is separate from `SimulationRound`: base model ID, validation
-predictions/metrics, zero labelled count, and operation/artifact references. Real configs require
-`evaluate_base=True`. Add `load_base(*, experiment_id: str) -> str` on the real adapter, producing a checkpoint
-identity without revealing labels or training. Extend `Prediction.round_number` to allow zero,
-but permit zero only for baseline validation in Pipeline; preserve positive legacy-job/round
-checks explicitly. `SimulationRound.number` remains positive.
+Converter gates remaining: accepted grouping representation, source illegibility/structure
+mapping, polygon view and image orientation. Retain original XML/polygons/checksums and explicit
+source-to-page mapping. Read ordered line polygons as enclosing axis-aligned rectangles only as
+a declared lossy view; keep diplomatic spelling/flags/blank text. Recheck unusual/marginal lines.
+Reject invalid transforms, ambiguous TIFF frames, missing/duplicate images, traversal and mutated
+bytes. No PAGE converter, ground-truth editing or real-source snapshot is released by slice 1.
 
-`step_simulation` first validates identity and obtains/commits the baseline atomically if absent.
-Only after that does it apply budget/round stopping. Thus zero-budget real runs produce baseline
-metrics, no `fit` or acquisition calls, and complete; fixture zero-budget behavior remains unchanged.
-Baseline predictions never seed acquisition. First acquisition remains seeded random using the
-current sorted membership and `seed + completed_round_count` rule.
+## Exact first release proposal — candidate 1A: local contracts only
 
-### 3. Model and prediction contracts
+Manager can release this candidate under existing engineering authorization after reviewing
+this exact successor and acceptance map. It is independent of Modal login, weights, corpus
+conversion, document grouping, layout scoring and uncertainty research. **Not self-approved.**
 
-Keep `SimulationModel` synchronous. To make fitting ownership explicit, propose adding
-`experiment_id` and `round_number` keyword arguments to `fit` alongside `seed`:
+### Owned files and exclusions
+
+Development is the sole writer to the following paths during candidate 1A:
+
+| File / functions | Exact allowed change |
+| --- | --- |
+| `src/active_ocr/models.py` | Plain real-config/expected-identity/baseline records; explicit run kind, prediction purpose/failure status; positive acquired rounds. Compatible defaults for existing fixture data. |
+| `src/active_ocr/integrations/simulation.py` | Small identity comparison and owned model signatures; fixture compatibility; `PageTextEvaluatorV1` using metric primitives; keep oracle reveal/split enforcement unchanged. |
+| `src/active_ocr/pipeline.py`: `create_simulation`, `step_simulation`, `_simulation_stop`, `_validate_simulation_predictions`, `export_simulation` | Baseline-only atomic step, real/test-kind fail-closed adapter selection, purpose/ownership/identity checks and baseline export. |
+| `src/active_ocr/evaluation.py` | Raw character/token edit counts and fixed text-view aggregation; keep existing per-string CER behavior for callers. No layout assignment or score extraction. |
+| `tests/test_simulation.py`, new `tests/test_real_contract.py`, new `tests/test_evaluation_counts.py` | Synthetic/model-double coverage of the acceptance map below; no model download/import/network. |
+| `docs/simulation.md` | Record exact new API/baseline/export behavior, fixture limitations and what is still unsupported. |
+
+No edits to production Qwen, Modal/legacy GPU clients or entrypoints, storage implementation,
+source converter, selectors, global Settings/default YAML, dependencies/lock or other roles'
+artifacts. No real CLI backend or new commands yet; existing CLI continues fixture behavior and
+uses extended status/export transparently. If an excluded file is demonstrably required, send
+Manager a precise scope adjustment before editing; no speculative helper module/registry.
+
+### Records and API semantics
+
+Keep `SimulationConfig` and `SimulationRun` as the run containers. Add optional `RealOCRConfig`
+with explicit backend/recipe version, pinned model/processor revision, training/decode/evaluation
+policy IDs and `ExpectedIdentity`. Use typed explicit fields, not arbitrary executable imports or
+a generic capability system. Candidate 1A can represent recipes; it cannot execute Qwen/Modal.
+
+`ExpectedIdentity` contains clean source SHA, canonical local dependency/version fingerprint,
+model+processor commit/file-manifest identities and immutable recipe/evaluator versions. Future
+Modal recipes also bind code-bundle/dependency/build-spec hashes. These are knowable without
+executing a GPU. A resolved immutable deployment/image reference may be recorded from nonbillable
+metadata when available; missing authentication must not prevent local contract testing. A
+future paid submit requires the expected deployment/build identity to be resolved and frozen;
+never mutate an existing run to substitute a new environment.
+
+Actual device name, driver/CUDA observation, free/peak memory, elapsed time, call ID and billing
+are **execution telemetry**, initially absent. Do not demand them at run creation or compare
+memory/timing/device instance across resume. Verify actual code/packages/model/processor/build
+against their frozen expectations before model work; check precision/device support as an
+execution prerequisite, not equality to a previously measured GPU instance. No GPU discovery
+call or prior successful model load is needed for local creation. All identity comparisons are
+small explicit field comparisons; no identity service/framework.
+
+Explicit run kinds: existing `fixture-simulation-not-ocr-evidence`,
+`adapter-contract-test-not-ocr-evidence` for synthetic doubles, and
+`real-ocr-simulated-annotation-v1` for a configured real backend. Validate kind/backend pairing;
+never infer genuine OCR from a numeric metric or nonempty model ID. Test doubles exercise the
+same real-contract branch but exports visibly remain contract tests. Default fixture creation/
+execution remains unchanged. A missing explicitly requested adapter is an error, not FixtureModel
+fallback. Production real construction remains unavailable until later candidate release.
+
+Extend the existing model signatures with ownership/purpose (mechanical fixture/test updates):
 
 ```python
-fit(examples: tuple[RevealedExample, ...], *, seed: int,
-    experiment_id: str, round_number: int) -> str
-predict(pages: tuple[SimulationPage, ...], *, experiment_id: str,
-        round_number: int, model_id: str) -> tuple[Prediction, ...]
+load_base(*, experiment_id: str) -> str  # real/test adapter only; no training
+fit(examples, *, seed: int, experiment_id: str, round_number: int) -> str
+predict(pages, *, experiment_id: str, round_number: int,
+        model_id: str, purpose: PredictionPurpose = POOL) -> tuple[Prediction, ...]
 ```
 
-Update FixtureModel/test adapters mechanically; ownership must not affect fixture/random seeds.
-The real adapter also exposes the owned `load_base` call and its concrete frozen recipe checked
-by a simple constructor/factory. It returns only after remote output verification. Every predict call loads or
-verifies exactly the supplied checkpoint, including after a fresh process/container start.
+Real/test adapters require ownership. FixtureModel may retain optional ownership keyword
+defaults for existing direct callers; those values never enter its synthetic hash/seed. Pipeline
+supplies explicit ownership for all new calls. No legacy fixture caller must pretend to own a
+remote operation to keep running.
 
-The proposed `ModalSimulationModel` maps `SimulationPage` to a strict `RemotePage` containing
-only `id`, `document_id`, `width`, `height`, `image_sha256`, and safe image key. Strip
-`source_image`, host `image_uri`, arbitrary filesystem paths and truth-bearing fields. A
-predict request has no `regions` field; schema uses `extra=forbid`. Fit serializes only the
-cumulative `RevealedExample` set returned by `oracle.reveal`, with TRAIN-only and uniqueness
-checks. Hidden-label/whole-manifest hashes remain local; do not use them as seeds or model input.
+Add `PredictionPurpose = pool | validation | baseline_validation`; default `pool` preserves old
+legacy predictions. Allow `Prediction.round_number >= 0` with invariant: baseline purpose iff
+round is zero; other purposes require positive round. Explicitly add `SimulationRound.number >= 1`.
+Existing legacy jobs are positive-round/pool; reject a baseline-purpose result there. Old fixture
+validation records lacking purpose remain readable; validate purpose on newly produced records
+and strict real-path boundaries, not by relabelling historical artifacts. No baseline/pool/round
+validation result may be substituted for another purpose.
 
-Use one typed `RemoteRequest` with a discriminated `op = load_base | fit | predict`, and
-`RemoteResult`, defined in `models.py`:
+`SimulationBaseline` stores model ID, exact ordered validation predictions and metric counts/
+rates, with fixed labelled_count=0. It is separate from `rounds`; no selected/revealed IDs.
+Candidate 1A validates an immutable model-reference format in its real/test path; it does not
+claim to verify actual weight bytes. Manifest creation/load verification belongs to candidate 2.
+Fixture model identifiers/metrics remain compatible.
 
-| Envelope | Content |
+For real/test predictions add explicit `status = ok | invalid_output | truncated | refusal`
+(default `ok`) and optional raw-output/finish-reason artifact reference; preserve raw evidence
+in later real execution. Invalid/refused/truncated output is a failed prediction, never a valid
+blank annotation. Its all-page text hypothesis is empty under this proposed engineering view;
+report failure counts separately. This measures omissions, not a bound on hypothetical
+hallucinations. Missing/wrong-owner/duplicate/extra pages are boundary errors and prevent commit.
+Real/test `ok` geometry must be finite, positive, bounded by original dimensions and uniquely
+identified, with order preserved from the model. Do not normalize `SourceRegion` through
+`Region`'s illegible-text substitution. Later adapter serialization must preserve the agreed
+literal source flag/text representation; no invented `[ILLEGIBLE]` target for empty source text.
+
+### Baseline is one durable step
+
+1. Creation freezes inputs/config/expected identity and creates a run with `baseline=None`.
+   If baseline is requested (mandatory for real/test result runs), do **not** mark zero-budget/
+   zero-round/no-train runs complete yet. Reject missing/empty validation membership at creation;
+   available blank references are permitted. No model call occurs during creation.
+2. The first `step_simulation` checks frozen inputs/identity/adapter/evaluator, calls `load_base`,
+   predicts only ordered VALIDATION pages at round 0/purpose `baseline_validation`, validates
+   coverage/ownership/geometry, and evaluates locally. It never calls `reveal`, `fit` or selection.
+3. Recheck inputs, CAS-commit **only** the baseline; apply stop reason within that same updated
+   record if budget/round/train exhaustion already applies. Return immediately, even if more
+   budget remains. Baseline failure leaves the old run unchanged; concurrency can only commit
+   one baseline. Remote side-effect reuse is a candidate-3 responsibility, not promised by this CAS.
+4. Next step acquires positive round 1. Seed uses `seed + len(rounds)`; baseline is not a round,
+   seed offset, reveal count or score source. Later fits receive cumulative selected TRAIN only.
+   Random/score=none skips pool prediction; validation still runs after each real fit.
+5. Completed resume revalidates source/config/identity but performs no load/predict/fit. Failed
+   baseline/round can retry locally; preexisting fixture zero-budget behavior remains a no-op.
+
+Export baseline in JSON and one CSV row with `record_type=baseline`, round 0 and zero labels;
+round rows get `record_type=round`. Preserve existing columns and blank annotation_seconds;
+add purpose/status/count fields and defined-rate flags. Export creates a new directory and
+reads one committed snapshot. Undefined rates are blank/absent with explicit flags/counts,
+not zero. Default fixture exports keep only their actual round rows.
+
+### Local evaluation view: one version, no layout in slice 1
+
+Proposed `PageTextEvaluatorV1.identifier = page-text-nfc-v1`. The version is an engineering
+validation view, not official benchmark scoring or final-test approval. Normalize only a copy:
+CRLF→LF and Unicode NFC; join declared ordered line texts with LF, preserve case, punctuation,
+spacing and literal illegibility text. No modernization, dehyphenation or order repair from GT.
+Blank line strings remain in the join; source arrays are never mutated. For missing annotations
+raise an error; for present empty strings compute counts normally.
+
+Compute per-page Levenshtein character edits and Unicode-whitespace-token edits separately.
+Return finite numeric `pages`, `char_edits`, `reference_chars`, `word_edits`, `reference_words`,
+`cer_defined`, `wer_defined`, `invalid_output_pages`, `truncated_pages`, `refusal_pages` and
+`failed_pages`. Flags are 0/1. Add `cer` only when reference_chars>0 and `wer` only when
+reference_words>0. Counts are exact integers in the returned metric map; adapters storing float
+metrics must preserve these small integers exactly. CER/WER may exceed 1. All-empty reference
+is valid count evidence with undefined rates; whitespace can define CER while WER is undefined.
+Absent validation pages are ineligible, unlike an existing all-empty validation reference.
+
+Corpus CER = sum edits / sum reference chars, WER analogously; never average per-page CER.
+Empty reference pages contribute insertions and zero denominator. Use raw edit-count helpers;
+existing CER's empty shortcut cannot be inverted. Failed predictions contribute empty hypotheses
+plus failure flags, never dropped pages. Evaluation receives only validation truth; acquisition
+never sees metrics or targets. Keep the finite-number evaluator interface: no NaN/null rates
+in its dictionary. JSON/CSV/report consumers respect the separate defined flags.
+
+### Candidate-1A exact acceptance map
+
+Each test below is required on the exact implementation candidate; no real-readiness claim.
+Testing independently reviews focused tests, full existing suite and Ruff once code is ready.
+
+| ID | Required pass evidence |
 | --- | --- |
-| Common request | schema, operation key, run UUID, round (0 only baseline), approved code/recipe identity, resource/deadline limit, attempt ID; owner fields never become model features |
-| load_base | pinned base/processor/checksum recipe only |
-| fit | ordered selected TRAIN examples, selected-truth digest, recipe, seed and pinned base ID; no validation/test/unselected targets |
-| predict | image-only pages, exact model ID, decode/score recipe and purpose `pool` or `validation`; no targets/crops from truth |
-| Success | echoed identity/ownership, verified model ID or exact prediction coverage, artifact checksums, elapsed time/device/peak VRAM, finite loss/update summary for fit |
-| Failure | categorized code (`input`, `identity`, `oom`, `timeout`, `model`, `storage`, `generation`), safe message, terminal/reconciliation state; never traceback dumps of labels/secrets |
+| L1 compatibility | Existing fixture CLI/API/import/legacy fake loop unchanged; fixture import requires no torch/transformers/modal. Old stored fixture records deserialize; default budget-zero fixtures have no new calls. |
+| L2 baseline step | Instrument model/oracle/selector: creation calls none; first positive-budget step commits baseline only; second step first acquisition. Budgets 0, rounds 0 and no TRAIN still commit exactly one baseline before completion. No reveal/fit or test-page access at baseline. |
+| L3 atomicity | Inject load/predict/evaluator/pre-CAS failures: no baseline/round published; post-CAS lost response reloads one record. Two baseline callers: one commit; loser reloads. This proves local state, not exactly-once remote execution. |
+| L4 ownership | Reject wrong run/model/round/purpose, missing/extra/duplicate pages, baseline round>0, nonbaseline round0 and acquired round<=0; reject malformed real/test geometry. Validate ordered output against requested page order (or deterministically reorder by that explicit order after exact-set validation). |
+| L5 sampling | Same train membership/seed with/without baseline produces the same first batch; later seed offsets depend only on acquired rounds. Full cumulative examples, unique page budget, partial last batch/exhaustion. Random null scores, no pool prediction; baseline never used by selectors. |
+| L6 identity | Expected code/dependency/model/processor/policy mismatch refuses before calls/commit. Telemetry absent at creation is valid; different elapsed/peak-memory observations do not create identity mismatch. Explicit real adapter missing fails; injected test adapter exports contract-test kind. |
+| L7 text counts | Hand-count edits for insert/delete/substitute, unequal lengths proving micro vs macro, NFC combining characters, CRLF, blank lines, Unicode whitespace, literal illegibility and order. One empty reference + one nonempty includes insertions; all empty omits both rates; whitespace-only defines CER but not WER. Rates can exceed1. Failed page counted once, not discarded. |
+| L8 isolation | Across separate runs perturb hidden/validation labels without changing revealed examples: training inputs/selection remain identical; validation perturbation changes only metrics. No GT-derived crop/order/line-count input to predict; oracle checks remain intact. |
+| L9 exports/resume | Separate-process synthetic API harness resumes baseline then rounds; JSON/CSV contain exactly one budget-zero row, correct counts/flags/kind, empty seconds, no overwrite. Identity/source mutation refuses even completed resume; fixture rows preserved. |
 
-Operation keys hash canonical sorted-key JSON of the inputs actually consumed, recipe/code,
-owner and operation; request ordering is explicit. Training RNG depends on the paired seed and
-training recipe, not operation key/run UUID. Resource/attempt bookkeeping is separate from the
-semantic fit digest so reconciliation cannot silently change the learned model.
+The release candidate needs reproducible commands/results and an exact SHA, with warnings
+explicitly accepted by Manager. Success means local contract engineering only. No corpus,
+Qwen quality, training, CUDA, checkpoints-on-disk, Modal auth or cancellation PASS is implied.
 
-`model_id` is `checkpoint:sha256:<canonical-manifest-hash>` resolving through a verified
-manifest, never an arbitrary supplied path. A base manifest has base/processor revisions and
-file checksums; a fitted manifest additionally has selected IDs/truth digest, fit recipe/seed,
-actual optimizer steps/trainable parameter names, adapter/full-weight file hashes, preprocessing
-identity and completed status. Hash canonical relative keys/bytes, not machine paths. Only
-complete verified checkpoints are loadable; partially written attempts are not candidates.
+## Later candidates and stage-specific gates
 
-Output region coordinates are original-page pixels with finite positive extents and bounds;
-IDs are unique within a page. Return regions in explicit predicted reading order. Resize/pad/
-tile transforms are inverted from saved transforms, never from GT. Training and prediction use
-the identical accepted processor/prompt/schema path. `parse_output` must perform complete
-schema/geometry/coverage checks, not merely identify JSON.
+### Candidate 1B — the gated READ converter
 
-Add a small generation status to real predictions: `ok | invalid_output | truncated`, plus an
-artifact reference for raw output/finish reason. On random validation, invalid/truncated output
-is retained, counted as a failure and scored as empty text (no silently dropped pages); never
-reinterpret parser failure as a successful blank page. An actual blank OCR result may be `ok`
-with empty regions. Scored acquisition fails closed on unusable score/output; do not invent a
-score or silently switch to random. Missing/wrong-owner/duplicate pages are contract errors and
-prevent round commit. The smoke requires all requested outputs structurally valid before pilot.
+Development would own new `integrations/public_dataset.py`, parser fixtures and explicit mapping
+docs only after source semantics/group-unknown representation are accepted. Use standard XML
+parsing and existing source records where honest; no configurable importer framework. Platform
+owns asset checksums/staging, not core model/store files. Near-duplicate review and grouping
+remain mandatory for independence claims. Preserve final-test exclusion. Synthetic 1A release
+must not be conditional on 1B completion; real execution is conditional on a reviewed converter.
 
-Model choice is pending. For a page-generative model, supervise the accepted complete page
-response from revealed lines only. For a line recognizer, hidden GT line boxes are forbidden
-even to create inference crops. It needs an image-only detector with its own pinned provenance,
-or an explicit change to a known-layout/transcription task accepted by Manager/user. Never wrap
-a page transcript in a fabricated full-page line box to pass the schema. If Research recommends
-text-only page OCR, revise the output contract/evaluation and obtain a method decision first.
+### Candidate 2 — Qwen load, train, output and checkpoints
 
-### 4. Real training and checkpoint correctness
+Development exclusively owns `integrations/qwen.py`, narrowly needed model records/tests and
+agreed GPU lock/dependency edits. Preconditions: accepted full-page output/target and source
+mapping, inspected Qwen module names/tokenization, pinned compatible libraries and exact recipe.
+No Modal SDK/job/entrypoint or uncertainty implementation here. CPU/synthetic tests precede a
+separately authorized CUDA smoke; live evidence comes after candidate 3 supplies the transport.
 
-Each fit reloads the same pinned base and fresh trainable adapter/optimizer/scheduler, then
-trains on exactly the cumulative revealed pages. Previous round weights are not the next
-round's starting point. No validation early stopping, best-checkpoint selection or unseen-label
-training; select the terminal step fixed in the recipe. Equal-budget strategies share the same
-recipe and training-page count; record target tokens/optimizer steps because page lengths differ.
+One future calibration proposal, following Research: LoRA **rank16, alpha32, dropout0**, frozen
+base/vision, explicit language-attention q/v projections, page batch1, accumulation4, **3 epochs**,
+AdamW lr1e-4, constant schedule, warmup0, weight decay0, clip norm1, no augmentation, bf16 only
+if the selected device supports it. Resolve exact full module names and verify frozen tensors;
+do not regex-match vision modules or invent a list before architecture inspection. Reset base,
+adapter, optimizer and scheduler each cumulative fit. Seed is the paired seed, never UUID/hash.
+Flush a partial accumulation group at each epoch end; normalize by its actual microbatch count
+so it is not underweighted. Expected updates are `epochs * ceil(revealed_pages / 4)` for this
+one-page-example/no-packing recipe. Record actual updates/tokens and test the chosen trainer's
+behavior; no silent truncation or fixed-step substitute to satisfy a deadline.
 
-Conditional candidate recipe for a feasible generative model: LoRA rank 8/alpha 16/dropout 0,
-batch 1, accumulation 4, one epoch per fit, AdamW lr `1e-4`, constant schedule, warmup 0,
-weight decay 0, gradient clip 1, bf16 if supported, frozen vision encoder. Target modules must
-be explicit verified language-attention names after model acceptance; do not apply a blanket
-suffix matcher to the vision tower. These are PROPOSALS, not measured stable hyperparameters;
-a simpler recognizer needs its own recipe. Pin and test the exact library/model combination.
+This recipe is calibration, not demonstrated adequate training. Use target/gradient mask tests:
+supervise ordered assistant text/geometry and intended termination, ignore prompt/image/pad;
+check causal alignment, nonzero supervised tokens, finite loss and finite gradients, intended
+trainable tensor changes, frozen tensors unchanged. LoRA components initially having zero
+individual gradients are not automatically a failure. Only selected source GT makes targets;
+validation and unselected boxes never make crops, prompts or tiling decisions.
 
-Supervised loss uses target response tokens only: ignore prompt, image/control and padding
-tokens; padding positions use `-100`. Include the agreed response stop token. For structured
-page generation, the train target includes required text and coordinate serialization; scoring
-text-only tokens is a separate later policy. Verify labels by decoding a synthetic batch and
-inspecting the mask. Never train on validation crops or use true pool line count to configure
-inference. Keep blank-page targets deliberate and source illegibility behavior versioned.
+Raw schema proposal: strict `{"regions":[{"text":string,"bbox":[x1,y1,x2,y2]}]}`,
+ordered lines, coordinates real numbers within [0,1000], x2>x1/y2>y1. No model-generated IDs
+required; assign deterministic prediction-local IDs by list position, not source line IDs.
+Source illegibility flags remain unchanged in oracle/provenance; this initial model target
+supervises literal source text and geometry, not an invented illegibility marker/class. Convert
+predictions with `Region.illegible=False` under this schema so an empty string is preserved;
+predicting illegibility is a separately versioned task extension, not an implicit text rewrite.
+For original width W/height H, map x=x1*W/1000, y=y1*H/1000,
+w=(x2-x1)*W/1000, h=(y2-y1)*H/1000. Keep floats; no rounding/clamping/GT-based repair. Training
+serialization uses the inverse mapping of the declared polygon-envelope view. The prompt defines
+normalized coordinates relative to the **original uncropped page**. Aspect-preserving whole-page
+resize needs no content-coordinate offset; exclude cropping/tiling/padding in the first recipe
+unless an explicitly versioned inverse transform is tested. Audit processor internals rather
+than assume their coordinate interpretation. Stop for invalid geometry, block-as-line output or
+unreliable line detection; no invented whole-page boxes or hidden-GT line recognizer fallback.
 
-Declare image/sequence caps before the run. For Qwen-sized feasibility only, initial proposed
-caps are 1024-pixel long side, batch 1 and 2048 generated tokens; target-token limit 4096 must
-be checked with image+prompt expansion. These may lose detail or truncate dense historical
-pages and are not scientific defaults. Calibrate on separate train development pages. If a
-page exceeds caps, stop/record the failure; do not drop it or crop with hidden annotations.
-Changing caps after calibration produces a new frozen recipe/run.
+Decode with one beam, no sampling, no repetition/no-repeat-gram penalties. Initial resource-cap
+proposal remains long side1024, max_new_tokens2048, target text cap4096, with total multimodal
+sequence/image-token bounds resolved from the pinned processor before dispatch. These limits
+may be too small for READ pages; calibrate coverage then freeze, never silently discard/crop
+or truncate targets. Preserve raw outputs, finish reasons and invalid/refusal/truncation states.
 
-Prove training by finite nonzero loss on supervised tokens, finite gradients, recorded positive
-optimizer steps and at least one intended trainable tensor changed. Prove reset by comparing
-initial base/adapter hashes on every fit. Save then load in a fresh process and verify tensor
-hashes plus deterministic decoded output on a fixed train-only probe. Repeated same-recipe fits
-need empirically declared tolerance; GPU nondeterminism is disclosed, not called bitwise resume.
+Model ID `checkpoint:sha256:<manifest_hash>` binds canonical manifest schema, pinned base/
+processor/recipe/code, selected-only target digest/ordered IDs, seed, training updates and all
+weight/config file hashes. Absolute machine paths and volatile telemetry are not manifest identity.
+Use immutable relative paths; incomplete/corrupt checkpoints never load. Fresh process/container
+must load the saved checkpoint, verify tensors and reproduce train-probe decoding/logits under
+a tolerance declared before running. This compares one saved model, not two independent fits.
 
-### 5. Modal boundary and data access
+### Candidate 3 — one Modal adapter, journal and CLI
 
-Proposed new `integrations/modal_model.py` owns the local adapter and request reconciliation;
-new `entrypoints/modal_app.py` owns one Function operation dispatcher. Model logic remains in
-`integrations/qwen.py` if Qwen is selected (otherwise one chosen-model module, not both).
-The local orchestrator waits synchronously; it does not need an HTTP endpoint.
+Development owns new `integrations/modal_model.py`, operation records, only justified SQLite
+transaction support, real CLI construction/preflight/reconcile, exports and tests. Platform alone
+owns new `entrypoints/modal_app.py`, runtime mounts/resource bounds. Development is sole writer
+of `pyproject.toml`/lock after Platform agrees pins. Freeze shared request schemas first; do not
+concurrently edit shared files. Model/metric logic stays outside the Modal entrypoint.
 
-One Volume layout: `/images/<sha>`, `/base/<revision>/...`,
-`/checkpoints/<attempt>/...`, `/outputs/<operation>/<attempt>/...`. All finalized assets have
-manifests/checksums. Selected labels exist only in fit arguments and ephemeral working memory;
-never save trainer datasets, target-containing caches, full prompts or example transcripts to
-the Volume/logs. Checkpoint weights may learn revealed text, which is intended. Local oracle
-truth, validation metrics/labels and final-test assets are not mounted. Build the Modal Image
-from an explicit code/dependency allowlist, never the repository root or `.local`.
+One synchronous adapter wraps `load_base/fit/predict` with one sequential GPU Function dispatcher
+and one Volume. Strict `RemotePage` is id, document reference if available, original dimensions,
+image_sha256 and safe image key—no `source_image`, host paths or `regions`. Fit arguments contain
+only cumulative selected TRAIN examples; predict arguments contain no targets. The uploaded
+code/image allowlist must exclude oracle source, original GT/archive, SQLite DB, local memory,
+test images and labelled caches. Do not upload artifact_root or repository wholesale. Store only
+images, pinned model assets, trained checkpoints and derived outputs on the Volume. No selected
+text dataset/targets in persistent trainer caches/logs; trained weights may retain learned text.
+Use read-only image/base subpaths and disjoint writable outputs; verify actual mounts at smoke.
 
-Use fixed safe image keys resolved beneath approved mount roots; reject absolute paths,
-`..`, escaping symlinks, mismatched hashes and dimensions. Verify request image IDs against
-its declared allowlist before model access. For the single dispatcher, keep immutable image/base
-subtrees read-only where supported and writes confined to derived outputs. Mount restrictions
-are established at Function/container configuration, not dynamically by a payload flag.
-If different per-operation OS permissions become necessary, split into two functions only after
-showing the need; selected-only payloads and absence of GT from all mounts remain mandatory.
+The common request carries schema, operation, run/round/purpose, ordered image ID+hash list,
+exact input checkpoint/base and recipe identities; fit also carries selected-only target digest.
+Canonical operation identity **includes purpose, ordered pages and checkpoint**, so baseline,
+pool and validation cannot share receipts accidentally. Hash semantic inputs only; attempt IDs,
+timeouts/cost limits and volatile telemetry are separate. None of these hashes seed learning.
+Result must echo semantic identity and provide complete receipt/artifact checksums and observed
+execution identity/telemetry. Rehash consumed image/checkpoint bytes; reject path traversal,
+escaping symlinks, wrong dimensions/ownership and incomplete artifacts before publishing a round.
 
-Modal documents read-only/subdirectory Volume mount options; Platform reports SDK 1.5.5
-signature support, while cloud enforcement/runtime checks remain pending. Close files before refresh; commit completed artifacts
-before reporting success. Filesystem visibility and concurrent writes need explicit handling,
-not an assumption that returning a filename publishes bytes. These requirements follow
-[Volume mount API](https://modal.com/docs/sdk/py/latest/Volume) and
-[Volume persistence guidance](https://modal.com/docs/guide/volumes), read 2026-09-14.
+Use existing SQLite kind `model-operation`: atomically reserve owner/request before any paid
+submission; competing local callers cannot submit the same operation. Then spawn, persist call
+ID, synchronously wait. Reattach to known calls on restart; verify completed receipts before reuse.
+Known successful fit survives a later prediction/evaluator/round-commit failure. Unknown submission
+outcome (lost spawn acknowledgement/ID) stops for explicit provider/receipt reconciliation, never
+blind resubmit. Partial artifacts are not success; committed-round response loss reloads that
+round, not another fit. Worker checks completed receipt before work and publishes immutable
+attempt outputs plus a completion manifest. Local CAS/Volume do not guarantee exactly-once paid
+execution. Test every interruption and preserve cost/attempt evidence.
 
-Use one active orchestrator and one active GPU input/container per approved pilot; no `.map`
-fanout or concurrent adapter calls. Explicit `max_containers=1`, `min_containers=0` and no
-input-concurrency expansion bound the proposed deployment. Scaling limits are not a monetary
-ceiling; confirm settings against the pinned SDK and measure cold-start/idle charges.
-See [Modal scaling](https://modal.com/docs/guide/scale).
+These API semantics are documented by [FunctionCall](https://modal.com/docs/sdk/py/latest/FunctionCall)
+and [Volumes](https://modal.com/docs/guide/volumes); SDK1.5.5 signatures were checked by Platform,
+not cloud behavior. Application retries0 does not stop infrastructure crash rescheduling
+([retries](https://modal.com/docs/guide/retries)); per-attempt timeout excludes scheduling and
+restarts on retry ([timeouts](https://modal.com/docs/guide/timeouts)). Bound total attempt/startup
+time and absolute deadline; verify cancellation/terminal state before any subsequent attempt.
+Unknown auth, deployment, storage/cancel behavior gates cloud work, never candidate-1A tests.
 
-### 6. Local journal, crash reconciliation and resume
+Explicit real CLI creation/resume must reconstruct the frozen recipe and adapter, fail on missing
+SDK/auth/checkpoint, and never fall back to fixture. Before submission compare actual immutable
+code/packages/model/build against expectations; record telemetry separately. No within-fit
+optimizer/RNG recovery in the first release: an approved terminally failed fit restarts from base,
+while a completed fit is reused. No new server, queue or generic job framework.
 
-Use existing SQLite `records` with kind `model-operation`, not another store/service.
-Proposed `RemoteOperation` holds semantic request hash, phase/owner, attempt ID, state,
-FunctionCall ID when known, receipt/artifact hashes, absolute deadline, estimated/reserved cost
-and terminal error. Record fit completion separately from the atomic scientific round.
+## One future workload and evaluation policy
 
-| Interruption | Required next behavior |
-| --- | --- |
-| Before journal reservation | No request sent; normal retry. |
-| Reserved but submission/ID outcome unknown | Mark/retain `submit_unknown`; stop. Reconcile receipts and provider call inventory, then explicitly resolve. Never blind-resubmit a potentially billable fit. |
-| Call ID persisted, local process gone | Reattach to that call and inspect terminal state; wait does not launch a replacement. |
-| Worker finishes, response missing | Read verified receipt/checkpoint for the same request and attempt; reuse completed result. |
-| Fit finished, prediction/evaluator fails | Reuse fitted checkpoint and any complete prediction receipt; retry only the failed stage within remaining approval. No new reveal count committed. |
-| Partial checkpoint / corrupt receipt | Quarantine attempt logically; refuse loading; preserve evidence, and request explicit bounded retry if needed. |
-| Round committed, caller lost response | Reload run and journal; return durable round, do not retrain it. |
-| Stale second local caller | Compare-and-swap journal reservation fails before submit; reload. Whole-round CAS remains final guard. |
+All rows are proposals requiring the applicable code/data/method/spend release. The table
+supersedes prior incompatible counts; resource quotes must be recomputed for these rows.
+Order selections by stable page IDs and fixed RNG, never GT/model quality. Exact selected IDs and
+hashes must be frozen after source admission; no synthetic document grouping to meet counts.
 
-Adapter uses `.spawn()` solely to obtain and persist `FunctionCall.object_id`, then waits with
-bounded `.get()` calls. `FunctionCall.from_id` restores a known call on restart. A client wait
-timeout alone is not evidence of remote cancellation. See the
-[FunctionCall API](https://modal.com/docs/sdk/py/latest/FunctionCall), read 2026-09-14.
-
-Worker verifies request identity, checks a completed receipt before work, writes an attempt
-checkpoint/result then its completion manifest, and commits before returning. Single-writer
-operation ownership and immutable attempt outputs are required; a Volume is not a lock service.
-Uncertain external execution cannot be made exactly once by local CAS. Operator reconciliation
-is an intentional bounded failure mode, preferable to extra infrastructure or silent duplicate cost.
-
-Set application retries to zero for the initial smoke; catch expected OOM/data failures as
-terminal results. This does NOT eliminate platform rescheduling after container crashes:
-[Modal retries](https://modal.com/docs/guide/retries) documents that behavior. Every attempt
-checks a persisted absolute deadline before training and between steps; limit total phase time,
-not just successful calls. Platform must verify a controllable stop/cancel path for startup
-crash loops before a paid release. If this cannot be demonstrated, the paid phase stays blocked.
-
-An execution timeout is per attempt and excludes scheduling; configure a startup limit too.
-After deadline, cancel the known call and verify terminal state; allow for shutdown/accounting
-latency in the estimate. These are not exact invoice guarantees. See
-[Modal timeouts](https://modal.com/docs/guide/timeouts), read 2026-09-14.
-
-Before real resume, compare frozen source/GT/images/config as today plus code, local lock,
-model/processor revisions, adapter/evaluator/score/preprocessing policies and remote deployment
-image/environment fingerprints. Each worker response echoes the actual identity. Refuse any
-mismatch before fit or metric publication. Resume only with the original environment or create
-a new run; no `--ignore-identity` path in this slice. A restored checkpoint skips completed work;
-interrupted within-fit optimizer/RNG-state continuation is deferred—an approved failed attempt
-restarts from base and is recorded, not described as exact continuation.
-
-### 7. Evaluation and score policy
-
-Proposed evaluator identifier: `page-text-layout-v1`; acceptance pending Research. Raw source
-labels remain unchanged. Evaluation creates a temporary view: Unicode NFC and CRLF-to-LF,
-preserve case/punctuation/spacing, join ordered line texts with one newline; no GT-crop OCR.
-Source illegibility markers remain literal until a different explicit policy is accepted.
-Record counts of illegible/blank/missing labels. Do not silently apply current `Region`'s
-`[ILLEGIBLE]` insertion to source truth; `SourceRegion` preserves the source.
-
-Primary proposed corpus CER = sum of per-page character edit distances divided by sum of
-reference code points, not mean of page CERs. WER uses the same normalized page strings,
-Unicode-whitespace tokenization, and sum token edits / sum reference tokens. Empty reference
-pages contribute insertions to numerators; both-empty contributes zero. An all-empty validation
-reference makes CER/WER undefined and fails evaluator eligibility rather than reporting zero.
-Metrics may exceed 1. Current `character_error_rate` empty-string shortcut is insufficient for
-this corpus aggregation; add/reuse an edit-count helper, not reverse its normalized result.
-
-Evaluate all fixed validation pages; invalid/truncated OCR counts as failed/empty prediction,
-plus report invalid-output/truncation rates. Never retain only successful pages. Ordered page
-text penalizes missed/extra lines without giving the recognizer GT line alignment. For layout
-diagnostics, form IoU pairs, sort by decreasing IoU with stable predicted/reference ID ties,
-greedily match unused pairs with IoU >= 0.5. Report matched count, precision/recall/F1 and mean
-matched IoU; explicitly label this a deterministic greedy rule, not optimal assignment.
-Missed reference and extra predicted lines remain in denominators. If both sets are empty,
-report counts and omit page-level ratio averaging; aggregate corpus counts, with undefined
-all-empty layout rates represented by omitted keys plus counts. Do not return NaN to the current
-finite-float evaluator API. Matching is diagnostic and does not reorder model input or mask CER.
-
-The first real pilot has `score=none`, random strategy, null confidence/entropy, pool reporting
-off. Validation still predicts. Do not compute a confidence from teacher forcing against pool GT.
-
-One possible later score, requiring RES-002 acceptance and tokenizer verification: for generated
-transcription token positions T only, use unfiltered next-token model distributions at temperature
-1. Confidence `exp(sum(log p(y_t))/|T|)`; entropy
-`sum(-sum_v p_t(v) log p_t(v))/ (|T| log V)` for vocabulary size V > 1. Exclude prompt, image,
-padding, EOS/control, JSON keys/coordinates and syntax. Define character spans of generated text
-values, map to tokens with tested offsets, and exclude boundary tokens that cross syntax/text;
-record included counts. Aggregate all included tokens on the page equally (length/layout bias is
-an explicit confound); do not average per-line values without a revised version. Empty T, invalid
-schema, nonfinite distributions or truncation fail score eligibility. Computing full distributions
-may increase memory; no retention of full logits required. This proposal is not enabled until
-Research confirms masking/aggregation, numerical tests verify [0,1], and measured overhead fits
-the approved resources. Keep selectors unchanged; absent scores fail their existing contract.
-
-### 8. Ownership and implementation slices
-
-All files below are proposed changes, not completed work. Manager assigns task IDs and exact
-ownership before dispatch; no overlapping writes to `models.py`, Pipeline or dependencies.
-
-| Ordered slice | Owner / proposed files and functions | Exit gate |
+| Stage | Fixed proposed workload | Meaning / gate |
 | --- | --- | --- |
-| A. Asset decision and normalization | Research recommendation; Platform download/provenance. Development new `integrations/public_dataset.py`, source-fixture tests | Accepted license/revision/split/order, exact counts/hash mapping; faithful import and leakage audit. Bulk transfer only after asset release. |
-| B. Real identity, baseline and evaluator | Development `models.py`, `pipeline.py:create/step/_validate_simulation_predictions/export_simulation`, `simulation.py:SimulationModel/FixtureModel/runtime_identity`, `evaluation.py`, simulation tests | Offline zero-budget and real-kind tests; metric golden cases; no oracle reveal at baseline; legacy fixtures unchanged. |
-| C. Page OCR and model artifact | Development chosen-model integration (`qwen.py` if selected), model tests | Offline parser/preprocessing tests; pinned load/predict contract and trained-target masking tests. Real quality still unverified. |
-| D. Modal transport and recovery | Platform owns new `entrypoints/modal_app.py`; Development owns new `integrations/modal_model.py`, `models.py` operation records and tests. Development alone owns `pyproject.toml`/locks after agreed Platform requirements | Fake transport covers every journal failure row and payload/mount audit. Platform confirms SDK/image/limits/auth. Independent review before paid call. |
-| E. Base smoke and real fit | Development implements train/save/load in chosen integration; Platform executes approved calibration; Testing reviews exact candidate | Real base output, loss/gradient/update and fresh checkpoint reload evidence under cost cap. No pilot if output task/geometry invalid. |
-| F. CLI and complete random pilot | Development `entrypoints/cli.py`, new explicit real example YAML, `docs/simulation.md`, new small result export/plot helper under `scripts/` | Explicit backend dispatch, identity-safe resume, genuine baseline+round metrics, resource accounting and reproducible exports. |
-| G. Paired comparison | Research final score/method; Development score extraction only if accepted; Testing verifies; Platform executes reviewed runs | Equal budgets/seeds/recipe, required source/method decisions, failures included; Research interprets without demanding a win. |
+| Offline 1A | Synthetic known-group pages and doubles only; no actual READ or cloud | Proves L1–L9 contracts. |
+| Minimal real smoke | Seed824; 2 TRAIN pages, batch2/budget2/1 fit; 2 fixed validation pages; 3-epoch recipe (3 optimizer updates); base and postfit validation (4 page predictions), plus one selected-train probe before/after reload (2 predictions) | Proves real fit/geometry/checkpoint/transport if successful; label exposure recorded. Group-unknown use needs explicit engineering-only admission first. |
+| Random engineering pilot | Seed824; official TRAIN pool, batch10/budget20/2 rounds; first 10 fixed validation pages for diagnostics, then all50 for base/round exploratory tables | 2 fits with9/15 updates under the3-epoch recipe; 150 full-validation predictions, plus diagnostic repeats if required. No pool scores. Tests stable pipeline, not adequate training or independent-document quality. |
+| Later adequately calibrated comparison | Only after grouping/design resolution, stable training and score acceptance: random/least-confidence/entropy, seeds824/825/826, batch20/budget60/3 rounds, same frozen approved pool and all50 validation pages | 27 fits, 1800 base+round validation page predictions. With350 train pages and terminal pool scoring retained: two scored methods *3 seeds *(330+310+290)=5580 pool predictions. Requote if pool changes. No execution default until these gates pass. |
 
-Prefer small independently reviewable Development candidates. Slice B can use fakes without a
-GPU; real model implementation waits for A and accepted Research inputs. Slice D consumes B/C
-schemas without changing them concurrently. Resource image pins are agreed with Platform but
-committed by the designated file owner. No task release is implied by this table.
+Use disjoint recorded TRAIN calibration/probe pages when training-duration tuning is needed;
+calibration labels/checkpoints never initialize the later comparison. If excluding calibration
+pages changes the350-page pool, freeze the reduced pool and redo counts before approval. Smoke/
+pilot outputs may expose development labels, so record total engineering exposure separately
+from each run's simulated revealed count. Unknown grouping prevents a claim that such page-level
+separation implies document independence. No test archive is used at any stage above.
 
-CLI proposal preserves `simulation fixture/start/run/resume/status/export`; add explicit
-`--real-config PATH` on start and reconstruct the frozen selected adapter on run/resume.
-Missing Modal SDK/auth is an actionable error before paid submit, never a fixture fallback.
-Add a read-only `simulation preflight` producing resolved config, source/image counts, revision
-checks and cost proposal; add an explicit operation reconciliation command only for journal
-unknown outcomes. The stored recipe governs resume, not changed CLI defaults.
+Three epochs is a starting measurement, not proof of convergence. Before comparison, measure
+loss/update/validation curves and target coverage on declared development data under a separate
+calibration budget. Research/Planning justify an adequate fixed duration or explicitly limit
+claims for undertraining. Freeze E epochs and all other settings across strategies at each budget;
+terminal checkpoint, no per-strategy early stopping or tuning during the comparison. Revision
+of E means a new experiment recipe. No requirement that uncertainty beats random.
 
-## Experiment and resources
+Text evaluation is the slice-1 NFC/count view. For future real results, inspect actual line order/
+illegibility semantics and approve the versioned engineering evaluator; reported validation is
+used for development and is not an unbiased final test. Full official validation is the common
+reporting set once admitted; tiny smoke/diagnostic subsets are clearly labelled and not mixed
+into full-set curves. Report raw counts, failures, per-page distributions and paired-seed spread.
+For the later comparison, use budgets0/20/40/60 and trapezoidal area under **error** /60 (lower
+is better); omit undefined rates and do not integrate across missing budgets. Show attempted/
+completed/failed runs; no zero-error imputation, invented human times or extrapolated savings.
 
-### Staged workload proposal
+### Held modules: layout and uncertainty
 
-All counts below are bounded proposals, not existing data or permission to repartition it.
-Choose document-preserving subsets without labels/model scores; if exact counts cannot be
-formed from accepted source groups, stop and revise counts explicitly. Subsets must contain
-available labelled TRAIN/VALIDATION pages; final-test pages stay unused. Calibration uses a
-separate train development document pool excluded from pilot acquisition; record its IDs and
-separate engineering label exposure. Calibration checkpoints never initialize the pilot.
+No layout scores in 1A. Later proposed `line-iou-total-v1`: compute geometry-only IoU; discard
+edges below0.5 **before** matching. Choose one-to-one matching maximizing the sum of admitted
+IoUs, allowing unmatched nodes. The objective is total IoU, **not** cardinality-first. Among
+exactly equal maximum sums, prefer more matches, then lexicographically smallest sorted
+(predicted-ID, reference-ID) pair list; do not use epsilon perturbations that can reverse unequal
+sums. Freeze numeric representation/tie implementation with golden competing-edge examples
+before release. Report TP/FP/FN, precision/recall/F1 and matched mean IoU; omit each undefined
+ratio with counts/defined flags. Never use text similarity or GT matching to repair reading order.
+A block covering many lines is one prediction, not several true positives. Standard assignment
+implementation/dependency choice belongs to that later exact scope; do not add it to slice1.
 
-| Stage | Pages / rounds / seeds | Work and purpose |
-| --- | --- | --- |
-| Offline contract rehearsal | Existing synthetic fixtures | No cloud; errors, payload/GT isolation, identity/resume and zero-budget cases. |
-| Authorized calibration smoke | 4 train development pages, 2 validation pages; seed 824; 2 acquisitions of 2 pages; random; no test | Base validation on 2, reset-fit on 2 then 4, validate both; total 6 validation page predictions, 2 fits, plus 2 fixed train-probe predictions for save/load comparison. Hard cap 10 optimizer updates per fit; record actual epochs/steps, not a convergence result. |
-| Random engineering pilot | 24 train acquisition pages, 6 validation pages; seeds 824/825/826; batch 4, budget 12, 3 rounds | 9 fits total at cumulative 4/8/12; base + 3 validation passes per seed = 72 validation page predictions. No pool prediction. Recipe frozen after calibration; no within-pilot tuning. This is not an adequately trained comparison by default. |
-| Optional comparator rehearsal | Same accepted 24/6 subset, seeds 824/825/826, batch/budget/rounds and frozen recipe | Another 9 fits/72 validation predictions; if scoring after all rounds, 20+16+12 = 48 pool predictions per seed, 144 total. Verify score plumbing/fairness; no AL conclusion. Omit terminal pool pass only as an explicit tested optimization applied consistently. |
+Score policy is **none** and strategy **random** for real smoke/pilot. Later use Research's
+`generated-text-token-v1` only after extraction acceptance: retain original generated IDs and
+lossless serialized JSON **byte** spans; select only ordinary tokens wholly inside a text value's
+content span. Exclude quotes/syntax/coordinates/prompt/image/pad/control/EOS and crossing tokens;
+include escaped bytes within content. No decode-and-retokenize substitute. Use float32 stable
+log-softmax of full-vocabulary raw logits at the model's own prefixes, temperature1. With S the
+included positions and V full vocabulary size, confidence=`exp(mean(log p_t[y_t]))`,
+entropy=`mean(-sum_v p_t[v]log p_t[v]))/log(V)`. Token-weighted page aggregation, no pool min-max
+normalization. Empty S, malformed/refused/truncated output or unverifiable alignment is undefined
+and stops scored acquisition; no sentinel or random fallback. Rankers stay unchanged. Test exact
+escapes/multibyte/boundary/padding cases, uniform/concentrated logits, batch equivalence and
+finite bounds before use. Measure memory/latency and omission/length bias; scores are not
+calibrated probabilities of page correctness. These are later scientific gates only.
 
-Reference workload bounds assume unique checkpoint fits per seed/strategy, no caching discount,
-no automatic retry and sequential execution. With one epoch and batch 1/accumulation 4 on a
-page-generative model, the pilot has 1/2/3 optimizer updates per fit and 18 across three seeds;
-framework treatment of final partial batches must be fixed. A line-based architecture changes
-this calculation and needs a new explicit step budget before approval.
+## Resources, verification and acceptance
 
-Start random only. Add comparison after score acceptance and random pilot recovery evidence.
-Three seeds are a pilot, not strong population-level statistical evidence. Share fixed initial
-batch membership across strategies; final data/model recommendations and exact revisions remain
-pending. No validation-driven acquisition, stopping or hyperparameter choice within paired runs.
+Platform's pricing proposal uses one L40S, 2 physical CPU cores and32GiB RAM, approximately
+USD2.301264/hour at its 2026-09-14 [official pricing](https://modal.com/pricing) observation.
+USD5 smoke /USD20 pilot were unapproved provisional ceilings for earlier workloads, **not quotes
+for this revised table**. User ceiling/authentication and measured VRAM/time remain required for
+paid release. Do not assume credits, actual availability or model fit from installed SDK/weight size.
+Two-byte4B weights alone are approximately8GB decimal, before activations/KV/optimizer/workspace.
 
-Scale-up gate: after engineering acceptance, use a separate train development subset to measure
-loss/update curves, target coverage, runtime and validation behavior for increasing fixed training
-durations under a capped calibration budget. Research/Planning must explain why the chosen
-duration is adequate (or openly characterize undertraining), based on learning curves rather
-than the presence of one nonzero gradient. Freeze the resulting epoch/step recipe for every
-strategy at a given page budget; checkpoint selection remains terminal-step, no per-strategy
-early stopping. This calibration is additional work, separately estimated/approved, and its
-labels/checkpoints never initialize the comparison. Engineering metrics remain labelled as such.
+For the revised smoke, propose at most40 minutes total billed startup+GPU execution, 10-minute
+individual execution and5-minute startup limits, one container/input, no app retries, and no
+automatic GPU/precision/cap changes. A completed checkpoint may serve multiple calls; count
+actual attempts/cold starts/build/storage/idle tails. Reserve worst-case remaining approved cost
+before each new call. Absolute deadline/cancel path and restart behavior must be demonstrated
+in the authorized smoke; timeout is not an invoice guarantee. Stop on OOM, corrupt identity,
+invalid geometry, uncontrolled retries or exhausted limits, preserving evidence. Pilot scaling
+waits for measured headroom and a new detailed quote, not linear extrapolation alone.
 
-Concrete later comparison proposal, conditional on enough document-consistent pages: 100 train
-pool pages, 20 validation pages, batch 10, budget 50, five rounds, paired seeds 824–828. Two
-strategies mean 50 fits, 1200 validation page predictions including each baseline, and 1750
-scored-pool page predictions if terminal scoring is retained (90+80+70+60+50 per scored seed).
-For calibrated E epochs and page batches of 1 with accumulation 4, quote actual implementation
-step rounding and observed token lengths at budgets 10/20/30/40/50; do not extrapolate the
-engineering pilot into this cost. Verify/approve this separate recipe, subset and cost envelope
-before release. If available source groups cannot support these exact counts, revise the proposal
-explicitly. These data can support a scoped report with limitations; five seeds and small data do
-not guarantee significance or generalization. Full-corpus or replication work remains later.
+Expected outputs by stage: reviewed local candidate with test commands; normalized source plus
+provenance only after admission; pinned model/processor/recipe/weight manifests; real base/fit/
+reload/prediction receipts and raw-output hashes; per-budget JSON/CSV containing kind/identity,
+selected counts, edit denominators, failures, steps/tokens/time/VRAM/cost and null human seconds;
+then curves and paired analysis. Public summaries include reproducible settings and permitted
+small examples, never full oracle GT/private operational records. Preserve original artifacts;
+exports never overwrite prior results.
 
-### Memory, runtime and cost bounds
-
-ESTIMATE, conditional on a 4-billion-parameter candidate: two-byte base weights alone require
-about 8 GB decimal, before activations/KV cache/workspaces/optimizer/adapters. This arithmetic
-does not establish fit on a 16/24 GB GPU. LoRA reduces trainable-state cost but not base weights
-or all activations. Platform supplies model-specific peak allocation/reservation and appropriate
-GPU/CPU/RAM/disk; chosen GPU, usable VRAM, training time and approved currency ceiling remain UNKNOWN.
-No GPU selection is accepted from the configured Qwen name alone.
-
-Proposed limits for pricing: one GPU, one active call; calibration execution cap 10 minutes
-per operation, startup cap 5 minutes and whole calibration deadline 45 minutes. No automatic
-retry, OOM-based upsizing or spending beyond the approved phase. These limits are deliberately
-conservative caps, not expected times or spend authorization. No new expensive call when its
-worst-case reservation exceeds the remaining cap. Whole-call fit must be interruptible/check
-deadlines between training steps. Any required larger cap goes back for review before launch.
-
-Platform's quote must separately include billed GPU seconds, CPU core-seconds, memory GiB-seconds,
-startup/idle tails, storage GiB-days/retention and any transfer/build costs at dated official rates.
-For measured per-fit times F2/F4 in calibration, price the pilot from measured throughput and
-accepted page/token distribution, not linear extrapolation alone. Use a conservative factor
-(proposed 2x measured work), explicitly add cold starts/checkpoint I/O, and cap calls/deadline.
-Report `estimate = sum(resource_time × verified_rate) + storage + transfer + contingency`,
-with every quantity/unit/source visible; dollar total remains pending Platform evidence and user
-ceiling. Function timeouts alone do not cap invoice or repeated crash retries.
-
-Pricing basis, checked 2026-09-14: L4 `$0.000222/s`, A10 `$0.000306/s`, L40S `$0.000542/s`,
-CPU `$0.0000131/physical-core/s` (2 vCPU), RAM `$0.00000222/GiB/s`, Volume `$0.09/GiB/month`.
-Source: [Modal pricing](https://modal.com/pricing). Ignore account allowances/credits in estimates.
-Platform's proposed fixed smoke envelope is one L40S, 2 physical cores and 32 GiB RAM:
-`$2.301264/hour` at those rates. The proposed 45-minute total billed-compute envelope gives
-`$1.73`; add Platform's illustrative CPU build `$0.053`, storage/transfer and contingency.
-A 20 GiB Volume for 7 days adds approximately `$0.42` at 30-day proration before allowances.
-Platform proposes a **USD 5 gross smoke ceiling**, unapproved. Its **USD 20 pilot proposal**
-assumes 2–4 GPU hours (compute `$4.60–9.21`); it is not yet costed for this plan's larger
-comparison. These are estimates, not measured training times or an assurance of L40S fit.
-Requote from calibration before scaling; neither ceiling authorizes execution or automatic
-upsizing. Check input CPU/RAM units and hard limits in the pinned SDK at implementation.
-
-Successful calibration requires margin below the selected device's usable memory and permitted
-time; reserve proposed 20% VRAM headroom before pilot sizing. On OOM, quota/auth error, repeated
-restart, invalid output, checksum mismatch, or exhausted deadline/budget, stop and preserve the
-attempt. Do not automatically switch model, precision, token/image limits or dataset pages.
-
-### Results and interpretation
-
-Export new-directory JSON plus flat per-run/per-checkpoint CSV with run kind, dataset/subset/
-split hashes, model/processor/base/checkpoint IDs, code/environment/recipe identity, strategy,
-seed, baseline/round, revealed pages/IDs, cumulative training tokens/optimizer steps, CER/WER,
-layout counts/metrics, invalid/truncated counts, fit/predict time, peak VRAM, operation IDs,
-cost estimate and observed billed cost when available. Human annotation seconds stay null.
-Export raw OCR and artifact hashes for reproducibility; publish only license-permitted small
-derived examples and summaries, never a dump of oracle labels or local operational records.
-
-Plot engineering CER (lower is better) against 0/4/8/12 revealed pages. Show each seed and mean with sample
-standard deviation (n=3); label the small sample. The later proposed comparison uses 0/10/20/30/40/50
-and n=5. If comparing, pair each seed at each budget.
-Report normalized area under the error curve over [0,12] using the existing trapezoidal helper
-divided by 12 (or [0,50] divided by 50 for the later proposal); lower is better. Do not average areas on missing/misaligned budgets or treat
-failed runs as zero error. Report attempted/completed/failed counts and reasons; reruns require
-the same recipe or are a separately versioned experiment. Threshold-budget savings can only
-be claimed for a preregistered threshold reached within observed budgets, without extrapolation.
-
-Final-test evaluation is not part of this pilot. After methods/configurations/checkpoints and
-selection rules are frozen, obtain explicit methodology approval for a separate evaluator-only
-test run. Do not use that test result to choose seeds, thresholds, checkpoints or strategies.
-Potential base-model pretraining contamination of a public corpus remains a disclosed unknown.
-
-## Verification and acceptance
-
-### Trace a representative page
-
-Illustrative page `corpus:doc-A:p3` is an accepted TRAIN record with a verified image hash,
-original dimensions and local ordered source line labels. Normalizer records its source mapping;
-oracle freezes bytes. Only its `RemotePage` image metadata may enter base/pool prediction.
-With seed 824, the existing selector chooses its ID from train membership; only then does
-`reveal` include its source lines in the cumulative fit tuple. Fit request hashes the selected
-targets/recipe, journals the operation, obtains the Modal call ID, resets the base, trains,
-and returns a verified checkpoint manifest. A new container predicts a fixed validation page
-from its image and that checkpoint; it never receives validation line boxes. Geometry is mapped
-back to original pixels; local evaluator alone joins source reference lines and computes metrics.
-After identity/data recheck, the round commits once. Resume reconciles the same checkpoint and
-receipts before deciding whether more work is necessary. This is an interface walkthrough,
-not a claim that this real page or run already exists.
-
-### Required evidence per boundary
-
-| Boundary | Test / acceptance evidence |
+| Readiness verdict | Required evidence; who decides |
 | --- | --- |
-| Source fidelity | Tiny source-format fixture with real parser semantics: verbatim text/flags/order, polygon projection audit, dimensions/hash mismatch, duplicates and document split violations; no silent repartition. |
-| Truth isolation | Perturb hidden/validation truth in separate synthetic runs: same training membership/seed/revealed labels must produce same fit payload and acquisition; validation changes only metrics. Payload and built Image/Volume inventory contain no full GT/source/DB or hidden GT crops. |
-| Baseline/kind | Zero budget still evaluates base once with no oracle reveal/fit; first acquired IDs unchanged with baseline enabled; fixture remains visibly fixture; no fallback on missing real dependencies. |
-| Training | Loss masks decoded and checked; only selected examples; no validation callbacks; reset initial hashes; nonzero updates; fresh load tensor hashes and fixed-probe decoding agree within declared precision policy. |
-| Predictions | Golden resize/pad/box transforms; invalid JSON/IDs/order/bounds/NaN/truncation; exact run/model/round/page coverage; valid blank output distinguished from parse failure; line recognizer never sees GT inference boxes. |
-| Metrics | Hand-computed insertion/deletion/substitution cases, blank/nonblank, unequal reference lengths proving corpus rather than macro CER, Unicode/whitespace/order cases, unmatched/duplicate lines and all-empty denominator policy. |
-| Scores (later) | Analytic uniform/one-hot distributions, stable log math, finite [0,1], tested token spans, no prompt/GT/coordinate tokens, empty/truncated rejection; recorded score overhead and a defined rank/tie result. |
-| Remote journal | Inject each interruption from section 6, including lost ID, completed fit plus failed evaluator, committed round plus lost response, corrupt checkpoint and stale writer before submit. Prove no blind resubmit on unknown outcome. |
-| Identity | Change code/package lock/model revision/prompt/processor/evaluator/remote Image and confirm resume refuses before billable work; identical identity allows separately restarted CLI execution. |
-| Cloud/resource smoke | Exact reviewed SHA, deployed image ID, mount inventory, real device/peak VRAM/time/loss/update/outputs, cost/attempt count, verified cancellation/deadline behavior and fresh checkpoint reload. Fakes cannot satisfy this row. |
-| End-to-end results | Baseline + every committed budget present, selected labels counted once, no test access, failed rows disclosed, JSON/CSV/curve agree, separate process resume agrees with receipts; independent Testing reviews exact candidate. |
+| Slice1A technical acceptance | Exact code SHA, L1–L9, full regression+Ruff and independent Testing review; Manager accepts warnings. No real-model PASS. |
+| Converter admission | Actual source mapping/grouping representation decision, original hashes/order/blank/polygon checks and parser tests. Unknown groups constrain engineering use; no fabricated identities. |
+| Candidate2/3 preflight acceptance | Exact code/recipe, supervised-mask/reset/checkpoint tests, purpose-bound journal failure matrix, upload/mount allowlists, identity checks and independent review. Fakes cannot prove hardware/provider behavior. |
+| Paid smoke release | Accepted source/recipe/code, account/access, precise resource/cost/deadline envelope and user spend authorization. Runtime-only evidence is acquired during smoke, not required as a past success to authorize first smoke. |
+| Real engineering acceptance | Finite loss/gradients and intended update on CUDA, unchanged frozen weights, full-page geometry evidence, fresh checkpoint reload equivalence with declared tolerance, known-call/receipt recovery and separate-process CLI resume, accounting and independent Testing review. No efficacy threshold. |
+| Comparative research release | Grouping or explicitly revised design, adequate-training calibration, exact score/evaluation policy, paired budgets/seeds/frozen memberships and a fresh cost approval. Validation limitations/pretraining contamination disclosed. |
+| Final evaluation | Separate explicit frozen-test methodology approval after method/checkpoint selection; test data never train, acquire, tune or select. |
 
-Run the relevant new tests and full current suite plus Ruff; no configured type checker was
-found in inspected configuration. The existing 63-test independent review is historical evidence
-for the simulation candidate, not a PASS on these proposed changes. Independent Testing must
-review each significant implementation candidate and the real-smoke evidence before pilot release.
+Manager assigns IDs/owned files and approves the exact slice; this plan does not self-release.
+No unresolved GPU/corpus/score issue blocks candidate1A. Conversely its successful tests do not
+remove later source/method/hardware gates. No production code or job was changed by this revision.
 
-Phase-A completion means this bounded draft is available for review. Implementation acceptance
-requires accepted Research/Platform inputs, exact file ownership/slice release, and independent
-code evidence. Paid release additionally requires assets, method/identity/resource recipe, user
-spend ceiling and tested stop/recovery controls. Result delivery means verified real base and
-adapted predictions plus reproducible validation table/curve; it does not require an AL gain.
+## Change record
 
-### Decisions still required for version 0.2
-
-| Pending decision/evidence | Owner / consequence |
-| --- | --- |
-| First dataset/model pair, immutable revisions/licenses/downloads and document/split/order semantics | Research + Platform, Manager acceptance; no real parser/model selection assumed. |
-| Full page boxes+text versus detector+recognizer versus explicitly changed text-only task | Research + Manager/user method decision; cannot conceal GT-crop advantage. |
-| Training/processor limits, target serialization, normalization/matching and later score mask | Research + Planning review; version/freeze before any paired run. |
-| Installed Modal SDK/auth/permissions, mount options, Image pinning, GPU and cancellation | Platform evidence; unavailable capability is a blocker, not inferred from plugin installation. |
-| Smoke/pilot subset manifests, calibration exclusions, exact prices/currency ceiling and deadline | Platform proposal + explicit required approval; counts here do not authorize split changes/spend. |
-| Exact real-code candidate, independent review and Manager release | Development/Testing/Manager; this document alone does not release work. |
-
-Do not wait indefinitely to publish phase A. Preserve this version and incorporate accepted
-input in a reviewed successor with a change record; never silently rewrite a running protocol.
+- v0.1: phase-A design accepted as planning evidence; preserved at
+  `af91ad45592d5815d8e371f8eabf9152e7974292` in Git history.
+- v0.2: reconciles accepted Research and Development/Testing/QA preparation; records actual
+  archive evidence without independence claims; defines exact local slice1A and gated converter;
+  separates baseline step and identity from telemetry; unifies recipe/schedules; represents
+  undefined CER/WER independently; holds layout/score implementation with precise later rules.
+  Awaiting Manager acceptance and an explicit implementation release.
