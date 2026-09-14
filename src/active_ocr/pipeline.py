@@ -5,8 +5,12 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
+import re
 from pathlib import Path
 from uuid import uuid4
+
+from pydantic import RootModel
 
 from active_ocr.active_learning import select_pages
 from active_ocr.config import Settings
@@ -16,8 +20,11 @@ from active_ocr.integrations.local_data import load_image_pages
 from active_ocr.integrations.simulation import (
     FixtureModel,
     LocalOracle,
+    PageTextEvaluatorV1,
     SimulationModel,
     ValidationEvaluator,
+    check_contract_identity,
+    check_local_identity,
     runtime_identity,
 )
 from active_ocr.integrations.storage import SQLiteStore
@@ -26,6 +33,10 @@ from active_ocr.models import (
     Experiment,
     Page,
     Prediction,
+    PredictionPurpose,
+    PredictionStatus,
+    RunKind,
+    SimulationBaseline,
     SimulationConfig,
     SimulationRound,
     SimulationRun,
@@ -373,13 +384,27 @@ class Pipeline:
         pipeline.setup()
         return pipeline
 
-    def create_simulation(self, manifest: Path, config: SimulationConfig) -> SimulationRun:
+    def create_simulation(
+        self, manifest: Path, config: SimulationConfig, *, kind: RunKind = RunKind.FIXTURE
+    ) -> SimulationRun:
         """Freeze source membership, labels, image bytes and settings for a new UUID run."""
+        config = SimulationConfig.model_validate(config.model_dump())
+        kind = RunKind(kind)
+        if kind is RunKind.FIXTURE:
+            if config.real is not None or config.backend != FixtureModel.backend:
+                raise ValueError("fixture kind requires fixture backend and no real recipe")
+        elif config.real is None:
+            raise ValueError("real/contract-test kind requires an explicit real recipe")
+        if config.real is not None:
+            check_local_identity(config.real.expected_identity)
         snapshot = LocalOracle.freeze(manifest, self.store)
+        if config.real is not None and not any(p.split is Split.VALIDATION for p in snapshot.pages):
+            raise ValueError("real contracts require nonempty validation pages")
         LocalOracle(snapshot)
         revision, versions = runtime_identity()
         run = SimulationRun(
             id=uuid4().hex,
+            kind=kind,
             config=config,
             dataset=snapshot,
             code_revision=revision,
@@ -399,6 +424,8 @@ class Pipeline:
 
     @staticmethod
     def _simulation_stop(run: SimulationRun) -> str | None:
+        if run.kind is not RunKind.FIXTURE and run.baseline is None:
+            return None
         revealed = run.rounds[-1].revealed_ids if run.rounds else ()
         if len(revealed) >= run.config.page_budget:
             return "page_budget"
@@ -409,6 +436,15 @@ class Pipeline:
         return None
 
     @staticmethod
+    def _validate_simulation_model_id(run: SimulationRun, model_id: str) -> None:
+        if not isinstance(model_id, str) or not model_id:
+            raise ValueError("model must return a nonempty model identifier")
+        if run.kind is not RunKind.FIXTURE and not re.fullmatch(
+            r"checkpoint:sha256:[0-9a-f]{64}", model_id
+        ):
+            raise ValueError("real contract requires an immutable checkpoint reference")
+
+    @staticmethod
     def _validate_simulation_predictions(
         predictions: tuple[Prediction, ...],
         page_ids: tuple[str, ...],
@@ -417,20 +453,48 @@ class Pipeline:
         model_id: str,
         *,
         require_scores: bool = True,
-    ) -> None:
+        purpose: PredictionPurpose = PredictionPurpose.POOL,
+    ) -> tuple[Prediction, ...]:
+        predictions = tuple(
+            Prediction.model_validate(p.model_dump() if isinstance(p, Prediction) else p)
+            for p in predictions
+        )
         ids = [p.page_id for p in predictions]
         if len(set(ids)) != len(ids) or set(ids) != set(page_ids):
-            raise ValueError("predictions must cover remaining pool exactly, without duplicates")
+            raise ValueError("predictions must cover requested pages exactly, without duplicates")
         if any(
-            p.experiment_id != run.id or p.round_number != number or p.model_id != model_id
+            p.experiment_id != run.id
+            or p.round_number != number
+            or p.model_id != model_id
+            or p.purpose is not purpose
             for p in predictions
         ):
-            raise ValueError("prediction ownership does not match run/round/model")
-        for p in predictions if require_scores else ():
-            if run.config.strategy is Strategy.ENTROPY and p.entropy is None:
-                raise ValueError("missing entropy")
-            if run.config.strategy is Strategy.LEAST_CONFIDENCE and p.confidence is None:
-                raise ValueError("missing confidence")
+            raise ValueError("prediction ownership does not match run/round/model/purpose")
+        pages = {p.id: p for p in run.dataset.pages}
+        for prediction in predictions:
+            if run.kind is not RunKind.FIXTURE and prediction.status is PredictionStatus.OK:
+                page = pages[prediction.page_id]
+                region_ids = [r.id for r in prediction.regions]
+                if len(set(region_ids)) != len(region_ids):
+                    raise ValueError("duplicate predicted region ID")
+                for region in prediction.regions:
+                    box = region.box
+                    if (
+                        not all(math.isfinite(v) for v in (box.x, box.y, box.width, box.height))
+                        or box.x + box.width > page.width
+                        or box.y + box.height > page.height
+                    ):
+                        raise ValueError("predicted region out of original pixel bounds")
+            if require_scores:
+                if run.config.strategy is Strategy.ENTROPY and prediction.entropy is None:
+                    raise ValueError("missing entropy")
+                if (
+                    run.config.strategy is Strategy.LEAST_CONFIDENCE
+                    and prediction.confidence is None
+                ):
+                    raise ValueError("missing confidence")
+        by_id = {p.page_id: p for p in predictions}
+        return tuple(by_id[page_id] for page_id in page_ids)
 
     def step_simulation(
         self,
@@ -449,13 +513,53 @@ class Pipeline:
         if config is not None and config != run.config:
             raise ValueError("cannot change frozen run config")
         oracle = LocalOracle(run.dataset)  # Also verifies inputs on completed-run resume.
-        model = FixtureModel() if model is None else model
+        if run.kind is RunKind.FIXTURE:
+            model = FixtureModel() if model is None else model
+        else:
+            if model is None:
+                raise ValueError("real contracts require an explicit adapter")
+            if getattr(model, "kind", None) != run.kind:
+                raise ValueError("adapter kind differs from frozen run kind")
+            check_contract_identity(run.config.real, model, run.kind)
+            evaluator = PageTextEvaluatorV1() if evaluator is None else evaluator
+            if run.kind is RunKind.REAL:
+                raise NotImplementedError("production real execution is not available")
         if model.backend != run.config.backend or model.fit_policy != run.config.fit_policy:
             raise ValueError("model backend/fit policy differs from frozen config")
         if (evaluator.identifier if evaluator is not None else None) != run.config.evaluator_id:
             raise ValueError("validation evaluator differs from frozen config")
         if run.complete:
             return run
+        validation = tuple(p for p in run.dataset.pages if p.split is Split.VALIDATION)
+        if run.kind is not RunKind.FIXTURE and run.baseline is None:
+            model_id = model.load_base(experiment_id=run.id)
+            self._validate_simulation_model_id(run, model_id)
+            check_contract_identity(run.config.real, model, run.kind)
+            predictions = self._validate_simulation_predictions(
+                tuple(
+                    model.predict(
+                        validation,
+                        experiment_id=run.id,
+                        round_number=0,
+                        model_id=model_id,
+                        purpose=PredictionPurpose.BASELINE_VALIDATION,
+                    )
+                ),
+                tuple(p.id for p in validation),
+                run,
+                0,
+                model_id,
+                require_scores=False,
+                purpose=PredictionPurpose.BASELINE_VALIDATION,
+            )
+            baseline = SimulationBaseline(
+                model_id=model_id,
+                validation_predictions=predictions,
+                validation_metrics=oracle.evaluate_validation(predictions, evaluator),
+                telemetry=getattr(model, "telemetry", None),
+            )
+            updated = run.model_copy(update={"baseline": baseline})
+            return self._commit_simulation_step(run, updated, model)
         previous = run.rounds[-1] if run.rounds else None
         revealed = previous.revealed_ids if previous else ()
         train = {p.id: p for p in run.dataset.pages if p.split is Split.TRAIN}
@@ -474,39 +578,48 @@ class Pipeline:
         )
         cumulative = (*revealed, *selected)
         examples = oracle.reveal(cumulative)
-        model_id = model.fit(examples, seed=run.config.seed)
-        if not isinstance(model_id, str) or not model_id:
-            raise ValueError("fit must return a nonempty model identifier")
-        pool = tuple(train[p] for p in remaining if p not in selected)
         number = len(run.rounds) + 1
+        model_id = model.fit(
+            examples, seed=run.config.seed, experiment_id=run.id, round_number=number
+        )
+        self._validate_simulation_model_id(run, model_id)
+        if run.config.real is not None:
+            check_contract_identity(run.config.real, model, run.kind)
+        pool = tuple(train[p] for p in remaining if p not in selected)
         predictions = ()
         if pool and (run.config.strategy is not Strategy.RANDOM or run.config.report_predictions):
             predictions = tuple(
-                Prediction.model_validate(p.model_dump() if isinstance(p, Prediction) else p)
-                for p in model.predict(
-                    pool, experiment_id=run.id, round_number=number, model_id=model_id
+                model.predict(
+                    pool,
+                    experiment_id=run.id,
+                    round_number=number,
+                    model_id=model_id,
+                    purpose=PredictionPurpose.POOL,
                 )
             )
-            self._validate_simulation_predictions(
+            predictions = self._validate_simulation_predictions(
                 predictions, tuple(p.id for p in pool), run, number, model_id
             )
         validation_predictions = ()
         metrics = None
         if evaluator is not None:
-            validation = tuple(p for p in run.dataset.pages if p.split is Split.VALIDATION)
             validation_predictions = tuple(
-                Prediction.model_validate(p.model_dump() if isinstance(p, Prediction) else p)
-                for p in model.predict(
-                    validation, experiment_id=run.id, round_number=number, model_id=model_id
+                model.predict(
+                    validation,
+                    experiment_id=run.id,
+                    round_number=number,
+                    model_id=model_id,
+                    purpose=PredictionPurpose.VALIDATION,
                 )
             )
-            self._validate_simulation_predictions(
+            validation_predictions = self._validate_simulation_predictions(
                 validation_predictions,
                 tuple(p.id for p in validation),
                 run,
                 number,
                 model_id,
                 require_scores=False,
+                purpose=PredictionPurpose.VALIDATION,
             )
             metrics = oracle.evaluate_validation(validation_predictions, evaluator)
         record = SimulationRound(
@@ -519,14 +632,25 @@ class Pipeline:
             predictions=predictions,
             validation_predictions=validation_predictions,
             validation_metrics=metrics,
+            telemetry=getattr(model, "telemetry", None) if run.config.real is not None else None,
         )
         updated = run.model_copy(update={"rounds": (*run.rounds, record)})
+        return self._commit_simulation_step(run, updated, model)
+
+    def _commit_simulation_step(
+        self, run: SimulationRun, updated: SimulationRun, model: SimulationModel
+    ) -> SimulationRun:
         reason = self._simulation_stop(updated)
         if reason:
             updated = updated.model_copy(update={"complete": True, "stop_reason": reason})
         # Catch mutations during synchronous model work before making labels/budget durable.
         LocalOracle(run.dataset)
-        self.store.compare_and_swap("simulation", run.id, run, updated)
+        if run.config.real is not None:
+            check_contract_identity(run.config.real, model, run.kind)
+        # Old rows lack newer defaults. Compare the originally present fields, not
+        # a reserialization that adds purpose/status/baseline to historical JSON.
+        expected = RootModel(run.model_dump(mode="json", exclude_unset=True))
+        self.store.compare_and_swap("simulation", run.id, expected, updated)
         return updated
 
     def run_simulation(
@@ -549,6 +673,21 @@ class Pipeline:
         (directory / "results.json").write_text(run.model_dump_json(indent=2), encoding="utf-8")
         output = io.StringIO()
         writer = csv.writer(output)
+        metric_columns = (
+            "pages",
+            "char_edits",
+            "reference_chars",
+            "word_edits",
+            "reference_words",
+            "cer_defined",
+            "wer_defined",
+            "invalid_output_pages",
+            "truncated_pages",
+            "refusal_pages",
+            "failed_pages",
+            "cer",
+            "wer",
+        )
         writer.writerow(
             [
                 "run_id",
@@ -571,23 +710,36 @@ class Pipeline:
                 "code_revision",
                 "validation_predictions",
                 "validation_metrics",
+                "record_type",
+                "purpose",
+                "validation_statuses",
+                *metric_columns,
             ]
         )
-        for record in run.rounds:
+        records = ([run.baseline] if run.baseline is not None else []) + list(run.rounds)
+        for record in records:
+            is_baseline = isinstance(record, SimulationBaseline)
+            metrics = record.validation_metrics or {}
             writer.writerow(
                 [
                     run.id,
                     run.kind,
                     run.config.strategy,
                     run.config.seed,
-                    record.number,
-                    json.dumps(record.selected_ids),
-                    json.dumps(record.revealed_ids),
+                    0 if is_baseline else record.number,
+                    json.dumps(()) if is_baseline else json.dumps(record.selected_ids),
+                    json.dumps(()) if is_baseline else json.dumps(record.revealed_ids),
                     record.labelled_count,
-                    record.remaining_count,
+                    sum(p.split is Split.TRAIN for p in run.dataset.pages)
+                    if is_baseline
+                    else record.remaining_count,
                     "",
                     record.model_id,
-                    json.dumps([p.model_dump(mode="json") for p in record.predictions]),
+                    json.dumps(
+                        []
+                        if is_baseline
+                        else [p.model_dump(mode="json") for p in record.predictions]
+                    ),
                     run.config.model_dump_json(),
                     run.dataset.manifest_sha256,
                     run.dataset.ground_truth_sha256,
@@ -596,6 +748,12 @@ class Pipeline:
                     run.code_revision,
                     json.dumps([p.model_dump(mode="json") for p in record.validation_predictions]),
                     json.dumps(record.validation_metrics),
+                    "baseline" if is_baseline else "round",
+                    PredictionPurpose.BASELINE_VALIDATION
+                    if is_baseline
+                    else (PredictionPurpose.VALIDATION if record.validation_predictions else ""),
+                    json.dumps({p.page_id: p.status for p in record.validation_predictions}),
+                    *(metrics.get(key, "") for key in metric_columns),
                 ]
             )
         (directory / "rounds.csv").write_text(output.getvalue(), encoding="utf-8")

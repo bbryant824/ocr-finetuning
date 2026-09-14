@@ -6,20 +6,26 @@ import hashlib
 import json
 import math
 import platform
+import re
 import subprocess
-from importlib.metadata import version
+from importlib.metadata import distributions, version
 from pathlib import Path
 from typing import Protocol
 
 from PIL import Image, ImageDraw
 from pydantic import Field
 
+from active_ocr.evaluation import page_text_metrics
 from active_ocr.integrations.storage import SQLiteStore
 from active_ocr.models import (
     DatasetSnapshot,
+    ExpectedIdentity,
     Page,
     Prediction,
+    PredictionPurpose,
+    RealOCRConfig,
     RevealedExample,
+    RunKind,
     SimulationPage,
     SourceRegion,
     Split,
@@ -83,7 +89,7 @@ class ValidationEvaluator(Protocol):
 
     def __call__(
         self, examples: tuple[RevealedExample, ...], predictions: tuple[Prediction, ...]
-    ) -> dict[str, float]: ...
+    ) -> dict[str, int | float]: ...
 
 
 class LocalOracle:
@@ -151,7 +157,7 @@ class LocalOracle:
 
     def evaluate_validation(
         self, predictions: tuple[Prediction, ...], evaluator: ValidationEvaluator
-    ) -> dict[str, float]:
+    ) -> dict[str, int | float]:
         """Give only validation truth to the explicit evaluator, never to fit/predict."""
         examples = []
         for page in self._source.values():
@@ -178,7 +184,14 @@ class SimulationModel(Protocol):
     backend: str
     fit_policy: str
 
-    def fit(self, examples: tuple[RevealedExample, ...], *, seed: int) -> str: ...
+    def fit(
+        self,
+        examples: tuple[RevealedExample, ...],
+        *,
+        seed: int,
+        experiment_id: str,
+        round_number: int,
+    ) -> str: ...
 
     def predict(
         self,
@@ -187,6 +200,7 @@ class SimulationModel(Protocol):
         experiment_id: str,
         round_number: int,
         model_id: str,
+        purpose: PredictionPurpose = PredictionPurpose.POOL,
     ) -> tuple[Prediction, ...]: ...
 
 
@@ -200,7 +214,14 @@ class FixtureModel:
     backend = "deterministic-fixture-v1"
     fit_policy = "reset-fit-cumulative-v1"
 
-    def fit(self, examples: tuple[RevealedExample, ...], *, seed: int) -> str:
+    def fit(
+        self,
+        examples: tuple[RevealedExample, ...],
+        *,
+        seed: int,
+        experiment_id: str | None = None,
+        round_number: int | None = None,
+    ) -> str:
         content = [(e.page.id, [r.model_dump() for r in e.regions]) for e in examples]
         return f"fixture-{sha256(json.dumps([seed, content], ensure_ascii=False).encode())}"
 
@@ -211,6 +232,7 @@ class FixtureModel:
         experiment_id: str,
         round_number: int,
         model_id: str,
+        purpose: PredictionPurpose = PredictionPurpose.POOL,
     ) -> tuple[Prediction, ...]:
         return tuple(
             Prediction(
@@ -218,6 +240,7 @@ class FixtureModel:
                 experiment_id=experiment_id,
                 round_number=round_number,
                 model_id=model_id,
+                purpose=purpose,
                 confidence=int(sha256(f"{model_id}:{p.id}".encode())[:8], 16) / 0xFFFFFFFF,
                 entropy=int(sha256(f"entropy:{model_id}:{p.id}".encode())[:8], 16) / 0xFFFFFFFF,
             )
@@ -293,3 +316,85 @@ def runtime_identity() -> tuple[str, tuple[tuple[str, str], ...]]:
         (package, version(package)) for package in ("pydantic", "pillow")
     )
     return revision, versions
+
+
+class ContractModel(SimulationModel, Protocol):
+    """Explicit real-contract adapter metadata; production implementation is deferred."""
+
+    kind: RunKind
+    real_config: RealOCRConfig
+    identity: ExpectedIdentity
+
+    def load_base(self, *, experiment_id: str) -> str: ...
+
+
+def local_contract_identity() -> tuple[str, str]:
+    """Clean code SHA and canonical installed local versions, without GPU inspection."""
+    revision, _ = runtime_identity()
+    root = Path(__file__).resolve().parents[3]
+    if re.fullmatch(r"[0-9a-f]{40}", revision):
+        try:
+            dirty = subprocess.run(
+                ["git", "-C", str(root), "status", "--porcelain"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            ).stdout.strip()
+            if dirty:
+                revision += "-dirty"
+        except (OSError, subprocess.SubprocessError):
+            revision = "unknown (Git inspection failed)"
+    packages = sorted(
+        (re.sub(r"[-_.]+", "-", d.metadata["Name"].lower()), d.version)
+        for d in distributions()
+        if d.metadata["Name"]
+    )
+    data = {"python": platform.python_version(), "packages": packages}
+    return revision, sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode())
+
+
+def check_local_identity(expected: ExpectedIdentity) -> None:
+    revision, dependencies = local_contract_identity()
+    if revision != expected.source_sha or dependencies != expected.dependency_sha256:
+        raise ValueError("local code/dependency identity differs from frozen expectations")
+
+
+def check_contract_identity(recipe: RealOCRConfig, model: ContractModel, kind: RunKind) -> None:
+    """Only immutable identities/recipes participate; telemetry is deliberately excluded."""
+    check_local_identity(recipe.expected_identity)
+    if (
+        getattr(model, "real_config", None) != recipe
+        or getattr(model, "identity", None) != recipe.expected_identity
+        or getattr(model, "kind", None) != kind
+        or getattr(model, "backend", None) != recipe.backend
+        or getattr(model, "fit_policy", None) != "reset-fit-cumulative-v1"
+    ):
+        raise ValueError("adapter recipe/expected identity mismatch")
+
+
+class PageTextEvaluatorV1:
+    """Fixed local engineering text view; never an official benchmark/test policy."""
+
+    identifier = "page-text-nfc-v1"
+
+    def __call__(
+        self, examples: tuple[RevealedExample, ...], predictions: tuple[Prediction, ...]
+    ) -> dict[str, int | float]:
+        reference_ids = [e.page.id for e in examples]
+        ids = [p.page_id for p in predictions]
+        if (
+            len(set(reference_ids)) != len(reference_ids)
+            or len(set(ids)) != len(ids)
+            or set(ids) != set(reference_ids)
+        ):
+            raise ValueError("evaluator page coverage mismatch")
+        if any(e.page.split is not Split.VALIDATION for e in examples):
+            raise ValueError("PageTextEvaluatorV1 accepts only validation examples")
+        by_id = {p.page_id: p for p in predictions}
+        ordered = [by_id[e.page.id] for e in examples]
+        return page_text_metrics(
+            [tuple(r.text for r in e.regions) for e in examples],
+            [tuple(r.text for r in p.regions) for p in ordered],
+            [p.status for p in ordered],
+        )

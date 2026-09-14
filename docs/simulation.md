@@ -4,7 +4,8 @@ This path verifies the loop using source true labels as a simulated annotator. T
 `deterministic-fixture-v1` model produces empty OCR regions and synthetic hash-based scores.
 These are **not OCR quality, calibrated uncertainty, measured annotation effort, or evidence that
 one acquisition strategy is better**. No downloads, services, credentials, network, torch or GPU
-are needed. Real adapters and final-test evaluation remain future work.
+are needed. Production real adapters and final-test evaluation remain future work. The Python API also
+provides the explicit synthetic contract path described below.
 
 ## Flow and boundaries
 
@@ -21,9 +22,9 @@ Code lives in [Pipeline](../src/active_ocr/pipeline.py), shared [models](../src/
 and are not called by this path.
 
 `LocalOracle` owns source labels. `reveal(ids)` accepts only train IDs, and Pipeline requests its
-cumulative selected IDs, including reconstruction on resume. `fit(examples, seed=...)` receives
+cumulative selected IDs, including reconstruction on resume. `fit(examples, seed=..., experiment_id=..., round_number=...)` receives
 exactly those image/true-region pairs and returns a nonempty model ID. `predict(pages,
-experiment_id=..., round_number=..., model_id=...)` gets image metadata only. Its results must cover
+experiment_id=..., round_number=..., model_id=..., purpose=...)` gets image metadata only. Its results must cover
 the requested pool exactly with matching run/round/model and valid scores for the configured
 selector. Global page/annotation/prediction records from other runs are not consulted. These are
 cooperative adapter boundaries, not a security sandbox against malicious local code.
@@ -52,9 +53,10 @@ illegible text; legacy `Region` normalization is not applied. Raw manifest bytes
 artifacts. Use a dedicated directory, not the legacy runtime location. Creation freezes manifest
 bytes, membership/splits, image bytes and SHA-256s, full config/seed, backend and fit policy.
 Python/Pydantic/Pillow versions and Git revision are recorded (`-dirty` for source/config changes;
-installed-package runs without Git report an unknown revision). **Resume requires unchanged code,
-software environment and versioned adapters.** Code/software provenance is captured at creation;
-resume does not check it against the current installation. Start a new run after code or dependency
+installed-package runs without Git report an unknown revision). **Fixture resume requires unchanged code,
+software environment and versioned adapters.** Fixture code/software provenance is captured at
+creation; fixture resume does not check it against the current installation. The explicit contract
+path adds identity checks, as described below. Start a new run after code or dependency
 upgrades; mixed-version resume is not verified. Source manifest/images must remain available and unchanged. Each round/resume checks source and frozen inputs. Changed GT, membership
 or bytes fail instead of silently adapting. Resume uses stored settings; `step_simulation(config=...)`
 optionally asserts an exact match. Different backend, fit policy or evaluator ID is rejected.
@@ -71,7 +73,7 @@ over scalability to large datasets/runs.
 
 The initial batch counts toward `page_budget`. Each batch is truncated by remaining budget/pool;
 seven pages, batch 3, budget 5 gives 3+2. Empty pool, exhausted budget or reached round limit stops.
-Zero budget/rounds is a valid no-op; negative values and nonpositive batch sizes are invalid.
+For fixtures, zero budget/rounds is a valid no-op; negative values and nonpositive batch sizes are invalid.
 Completed resume verifies inputs but does not train again. Counts mean simulated labelled **pages**;
 annotation seconds remain unknown/null.
 
@@ -84,7 +86,7 @@ and can be regenerated from SQLite after an interrupted export. SQLite is the so
 
 By default `validation_metrics` is null and validation predictions are empty. A caller can provide
 a `ValidationEvaluator` with a versioned `identifier` and
-`__call__(examples, predictions) -> dict[str, float]`. Freeze its ID in `SimulationConfig.evaluator_id`
+`__call__(examples, predictions) -> dict[str, int | float]`. Freeze its ID in `SimulationConfig.evaluator_id`
 and pass `evaluator=` to step/run, including resume. The model predicts validation images separately;
 only the evaluator gets validation truth from the oracle. Metrics must be finite named numbers;
 evaluation failure prevents round commit. Metrics do not feed selection or tune settings. There
@@ -121,3 +123,125 @@ review accepted implementation `2d24c6493ce8051e9a6ae95d9d30fd5f7b8e55d7` with t
 resume limit above. All 63 tests and Ruff passed; independent probes checked separate-process CLI,
 SQLite rollback and concurrent stale writes, reset-fit retries, held-out validation isolation and
 3+2 page-budget completion. This acceptance covers the documented synchronous fixture scope.
+
+
+## Local baseline and real-adapter contracts
+
+**Implementation state:** local records, boundary checks and synthetic adapter execution exist.
+Qwen/Modal adapter construction and execution, weight-byte verification, source conversion, remote
+operation recovery and uncertainty remain unavailable. The CLI still constructs fixtures only.
+These contracts make no OCR, GPU, learning or annotation-time claim.
+
+`SimulationRun.kind` is explicit:
+
+| Kind | Configuration and execution |
+| --- | --- |
+| `fixture-simulation-not-ocr-evidence` | Default fixture backend, no real recipe or baseline. |
+| `adapter-contract-test-not-ocr-evidence` | Frozen real-shaped recipe plus an explicitly supplied synthetic adapter. |
+| `real-ocr-simulated-annotation-v1` | Can represent a frozen recipe/run locally; execution raises `NotImplementedError` in this slice. |
+
+`create_simulation(manifest, config, kind=RunKind.CONTRACT_TEST)` freezes a `SimulationConfig`
+whose `real` is a `RealOCRConfig`. Its backend/evaluator must match that recipe. This path currently
+requires random selection, `report_predictions=False` and `reset-fit-cumulative-v1`; validation
+runs after every fit despite skipping pool predictions. An omitted adapter never becomes a fixture.
+
+`RealOCRConfig` contains backend, recipe version, model/processor repository and commit revisions,
+training/decode policy IDs, evaluator ID and `ExpectedIdentity`. The latter freezes clean source
+SHA, local dependency SHA-256, model/processor commit and file-manifest hashes, recipe/evaluator
+versions, and optional code-bundle/remote-dependency/build-spec hashes and deployment reference.
+Model/processor pins and recipe/evaluator versions must agree between these records.
+
+`local_contract_identity()` reports source revision and the SHA-256 of canonical compact JSON
+containing Python version and sorted installed distribution name/version pairs. Names use lowercase
+and collapse runs of hyphen/underscore/dot to hyphen. A dirty checkout (including untracked,
+nonignored files) or unavailable Git cannot match a clean expected source SHA. Creation checks
+local identity without calling a model. Each step checks local identity, explicit adapter kind,
+backend, fit policy, complete recipe and its declared identity before model work, between load/fit
+and prediction, and before commit. Completed resume checks inputs/config/identity before returning.
+These declarations do not verify actual checkpoint bytes; a later real adapter must do that.
+
+Execution telemetry is optional and absent initially: device, driver/CUDA, free/peak memory,
+elapsed time, call ID and billed cost. Adapters may provide an `ExecutionTelemetry` as `telemetry`
+after execution. It is captured on the baseline/round but is never equality-compared against an
+expected GPU instance or a previous timing/memory observation. No GPU inspection is required.
+
+The adapter metadata is `kind`, `backend`, `fit_policy`, `real_config` and `identity`. In addition
+to the owned `fit`/`predict` signatures above, it implements `load_base(*, experiment_id) -> str`.
+Real-contract model IDs must match `checkpoint:sha256:<64 lowercase hex digits>`. This is a format
+check, not evidence of immutable weight storage. `FixtureModel.fit` still permits direct callers
+to omit ownership; ownership does not change its synthetic hash.
+
+Creation performs no model work. It requires nonempty validation membership and stores
+`baseline=None`; zero page budget, zero rounds or no training pages do not complete it yet.
+The first `step_simulation` loads the base, predicts validation metadata at round 0 with purpose
+`baseline_validation`, evaluates through the oracle, and atomically commits only a
+`SimulationBaseline`. It has zero labels and no selected/revealed IDs. The step returns immediately,
+even with remaining budget. Zero-budget/round/no-train runs complete in that same baseline commit.
+The next step starts acquired round 1. `seed + len(rounds)` excludes the baseline, so matching
+fixture and contract runs select the same batches with the same seed and membership. Fits always
+receive cumulative selected TRAIN examples. No test page or hidden training label is predicted,
+revealed or used to form model inputs during the baseline.
+
+Prediction purpose is `pool`, `validation` or `baseline_validation`; baseline purpose is legal
+exactly at round 0, other purposes require a positive round. Acquired rounds are positive.
+New boundary results must match exact requested pages, run, round, model and purpose. Page results
+are reordered to requested metadata order after exact-set/duplicate checks; line order is preserved.
+Successful real-contract regions require unique IDs and finite, positive boxes bounded by original
+image pixels. Wrong/missing/extra/duplicate pages prevent commit. Old predictions without purpose
+remain readable as `pool`, including old fixture validation history; stored history is not relabelled.
+The compare-and-swap expected value preserves old field presence so old fixture runs can resume.
+
+Status is `ok`, `invalid_output`, `truncated` or `refusal`, with optional raw-output artifact and
+finish reason. Failed outputs remain page records and evaluate as empty text hypotheses, with
+separate failure counts. Partial text on failed output is not scored. Valid blanks and failed
+outputs therefore remain distinguishable. Raw evidence collection belongs to the later adapter.
+Local failures leave the prior run intact; competing callers can compute, but only one can commit.
+After a lost post-commit response, reload the run before deciding whether to request the next step.
+Repeated remote side effects are not prevented by local SQLite compare-and-swap.
+
+## Page text counts and exports
+
+The contract path defaults to `PageTextEvaluatorV1` (`page-text-nfc-v1`), a fixed engineering
+validation view. It is not official benchmark scoring or an approved final-test methodology.
+It joins declared line texts with LF, changes CRLF to LF and applies Unicode NFC to a copy.
+Case, punctuation, spacing, blank lines and literal illegibility strings remain. Ground-truth
+`SourceRegion` is never converted through the legacy `Region` illegibility substitution.
+
+Per-page character and Unicode-whitespace-token Levenshtein edits are summed before dividing:
+`cer = char_edits / reference_chars`, and similarly for WER. Empty references contribute insertion
+counts and zero denominator. This is a micro aggregate across pages, not a mean of page rates or
+a concatenation that permits edits across page boundaries. Rates may exceed 1. Metrics contain
+integer `pages`, `char_edits`, `reference_chars`, `word_edits`, `reference_words`, `cer_defined`,
+`wer_defined`, `invalid_output_pages`, `truncated_pages`, `refusal_pages` and `failed_pages`.
+`cer`/`wer` are present only when their respective denominator is positive. Whitespace-only truth
+can define CER while leaving WER undefined. Absent pages or missing annotations raise errors;
+existing blank references are valid. All returned values are finite, with no NaN/null rate values.
+The legacy standalone `character_error_rate` empty-reference shortcut remains unchanged.
+
+JSON includes the separate baseline, all rounds, purpose/status, counts and optional telemetry.
+CSV preserves existing columns and adds `record_type`, validation `purpose`, per-page
+`validation_statuses` JSON, the count/defined-flag columns and CER/WER. Baseline exports exactly one
+row with round 0, zero labels and empty selected/revealed arrays; acquired rows have type `round`.
+Annotation seconds and undefined rates are blank; defined flags distinguish absent rates from zero.
+Fixture exports have only their actual round rows. Export still reads one committed snapshot and
+requires a new directory.
+
+## Contract verification
+
+Run `python -m pytest tests/test_real_contract.py tests/test_evaluation_counts.py`, then the full
+`python -m pytest` suite and `ruff check .`. No configured type checker is present.
+The synthetic adapter and its deliberately stubbed source/model identities are confined to tests;
+`test_separate_process_resume_and_export` demonstrates API baseline/acquisition resume across
+fresh Python processes without ML imports. It does not bypass identity checks for application use.
+
+| Accepted plan checks | Reproducible coverage |
+| --- | --- |
+| L1 | Existing CLI/API/legacy suite, old-schema SQLite resume, no ML imports in child processes. |
+| L2–L3 | No selection/reveal/fit at baseline, zero paths, load/fit/predict/evaluator/CAS failures, response loss and two competing callers. |
+| L4–L5 | Ownership/purpose/coverage/geometry rejection, ordering, positive rounds, seed/budget/cumulative-fit invariance and no random pool prediction. |
+| L6 | Every identity field, recipe policies, code/dependency/dirty-source changes, adapter mutations, optional varying telemetry and unavailable production execution. |
+| L7–L8 | Hand-computed Unicode/blank/whitespace/micro/failure counts, raw source preservation and held-out/hidden-label perturbation. |
+| L9 | Separate-process baseline/round resume, JSON/CSV rows and undefined-rate flags, source/identity refusal on completed runs, no overwrite. |
+
+These tests establish local contract behavior only. Independent Testing must review the exact
+implementation candidate before acceptance; earlier fixture acceptance does not approve this extension.

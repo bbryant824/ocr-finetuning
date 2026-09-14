@@ -25,7 +25,7 @@ class SpyModel(FixtureModel):
         self.fits = []
         self.pools = []
 
-    def fit(self, examples, *, seed):
+    def fit(self, examples, *, seed, **ownership):
         self.fits.append(examples)
         assert all(e.page.split is Split.TRAIN for e in examples)
         return super().fit(examples, seed=seed)
