@@ -207,3 +207,70 @@ def test_scoring_requires_a_trained_model(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="no trained model"):
         pipeline.submit_scoring(experiment.id)
+
+
+@pytest.mark.parametrize("purpose", ["validation", "pool", None])
+def test_scoring_requires_pool_purpose_before_any_publication(tmp_path, monkeypatch, purpose):
+    pipeline, _, gpu = make_pipeline(tmp_path)
+    experiment = pipeline.create_experiment("purpose", Strategy.ENTROPY, rounds=2)
+    experiment = experiment.model_copy(
+        update={"stage": Stage.SCORING, "job_id": "predict", "model_id": "model-1"}
+    )
+    pipeline.store.save("experiment", experiment.id, experiment)
+    predictions = [
+        Prediction(
+            page_id=f"page-{i}",
+            experiment_id=experiment.id,
+            round_number=1,
+            model_id="model-1",
+            entropy=0.5,
+        ).model_dump()
+        for i in range(1, 4)
+    ]
+    # Put the invalid purpose last to prove no earlier result is partially published.
+    if purpose is None:
+        for prediction in predictions:
+            prediction.pop("purpose")
+    else:
+        predictions[-1]["purpose"] = purpose
+    monkeypatch.setattr(
+        gpu, "job", lambda _: {"status": "succeeded", "result": {"predictions": predictions}}
+    )
+    if purpose == "validation":
+        with pytest.raises(ValueError, match="ownership"):
+            pipeline.poll_job(experiment.id)
+        assert pipeline.get_experiment(experiment.id) == experiment
+        assert pipeline.store.list("prediction", Prediction) == ()
+    else:
+        updated = pipeline.poll_job(experiment.id)
+        assert updated.round_number == 1 and updated.stage is Stage.READY
+        assert len(pipeline._predictions_for(updated)) == 3
+
+
+def test_acquisition_filters_stored_nonpool_but_keeps_legacy_default(tmp_path):
+    from pydantic import RootModel
+
+    pipeline, _, _ = make_pipeline(tmp_path)
+    experiment = pipeline.create_experiment("purpose", Strategy.ENTROPY, batch_size=1, rounds=2)
+    experiment = experiment.model_copy(update={"round_number": 1, "model_id": "model-1"})
+    pipeline.store.save("experiment", experiment.id, experiment)
+    for i, purpose in enumerate(["pool", "validation", None], start=1):
+        prediction = Prediction(
+            page_id=f"page-{i}",
+            experiment_id=experiment.id,
+            round_number=1,
+            model_id="model-1",
+            entropy=i / 10,
+        ).model_dump(mode="json")
+        if purpose is None:
+            prediction.pop("purpose")  # Actual previous-schema bytes, read through the store.
+        else:
+            prediction["purpose"] = purpose
+            if purpose == "validation":
+                prediction["entropy"] = 1.0
+        pipeline.store.save("prediction", f"{experiment.id}:1:page-{i}", RootModel(prediction))
+    available = pipeline._predictions_for(experiment)
+    assert {p.page_id for p in available} == {"page-1", "page-3"}
+    with pytest.raises(ValueError, match="missing prediction for page page-2"):
+        pipeline.prepare_batch(experiment.id)
+    assert pipeline.get_experiment(experiment.id) == experiment
