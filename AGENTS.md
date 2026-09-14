@@ -8,16 +8,17 @@ the current research simulates annotation by revealing existing source ground tr
 selected training pages. Ground truth contains the source's line boxes and transcriptions.
 The practical objective is a small, reproducible, understandable pipeline with fair comparisons.
 
-Prioritize the complete local active-learning loop with simple interchangeable dataset/model
-interfaces. Real dataset adapters, OCR models, GPU servers and labeling frontends come later.
+The local fixture loop is delivered. Next, connect a verified public dataset and a pinned real
+OCR model to training/inference on Modal, with independent checks before bounded experiments.
+Keep simple interchangeable dataset/model interfaces; a labeling frontend is not required.
 Keep implementations minimal, straightforward and correct; do not add speculative infrastructure.
 The oracle must not expose unrevealed or held-out labels to fitting or acquisition. Revealed-page
 counts represent simulated annotation budgets, not measured human annotation time. Fixture model
 outputs verify plumbing only and never establish OCR quality or active-learning improvement.
 
-The local Python pipeline exists. The configured model is `Qwen/Qwen3-VL-4B-Instruct`, but
-model loading, prediction, fine-tuning and GPU execution remain placeholders. Corpus/language,
-checkpoint revision and final experimental methodology are not yet established by repository evidence.
+The configured model is `Qwen/Qwen3-VL-4B-Instruct`, but model loading, prediction, fine-tuning
+and GPU execution remain placeholders. Dataset/model recommendations and proposed experiment
+contracts are evidence to review, not completed model integration or approved final methodology.
 
 ## Architecture summary
 
