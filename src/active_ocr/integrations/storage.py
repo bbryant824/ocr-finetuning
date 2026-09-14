@@ -72,3 +72,22 @@ class SQLiteStore:
         if not path.exists():
             path.write_bytes(data)
         return path
+
+    def compare_and_swap(
+        self, kind: str, key: str, expected: BaseModel | None, value: BaseModel
+    ) -> None:
+        """Atomically publish a complete record; a stale writer must retry from storage."""
+
+        with sqlite3.connect(self.database_path) as connection:
+            if expected is None:
+                cursor = connection.execute(
+                    "INSERT OR IGNORE INTO records(kind, key, payload) VALUES (?, ?, ?)",
+                    (kind, key, value.model_dump_json()),
+                )
+            else:
+                cursor = connection.execute(
+                    "UPDATE records SET payload=? WHERE kind=? AND key=? AND payload=?",
+                    (value.model_dump_json(), kind, key, expected.model_dump_json()),
+                )
+            if cursor.rowcount != 1:
+                raise RuntimeError("record changed concurrently; reload before retrying")

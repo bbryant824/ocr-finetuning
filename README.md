@@ -3,19 +3,40 @@
 A small research pipeline for studying whether active-learning strategies can reduce the amount
 of human annotation needed to adapt OCR models to historical and low-resource documents.
 
-Label Studio provides line-box and transcription annotation. The local pipeline manages data and
-experiments, while Qwen training and inference run in a separate remote GPU process.
+The intended current path is a **local active-learning simulation**: existing source true labels
+simulate annotation, and a deterministic fixture model exercises the complete loop without services.
+Real datasets, OCR models and GPU adapters come later.
+
+## Quick start: no-service simulation
+
+```bash
+uv sync --no-editable --extra dev
+uv run python examples/simulate.py /tmp/ocr-simulation-example
+```
+
+Use a new output directory. The example generates seven train pages plus separate validation/test
+pages, selects 3 then 2 train pages under a five-page budget, reveals source labels, fits on the
+cumulative set, records synthetic pool predictions, reopens/resumes, and exports JSON/CSV.
+No credentials, downloads, Label Studio, network, torch or GPU are needed.
+
+For separate start/run/resume/status/export commands, normalized JSONL format, the optional
+validation hook, and adapter/retry contracts, see [the simulation guide](docs/simulation.md).
+Run `uv run pytest` and `uv run ruff check src tests examples` for verification.
+
+**Fixture output is not OCR performance or measured human effort.** Model OCR regions are empty;
+confidence/entropy values are deterministic synthetic test values. Budgets count revealed pages,
+annotation duration stays unknown, and validation metrics are absent unless explicitly supplied
+by a caller-defined evaluator. Final-test labels never enter training or selection.
 
 ## Current status
 
-The initial local pipeline is implemented. It can import a page manifest, copy images into
-Label Studio's mounted data directory, persist research state, create strategy runs, select
-annotation batches, exchange Label Studio payloads, submit remote jobs, and advance the
-experiment loop when used with compatible services or test fakes.
+The local simulation freezes input membership, source labels/checksums and config; uses the existing
+random/least-confidence/entropy selectors; enforces split/run/prediction ownership; and commits each
+round atomically in a dedicated SQLite database. Failed rounds can be retried from committed state.
 
-Qwen loading, fine-tuning, and inference are intentionally left for the model-development phase.
-The active-learning module currently contains only simple random, least-confidence, and entropy
-baselines so future research algorithms have one focused extension point.
+The earlier optional Label Studio/remote-worker flow is retained below for compatibility. Qwen
+loading, fine-tuning, inference and GPU job execution remain placeholders, and are not required
+for the simulation. No real-model experiment or selection-quality result is claimed.
 
 ## Structure
 
@@ -27,6 +48,7 @@ src/active_ocr/
 ├── evaluation.py         # Research metrics only
 ├── config.py             # Small validated YAML configuration
 ├── integrations/
+│   ├── simulation.py     # True-label oracle, fixture model and synthetic input generator
 │   ├── local_data.py     # Imports a manifest and stages images for Label Studio
 │   ├── storage.py        # SQLite state and local artifacts
 │   ├── label_studio.py   # Label Studio API and payload conversion
@@ -41,7 +63,7 @@ src/active_ocr/
 There are no domain, port, repository, service, or workflow abstraction layers. Integrations are
 passed directly into `Pipeline`, which is enough to replace them with small fakes during tests.
 
-## Pipeline
+## Optional legacy service flow
 
 ```text
 page manifest
@@ -72,7 +94,7 @@ Three data-isolation rules are enforced:
 - Dataset splits are calculated from `document_id`, so every page from one source document stays
   in the same split.
 
-## Setup
+## Optional service setup
 
 Python 3.11 and [uv](https://docs.astral.sh/uv/) are expected.
 
@@ -102,7 +124,7 @@ Imported images are copied into `var/documents/pages/` and referenced through La
 Label Studio. If `documents` is changed in `default.yaml`, set `ACTIVE_OCR_DOCUMENTS_DIR` to the
 same host directory before starting Compose.
 
-## Commands
+## Legacy service commands
 
 ```bash
 uv run active-ocr import PATH_TO_MANIFEST.jsonl

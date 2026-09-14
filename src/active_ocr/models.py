@@ -122,3 +122,72 @@ class Experiment(Model):
         if self.stage is Stage.ERROR and not self.error:
             raise ValueError("an error stage requires an error message")
         return self
+
+
+class SourceRegion(Model):
+    """Oracle ground truth, preserved verbatim (including empty illegible text)."""
+
+    id: str = Field(min_length=1)
+    box: Box
+    text: str
+    illegible: bool = False
+
+
+class SimulationPage(Page):
+    """Frozen image metadata; no labels are exposed to model prediction."""
+
+    image_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_image: str
+
+
+class RevealedExample(Model):
+    page: SimulationPage
+    regions: tuple[SourceRegion, ...]
+    seconds: None = None
+
+
+class DatasetSnapshot(Model):
+    source_manifest: str
+    frozen_manifest: str
+    manifest_sha256: str
+    ground_truth_sha256: str
+    pages: tuple[SimulationPage, ...]
+
+
+class SimulationConfig(Model):
+    strategy: Strategy = Strategy.RANDOM
+    batch_size: int = Field(default=2, gt=0)
+    page_budget: int = Field(default=6, ge=0)
+    max_rounds: int = Field(default=3, ge=0)
+    seed: int = 824
+    report_predictions: bool = False
+    backend: str = "deterministic-fixture-v1"
+    fit_policy: str = "reset-fit-cumulative-v1"
+    evaluator_id: str | None = Field(default=None, min_length=1)
+
+
+class SimulationRound(Model):
+    number: int
+    selected_ids: tuple[str, ...]
+    revealed_ids: tuple[str, ...]
+    labelled_count: int
+    remaining_count: int
+    model_id: str
+    predictions: tuple[Prediction, ...]
+    validation_predictions: tuple[Prediction, ...] = ()
+    validation_metrics: dict[str, float] | None = None
+    annotation_seconds: None = None
+
+
+class SimulationRun(Model):
+    """One atomic SQLite record contains frozen inputs and all committed rounds."""
+
+    id: str
+    kind: str = "fixture-simulation-not-ocr-evidence"
+    config: SimulationConfig
+    code_revision: str
+    software_versions: tuple[tuple[str, str], ...]
+    dataset: DatasetSnapshot
+    rounds: tuple[SimulationRound, ...] = ()
+    complete: bool = False
+    stop_reason: str | None = None
