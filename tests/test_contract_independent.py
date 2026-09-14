@@ -427,3 +427,133 @@ def test_fresh_process_resume_with_real_identity_and_exports(tmp_path):
     assert all(r["annotation_seconds"] == "" and r["kind"] == RunKind.CONTRACT_TEST for r in rows)
     with pytest.raises(FileExistsError):
         pipeline.export_simulation(run.id, tmp_path / "export")
+
+
+@pytest.mark.parametrize("acquired", [False, True])
+@pytest.mark.parametrize("status", list(PredictionStatus))
+def test_correction_raw_nonfinite_payload_keeps_prior_export(tmp_path, acquired, status):
+    pipeline, prior, _, witness = setup_case(tmp_path, page_budget=2)
+    if acquired:
+        prior = pipeline.step_simulation(prior.id, witness)
+
+    class RawPayload(Witness):
+        coordinate = "x"
+        value = float("nan")
+
+        def predict(self, pages, **kwargs):
+            output = [p.model_dump() for p in super().predict(pages, **kwargs)]
+            output[0]["status"] = status
+            output[0]["regions"][0]["box"][self.coordinate] = self.value
+            return output
+
+    raw = RawPayload(prior.config.real)
+    for coordinate in ("x", "y", "width", "height"):
+        for value in (float("nan"), float("inf"), -float("inf")):
+            raw.coordinate, raw.value = coordinate, value
+            with pytest.raises(ValueError):
+                pipeline.step_simulation(prior.id, raw)
+            assert pipeline.get_simulation(prior.id) == prior
+    pipeline.export_simulation(prior.id, tmp_path / "prior-export")
+    assert json.loads((tmp_path / "prior-export/results.json").read_text()) == prior.model_dump(
+        mode="json"
+    )
+    retried = pipeline.step_simulation(prior.id, witness)
+    assert pipeline.get_simulation(prior.id) == retried
+    assert len(retried.rounds) == int(acquired)
+
+
+@pytest.mark.parametrize("acquired", [False, True])
+@pytest.mark.parametrize(
+    "status",
+    [PredictionStatus.INVALID_OUTPUT, PredictionStatus.TRUNCATED, PredictionStatus.REFUSAL],
+)
+def test_correction_finite_failure_preserves_evidence(tmp_path, acquired, status):
+    pipeline, prior, _, witness = setup_case(tmp_path, page_budget=2)
+    if acquired:
+        prior = pipeline.step_simulation(prior.id, witness)
+
+    class Failed(Witness):
+        def predict(self, pages, **kwargs):
+            return tuple(
+                p.model_copy(
+                    update={
+                        "status": status,
+                        "raw_output_artifact": "synthetic:raw-failure",
+                        "finish_reason": "synthetic-stop",
+                    }
+                )
+                for p in super().predict(pages, **kwargs)
+            )
+
+    committed = pipeline.step_simulation(prior.id, Failed(prior.config.real))
+    assert pipeline.get_simulation(prior.id) == committed
+    record = committed.rounds[-1] if acquired else committed.baseline
+    prediction = record.validation_predictions[0]
+    assert prediction.status is status and prediction.regions[0].text == "é"
+    assert prediction.raw_output_artifact == "synthetic:raw-failure"
+    assert prediction.finish_reason == "synthetic-stop"
+    assert record.validation_metrics["failed_pages"] == 1
+    assert record.validation_metrics["char_edits"] == record.validation_metrics["reference_chars"]
+    pipeline.export_simulation(prior.id, tmp_path / "export")
+    assert json.loads((tmp_path / "export/results.json").read_text()) == committed.model_dump(
+        mode="json"
+    )
+
+
+@pytest.mark.parametrize("last_purpose", ["validation", "pool", None])
+def test_correction_mixed_batch_has_no_partial_publication(tmp_path, last_purpose):
+    pipeline, run, gpu = legacy_pipeline(tmp_path)
+    for page_id in ("train2", "train3"):
+        page = Page(id=page_id, document_id=page_id, image_uri="synthetic.png", width=1, height=1)
+        pipeline.store.save("page", page.id, page)
+    output = [
+        Prediction(
+            page_id=page_id, experiment_id=run.id, round_number=1, model_id="model", entropy=0.2
+        ).model_dump(mode="json")
+        for page_id in ("train", "train2", "train3")
+    ]
+    if last_purpose is None:
+        for prediction in output:
+            prediction.pop("purpose")
+    else:
+        output[-1]["purpose"] = last_purpose
+    gpu.job = lambda _: {"status": "succeeded", "result": {"predictions": output}}
+    if last_purpose == "validation":
+        with pytest.raises(ValueError):
+            pipeline.poll_job(run.id)
+        assert pipeline.get_experiment(run.id) == run
+        assert pipeline.store.list("prediction", Prediction) == ()
+    else:
+        updated = pipeline.poll_job(run.id)
+        assert updated.stage is Stage.READY and updated.round_number == 1
+        assert len(pipeline._predictions_for(updated)) == 3
+
+
+def test_correction_stored_purpose_filters_before_acquisition(tmp_path):
+    pipeline, run, _ = legacy_pipeline(tmp_path)
+    run = run.model_copy(update={"stage": Stage.READY, "round_number": 1, "job_id": None})
+    pipeline.store.save("experiment", run.id, run)
+    output = Prediction(
+        page_id="train",
+        experiment_id=run.id,
+        round_number=1,
+        model_id="model",
+        entropy=0.9,
+        purpose=PredictionPurpose.VALIDATION,
+    )
+    pipeline.store.save("prediction", output.storage_key, output)
+    assert pipeline._predictions_for(run) == ()
+    with pytest.raises(ValueError, match="missing prediction"):
+        pipeline.prepare_batch(run.id)
+    assert pipeline.get_experiment(run.id) == run
+    # Write actual purpose-omitted JSON, then use the normal acquisition API.
+    legacy = output.model_dump(mode="json")
+    legacy.pop("purpose")
+    with sqlite3.connect(pipeline.settings.database) as db:
+        db.execute(
+            "UPDATE records SET payload=? WHERE kind='prediction' AND key=?",
+            (json.dumps(legacy), output.storage_key),
+        )
+    assert len(pipeline._predictions_for(run)) == 1
+    selected = pipeline.prepare_batch(run.id)
+    assert selected.current_batch == ("train",)
