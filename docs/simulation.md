@@ -247,5 +247,7 @@ fresh Python processes without ML imports. It does not bypass identity checks fo
 | L7–L8 | Hand-computed Unicode/blank/whitespace/micro/failure counts, raw source preservation and held-out/hidden-label perturbation. |
 | L9 | Separate-process baseline/round resume, JSON/CSV rows and undefined-rate flags, source/identity refusal on completed runs, no overwrite. |
 
-These tests establish local contract behavior only. Independent Testing must review the exact
-implementation candidate before acceptance; earlier fixture acceptance does not approve this extension.
+These tests establish local contract behavior only. Manager accepted corrected implementation
+`dee5e1a5ecbbc326921e0f4019792c8f7e5deab2` after independent Testing passed the 197-test
+candidate suite and 40 independent cases. The [review](verification/local-contract-review.md)
+records resolved defects, exact reproduction and limits. Real model/GPU execution remains unavailable.

@@ -1,11 +1,13 @@
 # Plan — real OCR with simulated annotation on Modal
 
-Owner: Planning. Version: **0.2**, 2026-09-14. Status: **Roadmap accepted; candidate 1A released**.
+Owner: Planning. Version: **0.2**, 2026-09-14. Status: **Roadmap accepted; candidate 1A completed**.
 Manager reviewed the exact successor at `d659c48f38639e54e19ac6aceff1b5adf853355a`
 and accepts its roadmap and bounded local candidate 1A under the user's engineering authorization.
-Independent Testing is required before accepting that implementation. Converter admission,
+Candidate 1A at `dee5e1a5ecbbc326921e0f4019792c8f7e5deab2` passed independent Testing;
+Manager accepted and integrated it with review evidence `2db380a497ca641d8e1df0cda773074e0d306040`.
+See the [exact review and limitations](../docs/verification/local-contract-review.md). Converter admission,
 later candidates, experimental methodology and paid execution retain the gates below.
-Phase-A v0.1 remains in Git history. No real-code candidate or model execution is claimed here.
+Phase-A v0.1 remains in Git history. Real model execution is still unavailable.
 
 Inspected control: `8b4e418dc4c5e4ae0287de0b76f13a94e29f5645`; application remains the
 simulation implementation `2d24c6493ce8051e9a6ae95d9d30fd5f7b8e55d7`.
@@ -136,6 +138,8 @@ Manager a precise scope adjustment before editing; no speculative helper module/
 
 Manager correction scope after independent review of candidate
 `3c86330b82121bd86c7e6a9d926103d8d62b23f0` (2026-09-14): the candidate is not accepted.
+The corrected candidate `dee5e1a5ecbbc326921e0f4019792c8f7e5deab2` subsequently passed these
+checks and was accepted; the original FAIL remains in the review history.
 Failed-status predictions must not persist nonfinite structured geometry that becomes JSON null
 and prevents reload. Reject nonfinite coordinates atomically for every status; preserve valid
 failed-output records and their raw-evidence references. The existing successful-layout checks
@@ -514,5 +518,7 @@ remove later source/method/hardware gates. No production code or job was changed
   archive evidence without independence claims; defines exact local slice1A and gated converter;
   separates baseline step and identity from telemetry; unifies recipe/schedules; represents
   undefined CER/WER independently; holds layout/score implementation with precise later rules.
-  Manager accepted this roadmap and released only candidate 1A after reviewing exact publication
+  Manager accepted this roadmap and initially released only candidate 1A after reviewing exact publication
   `d659c48f38639e54e19ac6aceff1b5adf853355a`; all later gates remain as stated above.
+  Corrected local candidate `dee5e1a5ecbbc326921e0f4019792c8f7e5deab2` is now independently
+  passed and integrated; source conversion, actual model execution and cloud releases remain pending.
