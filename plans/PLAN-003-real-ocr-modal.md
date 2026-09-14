@@ -134,6 +134,18 @@ Manager a precise scope adjustment before editing; no speculative helper module/
 
 ### Records and API semantics
 
+Manager correction scope after independent review of candidate
+`3c86330b82121bd86c7e6a9d926103d8d62b23f0` (2026-09-14): the candidate is not accepted.
+Failed-status predictions must not persist nonfinite structured geometry that becomes JSON null
+and prevents reload. Reject nonfinite coordinates atomically for every status; preserve valid
+failed-output records and their raw-evidence references. The existing successful-layout checks
+remain. Also permit a narrow purpose-only change to `Pipeline.poll_job` and `_predictions_for`:
+legacy scoring must reject non-pool results before any publication, and acquisition reads must
+exclude non-pool stored records. Missing purpose in historical records still defaults to pool.
+Development may add focused coverage in `tests/test_pipeline.py`; independent review regressions
+remain Testing-owned. This exception does not authorize other legacy service or storage work.
+Re-review the exact corrected candidate, including full regression and the independent failure cases.
+
 Keep `SimulationConfig` and `SimulationRun` as the run containers. Add optional `RealOCRConfig`
 with explicit backend/recipe version, pinned model/processor revision, training/decode/evaluation
 policy IDs and `ExpectedIdentity`. Use typed explicit fields, not arbitrary executable imports or

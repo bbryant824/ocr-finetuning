@@ -195,6 +195,10 @@ Status is `ok`, `invalid_output`, `truncated` or `refusal`, with optional raw-ou
 finish reason. Failed outputs remain page records and evaluate as empty text hypotheses, with
 separate failure counts. Partial text on failed output is not scored. Valid blanks and failed
 outputs therefore remain distinguishable. Raw evidence collection belongs to the later adapter.
+Structured region coordinates must be finite for every status before any simulation commit;
+malformed failed output is rejected atomically, while valid failed records retain their raw references.
+Legacy scoring accepts only pool-purpose results before publishing any predictions or experiment
+state, and acquisition reads exclude other purposes. Older omitted-purpose records still mean pool.
 Local failures leave the prior run intact; competing callers can compute, but only one can commit.
 After a lost post-commit response, reload the run before deciding whether to request the next step.
 Repeated remote side effects are not prevented by local SQLite compare-and-swap.

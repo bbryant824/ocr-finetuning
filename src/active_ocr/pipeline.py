@@ -311,6 +311,7 @@ class Pipeline:
             prediction.experiment_id != experiment.id
             or prediction.round_number != target_round
             or prediction.model_id != experiment.model_id
+            or prediction.purpose is not PredictionPurpose.POOL
             for prediction in predictions
         ):
             raise ValueError("GPU prediction ownership does not match the current experiment")
@@ -372,6 +373,7 @@ class Pipeline:
             if prediction.experiment_id == experiment.id
             and prediction.round_number == experiment.round_number
             and prediction.model_id == experiment.model_id
+            and prediction.purpose is PredictionPurpose.POOL
         )
 
     @classmethod
@@ -472,18 +474,20 @@ class Pipeline:
             raise ValueError("prediction ownership does not match run/round/model/purpose")
         pages = {p.id: p for p in run.dataset.pages}
         for prediction in predictions:
-            if run.kind is not RunKind.FIXTURE and prediction.status is PredictionStatus.OK:
-                page = pages[prediction.page_id]
+            validate_layout = (
+                run.kind is not RunKind.FIXTURE and prediction.status is PredictionStatus.OK
+            )
+            if validate_layout:
                 region_ids = [r.id for r in prediction.regions]
                 if len(set(region_ids)) != len(region_ids):
                     raise ValueError("duplicate predicted region ID")
-                for region in prediction.regions:
-                    box = region.box
-                    if (
-                        not all(math.isfinite(v) for v in (box.x, box.y, box.width, box.height))
-                        or box.x + box.width > page.width
-                        or box.y + box.height > page.height
-                    ):
+            for region in prediction.regions:
+                box = region.box
+                if not all(math.isfinite(v) for v in (box.x, box.y, box.width, box.height)):
+                    raise ValueError("predicted geometry must be finite for every status")
+                if validate_layout:
+                    page = pages[prediction.page_id]
+                    if box.x + box.width > page.width or box.y + box.height > page.height:
                         raise ValueError("predicted region out of original pixel bounds")
             if require_scores:
                 if run.config.strategy is Strategy.ENTROPY and prediction.entropy is None:

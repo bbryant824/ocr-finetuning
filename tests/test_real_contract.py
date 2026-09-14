@@ -740,3 +740,74 @@ def test_legacy_gpu_job_rejects_baseline_result_without_publishing(tmp_path, mon
         pipeline.poll_job(experiment.id)
     assert pipeline.get_experiment(experiment.id) == experiment
     assert pipeline.store.list("prediction", Prediction) == ()
+
+
+@pytest.mark.parametrize("baseline", [True, False])
+@pytest.mark.parametrize("status", list(PredictionStatus))
+@pytest.mark.parametrize("coordinate", ["x", "y", "width", "height"])
+def test_nonfinite_regions_never_replace_readable_run(tmp_path, baseline, status, coordinate):
+    pipeline, run, _ = setup(tmp_path, page_budget=2)
+    if not baseline:
+        run = pipeline.step_simulation(run.id, Adapter())
+
+    class Malformed(Adapter):
+        def predict(self, pages, **kwargs):
+            values = dict(x=0, y=0, width=1, height=1)
+            values[coordinate] = float("inf")
+            region = Region(id="partial", box=Box(**values), text="partial output")
+            return tuple(
+                p.model_copy(update={"status": status, "regions": (region,)})
+                for p in super().predict(pages, **kwargs)
+            )
+
+    with pytest.raises(ValueError, match="finite"):
+        pipeline.step_simulation(run.id, Malformed())
+    reopened = Pipeline.for_simulation(tmp_path / "runs")
+    assert reopened.get_simulation(run.id) == run
+    reopened.export_simulation(run.id, tmp_path / "before-retry")
+    exported = json.loads((tmp_path / "before-retry/results.json").read_text())
+    assert exported == run.model_dump(mode="json")
+    retried = reopened.step_simulation(run.id, Adapter())
+    assert reopened.get_simulation(run.id) == retried
+    assert len(retried.rounds) == (0 if baseline else 1)
+
+
+@pytest.mark.parametrize("baseline", [True, False])
+@pytest.mark.parametrize(
+    "status",
+    [PredictionStatus.INVALID_OUTPUT, PredictionStatus.TRUNCATED, PredictionStatus.REFUSAL],
+)
+def test_finite_failed_output_retains_raw_evidence_and_roundtrips(tmp_path, baseline, status):
+    pipeline, run, _ = setup(tmp_path, page_budget=2)
+    if not baseline:
+        run = pipeline.step_simulation(run.id, Adapter())
+
+    class Failed(Adapter):
+        def predict(self, pages, **kwargs):
+            region = Region(id="partial", box=Box(x=0, y=0, width=1, height=1), text="partial")
+            return tuple(
+                p.model_copy(
+                    update={
+                        "status": status,
+                        "regions": (region,),
+                        "raw_output_artifact": "synthetic-raw",
+                        "finish_reason": "failed",
+                    }
+                )
+                for p in super().predict(pages, **kwargs)
+            )
+
+    updated = pipeline.step_simulation(run.id, Failed())
+    assert pipeline.get_simulation(run.id) == updated
+    record = updated.baseline if baseline else updated.rounds[-1]
+    prediction = record.validation_predictions[0]
+    assert prediction.status is status and prediction.regions[0].text == "partial"
+    assert (
+        prediction.raw_output_artifact == "synthetic-raw" and prediction.finish_reason == "failed"
+    )
+    assert record.validation_metrics["failed_pages"] == 1
+    assert record.validation_metrics["char_edits"] == record.validation_metrics["reference_chars"]
+    pipeline.export_simulation(run.id, tmp_path / "export")
+    assert json.loads((tmp_path / "export/results.json").read_text()) == updated.model_dump(
+        mode="json"
+    )
