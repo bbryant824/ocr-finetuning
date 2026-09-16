@@ -1,16 +1,27 @@
 # Plan — real OCR with simulated annotation on Modal
 
-Owner: Planning. Version: **0.2**, 2026-09-14. Status: **Roadmap accepted; candidate 1A completed**.
-Manager reviewed the exact successor at `d659c48f38639e54e19ac6aceff1b5adf853355a`
+Owner: Planning. Version: **0.4**, 2026-09-16. Status: **Local contracts, converter and Qwen offline implementation accepted; Modal integration next**.
+Manager reviewed v0.2 at `d659c48f38639e54e19ac6aceff1b5adf853355a`
 and accepts its roadmap and bounded local candidate 1A under the user's engineering authorization.
 Candidate 1A at `dee5e1a5ecbbc326921e0f4019792c8f7e5deab2` passed independent Testing;
 Manager accepted and integrated it with review evidence `2db380a497ca641d8e1df0cda773074e0d306040`.
-See the [exact review and limitations](../docs/verification/local-contract-review.md). Converter admission,
-later candidates, experimental methodology and paid execution retain the gates below.
+See the [exact review and limitations](../docs/verification/local-contract-review.md). Engineering-only
+READ source use is now user-approved; Manager accepted the exact converter specification at
+`653fe7dff2018de1e35c91d616c24ed848681a16`. Candidate1B `8db583326e55b307df487d57d4c03be1d6e12689`
+is accepted with independent C1–C8 evidence `f84f26b854bb29c4ad428ab2d6ab84a702d83b55`.
+All400 actual pages passed conversion, original-label comparison, freeze and fresh-process reopen.
+See the [converter review](../docs/verification/read2016-converter-review.md). Later implementation,
+methodology and execution retain their stated gates.
 Phase-A v0.1 remains in Git history. Real model execution is still unavailable.
 
-Inspected control: `8b4e418dc4c5e4ae0287de0b76f13a94e29f5645`; application remains the
-simulation implementation `2d24c6493ce8051e9a6ae95d9d30fd5f7b8e55d7`.
+Inspected control for v0.4: `fad7cae5baf5d7e30ecf9a772152363ab9ca6902`, including accepted
+local contracts, converter specification and two-Volume runtime correction. Earlier scopes below
+were retained; Manager accepted candidate2 publication `320790d69970348386ac180c524f5f568e035159`
+and its staged offline/build/GPU acceptance. Corrected candidate2 implementation
+`31bb47224c03b0db8f7f9705028e29e1d13e2c0e` is now accepted for offline scope with independent
+evidence `a0140204d199a5a08b15958ee6552f1b2702aa48`; the original failed review and corrections
+remain in the [review record](../docs/verification/qwen-runtime-review.md). Actual Linux CPU and
+4B/CUDA proof remain pending. This releases candidate3 implementation, not a cloud run.
 Scientific input: accepted [RES-002](../research/RES-002-real-ocr-pilot.md) at
 `8a173197fd4ef12f91da3fde0d0197bc4bda21b6`. Development, independent Testing and QA
 preparation informed this reconciliation; they are not verdicts on a real implementation.
@@ -45,20 +56,15 @@ A null/worse result is admissible. Revealed pages are simulated annotation budge
 
 ### Inspected implementation
 
-`integrations/simulation.py` already freezes source/images, exposes only cumulative TRAIN
-examples to `fit`, and supplies validation truth only to `ValidationEvaluator`. `pipeline.py`
-selects a deterministic random first batch, reset-fits, optionally predicts the pool, evaluates
-validation and commits a whole round with `SQLiteStore.compare_and_swap`. `models.py` lacks
-real config/baseline/purpose/failure records; `Prediction.round_number >= 1`, while
-`SimulationRound.number` currently has **no positive constraint**. Zero budget completes at
-creation, before evaluation. Runtime identity is recorded once, not checked on resume.
-`evaluation.py` has per-string CER/IoU/AUC but lacks edit-count aggregation and WER. The CLI
-reconstructs FixtureModel; Qwen and legacy GPU jobs remain placeholders. The current oracle's
-source artifact sits beside image artifacts, so uploading the artifact root leaks full GT.
-
-Inspected source/config/tests and [simulation guide](../docs/simulation.md), plus the exact
-Development/Testing readiness findings. Historical 63-test/Ruff evidence covers the fixture
-candidate only. This planning turn ran no application tests or cloud workloads.
+Candidate1A is implemented and independently passed: separate baseline, positive acquired rounds,
+prediction purpose/failure checks, expected-identity guards and page-text counts. Candidate1B adds
+strict-default source policy, required nullable simulation-only document IDs for admitted READ,
+literal PAGE conversion, hashed original provenance, safe publication and freeze/reload integrity.
+Legacy Page/importer remains unchanged. Independent review reproduced320 existing/author tests
+plus38 separate cases; all400 actual pages/9410lines and804originals passed structural comparison
+and a full freeze/fresh-process reopen. These are data/local engineering results only.
+Qwen loading/training/prediction and Modal/real CLI remain unimplemented. This specification and
+its accepted dependency pins do not prove actual model/library/GPU compatibility.
 
 ### READ2016 asset evidence and the grouping boundary
 
@@ -85,29 +91,18 @@ the separately retained standard license text is not a license file from the pin
 | Observed property | Consequence |
 | --- | --- |
 | 350 TRAIN / 50 VALIDATION images/pages; 8,367 / 1,043 lines | Preserve official partitions and all source records; no implicit 70/10/20 split. |
-| PAGE namespace `2013-07-15`; complete indexed region and line reading order recorded by Platform | Use `RegionRefIndexed` plus line `custom` reading-order indices, validate uniqueness/coverage/contiguity; XML sequence agrees but is not the semantic rule. |
+| PAGE namespace `2013-07-15`; complete indexed region and line reading order recorded by Platform | Use `RegionRefIndexed` plus line `custom` reading-order indices, validate uniqueness/coverage; region index gaps are preserved, line indices are contiguous. XML sequence is not the semantic rule. |
 | Every line has exactly one `TextEquiv` and one `Unicode` (Planning XML check) | Select that Unicode verbatim for this source version; reject future ambiguous alternatives instead of choosing by confidence. |
 | Four empty Unicode lines: one TRAIN, three VALIDATION | Preserve empty strings. They are annotated empty lines, not missing annotations or blank pages. |
 | Two TRAIN lines lack `Baseline`; coordinates and reading-order metadata exist | A polygon-envelope view need not fabricate baselines. Missing structure type is a separate metadata issue, not a reason to drop text. |
 | No geometry issues or cross-split exact image duplicates/filename overlap in audit | Useful checks only; near-duplicate and source-document independence are not proved. |
 | Both `doc.xml` exports have `docId=-1`, title `page`, split-local `pageNr` | These are placeholders. Filename sequence, page number and one-ID-per-page are not document provenance. |
 
-**Current disposition:** keep this source in a group-unknown engineering staging area, outside
-comparative runs. Slice 1 does not ingest it or change `Page.document_id`/oracle leakage checks.
-Before conversion/execution, Manager must obtain an explicit limited engineering-only decision
-or source-evidenced grouping. An engineering exception would preserve official splits and record
-`grouping=unknown`/no independence claim in an explicitly reviewed representation; this document
-does not implement or authorize a bypass. Do not insert synthetic per-page document IDs, reuse
-`-1` and waive the error, or silently repartition. If a safe representation is not agreed, keep
-using synthetic contract fixtures. Comparative document-independent claims require evidence or
-an explicitly revised research design, and final-test changes require separate approval.
-
-Converter gates remaining: accepted grouping representation, source illegibility/structure
-mapping, polygon view and image orientation. Retain original XML/polygons/checksums and explicit
-source-to-page mapping. Read ordered line polygons as enclosing axis-aligned rectangles only as
-a declared lossy view; keep diplomatic spelling/flags/blank text. Recheck unusual/marginal lines.
-Reject invalid transforms, ambiguous TIFF frames, missing/duplicate images, traversal and mutated
-bytes. No PAGE converter, ground-truth editing or real-source snapshot is released by slice 1.
+**Current disposition (v0.3):** the user has explicitly admitted these official partitions
+with grouping unknown for engineering verification only. Candidate 1B below specifies nullable
+simulation document IDs plus a narrow frozen policy; no placeholder IDs, silent leakage-check
+waiver or final-test use. This successor resolves the prior source-representation decision for
+review without changing original XML/images/split membership or claiming document independence.
 
 ## Approved first implementation scope — candidate 1A: local contracts only
 
@@ -291,87 +286,524 @@ Qwen quality, training, CUDA, checkpoints-on-disk, Modal auth or cancellation PA
 
 ## Later candidates and stage-specific gates
 
-### Candidate 1B — the gated READ converter
+### Candidate 1B — READ2016 converter and engineering-only source policy
 
-Development would own new `integrations/public_dataset.py`, parser fixtures and explicit mapping
-docs only after source semantics/group-unknown representation are accepted. Use standard XML
-parsing and existing source records where honest; no configurable importer framework. Platform
-owns asset checksums/staging, not core model/store files. Near-duplicate review and grouping
-remain mandatory for independence claims. Preserve final-test exclusion. Synthetic 1A release
-must not be conditional on 1B completion; real execution is conditional on a reviewed converter.
+**Implemented and independently passed C1–C8 at candidate `8db583326e55b307df487d57d4c03be1d6e12689`.** On 2026-09-16
+the user admitted the official
+READ2016 1.2.0 TRAIN/VALIDATION partitions for engineering verification with document grouping
+explicitly unknown. Original labels/membership stay unchanged; final test is excluded. This
+resolves source-use permission, not converter correctness or scientific independence. Candidate
+1A is completed; candidates 2/3 remain unimplemented. No recipe, evaluator or score change here.
 
-### Candidate 2 — Qwen load, train, output and checkpoints
+#### Narrow schema and frozen policy
 
-Development exclusively owns `integrations/qwen.py`, narrowly needed model records/tests and
-agreed GPU lock/dependency edits. Preconditions: accepted full-page output/target and source
-mapping, inspected Qwen module names/tokenization, pinned compatible libraries and exact recipe.
-No Modal SDK/job/entrypoint or uncertainty implementation here. CPU/synthetic tests precede a
-separately authorized CUDA smoke; live evidence comes after candidate 3 supplies the transport.
+Introduce `SourcePolicy` with exactly `known-document-v1` (default) and
+`read2016-official-unknown-engineering-v1`. The latter binds READ2016 1.2.0, the archive SHA-256
+above, official train/validation membership, `grouping=unknown`, `engineering_only=true`, no test,
+and the mapping below. It is not `allow_unknown=True` or a generic split-check bypass.
 
-One future calibration proposal, following Research: LoRA **rank16, alpha32, dropout0**, frozen
-base/vision, explicit language-attention q/v projections, page batch1, accumulation4, **3 epochs**,
-AdamW lr1e-4, constant schedule, warmup0, weight decay0, clip norm1, no augmentation, bf16 only
-if the selected device supports it. Resolve exact full module names and verify frozen tensors;
-do not regex-match vision modules or invent a list before architecture inspection. Reset base,
-adapter, optimizer and scheduler each cumulative fit. Seed is the paired seed, never UUID/hash.
-Flush a partial accumulation group at each epoch end; normalize by its actual microbatch count
-so it is not underweighted. Expected updates are `epochs * ceil(revealed_pages / 4)` for this
-one-page-example/no-packing recipe. Record actual updates/tokens and test the chosen trainer's
-behavior; no silent truncation or fixed-step substitute to satisfy a deadline.
+Keep **`Page.document_id` required and non-null**: legacy `local_data.load_image_pages` and its
+document-hash split remain untouched. Override only `SourcePage` and `SimulationPage` with
+`document_id: str | None`, still required, nonempty when a string. Add `source_policy` with the
+strict default to these two classes, `DatasetSnapshot` and `SimulationConfig`. Under the default,
+require a known nonempty document ID and keep cross-split document checks. Under the READ policy,
+require **null on every page**, reject TEST and any mixed policy/known-ID row, and do not insert
+`-1`, a filename, a page ID or a split name as a document identity. This intentionally supports
+one admitted all-unknown corpus, not arbitrary mixed corpora. Defaults keep historical JSON
+readable; omission of the document field remains an error, never implicit admission.
 
-This recipe is calibration, not demonstrated adequate training. Use target/gradient mask tests:
-supervise ordered assistant text/geometry and intended termination, ignore prompt/image/pad;
-check causal alignment, nonzero supervised tokens, finite loss and finite gradients, intended
-trainable tensor changes, frozen tensors unchanged. LoRA components initially having zero
-individual gradients are not automatically a failure. Only selected source GT makes targets;
-validation and unselected boxes never make crops, prompts or tiling decisions.
+Add one plain `SourceArtifact` record (`uri: str`, `sha256: SHA256`) for the converter's
+`provenance.json`. `SourcePage.source_provenance` and `DatasetSnapshot.source_provenance` are
+optional with default `None`; require them for READ and forbid them under the strict policy in
+this slice. Every READ row references the same relative `provenance.json` and hash. The snapshot
+retains that reference relative to `source_manifest`. It is label-bearing local provenance and
+must **not** be copied onto `SimulationPage`, fit examples or prediction requests. Freeze must
+explicitly omit `regions` and `source_provenance` when projecting pages; do not let the existing
+`model_dump` copy all new source fields indiscriminately. Raw XML/polygons stay oracle-side.
 
-Raw schema proposal: strict `{"regions":[{"text":string,"bbox":[x1,y1,x2,y2]}]}`,
-ordered lines, coordinates real numbers within [0,1000], x2>x1/y2>y1. No model-generated IDs
-required; assign deterministic prediction-local IDs by list position, not source line IDs.
-Source illegibility flags remain unchanged in oracle/provenance; this initial model target
-supervises literal source text and geometry, not an invented illegibility marker/class. Convert
-predictions with `Region.illegible=False` under this schema so an empty string is preserved;
-predicting illegibility is a separately versioned task extension, not an implicit text rewrite.
-For original width W/height H, map x=x1*W/1000, y=y1*H/1000,
-w=(x2-x1)*W/1000, h=(y2-y1)*H/1000. Keep floats; no rounding/clamping/GT-based repair. Training
-serialization uses the inverse mapping of the declared polygon-envelope view. The prompt defines
-normalized coordinates relative to the **original uncropped page**. Aspect-preserving whole-page
-resize needs no content-coordinate offset; exclude cropping/tiling/padding in the first recipe
-unless an explicitly versioned inverse transform is tested. Audit processor internals rather
-than assume their coordinate interpretation. Stop for invalid geometry, block-as-line output or
-unreliable line detection; no invented whole-page boxes or hidden-GT line recognizer fallback.
+The provenance file uses a fixed schema, not arbitrary metadata: schema/mapping version1,
+source policy, dataset record/version/archive hash, converter code SHA, the limitations above,
+sorted regular-file inventory (relative URI, bytes, SHA-256), and ordered page-to-image/XML
+mapping with split and observed counts. It contains no transcript copies; original XML already
+preserves them. Inventory covers all 804 copied regular source files, including both `doc.xml`
+exports. No absolute paths, runtime IDs or timestamps in deterministic output bytes. The
+normalized manifest hashes this file; the file does not hash the manifest (avoid a hash cycle).
 
-Decode with one beam, no sampling, no repetition/no-repeat-gram penalties. Initial resource-cap
-proposal remains long side1024, max_new_tokens2048, target text cap4096, with total multimodal
-sequence/image-token bounds resolved from the pinned processor before dispatch. These limits
-may be too small for READ pages; calibrate coverage then freeze, never silently discard/crop
-or truncate targets. Preserve raw outputs, finish reasons and invalid/refusal/truncation states.
+Extend `_read_source(data, directory, *, source_policy=known-document-v1)` and
+`LocalOracle.freeze(manifest, store, *, source_policy=known-document-v1)`. Explicit caller policy,
+all row policies, provenance policy and snapshot policy must agree; never infer admission from
+nullable fields. READ source/provenance URIs must be safe relative paths beneath the dataset
+directory, with no traversal, absolute path or symlink component; keep legacy path behavior
+unchanged. Keep the known-document and image-content maps separate: only the admitted
+unknown document check is inapplicable, never the image check. Existing cross-split duplicate
+image rejection stays strict; READ additionally rejects duplicate image hashes anywhere and
+requires exact row coverage against its provenance page map. Reject wrong source/version/archive
+identity, missing/changed provenance or raw files and any TEST member. This is integrity against
+accidental changes, not protection against a malicious adapter rewriting all local evidence.
 
-Model ID `checkpoint:sha256:<manifest_hash>` binds canonical manifest schema, pinned base/
-processor/recipe/code, selected-only target digest/ordered IDs, seed, training updates and all
-weight/config file hashes. Absolute machine paths and volatile telemetry are not manifest identity.
-Use immutable relative paths; incomplete/corrupt checkpoints never load. Fresh process/container
-must load the saved checkpoint, verify tensors and reproduce train-probe decoding/logits under
-a tolerance declared before running. This compares one saved model, not two independent fits.
+`Pipeline.create_simulation` passes `config.source_policy` to freeze. `SimulationRun` validates
+config/snapshot/page policy equality; `LocalOracle.__init__` reloads with the frozen policy,
+rechecks provenance/inventory and compares source/frozen page metadata (ID, document ID, split,
+size, image hash and policy), not just the current set-of-IDs check. Retain existing manifest,
+frozen-image and pre-commit source validation. Check policy again on resume, including complete
+runs; no runtime option can loosen it. Preserve `exclude_unset=True` historical CAS compatibility.
+JSON exports carry policy and provenance in existing config/dataset objects; CSV adds
+`source_policy`, `document_grouping` and `engineering_only` columns, with `known`/false for strict
+and `unknown`/true for READ. Run kind still independently distinguishes fixture/contract/real.
+A synthetic model run on READ is still fixture evidence. Conversion does not enable real execution.
+
+#### Observed source → normalized fields
+
+Planning inspected all 400 actual PAGE XMLs and JPEG headers, line attributes and marginal/missing
+metadata examples. Counts below are structural observations, not a semantic transcription audit.
+A direct check corrects v0.2's overly strict region-contiguity assumption: TRAIN Seite0111 has
+indices 0,2,3,4,5,6,7 and Seite0184 has 0,1,3,4; all regions are referenced exactly once and
+custom indices agree. Sorting these explicit indices is unambiguous; never renumber or invent
+missing regions. All per-region line indices are contiguous. The 400-page/9,410-line check also
+confirmed unique line IDs per page, single plain Unicode elements and positive bounded envelopes.
+
+| Source field / observed condition | Fixed mapping and refusal rule |
+| --- | --- |
+| `PublicData/Training` 350 pages / `Validation` 50; 8,367 / 1,043 lines | Map only to TRAIN/VALIDATION, preserve membership; no random split or filtering. Stable page ID `read2016-v1.2.0:<train-or-validation>:<XML-stem>` identifies a page, never a document. Emit TRAIN then VALIDATION, each sorted by exact stem. |
+| PAGE namespace `2013-07-15`; one Page per XML | Require this namespace/shape and exact XML-stem/image-basename pairing. Resolve JPG only in the same split's `Images`, never via omitted symlinks or arbitrary `imageFilename` paths. |
+| `ReadingOrder/OrderedGroup/RegionRefIndexed` and region `custom readingOrder` | Require one flat indexed group, unique nonnegative integer indices and references covering all TextRegions; require matching region custom indices. Gaps are allowed and preserved (observed on two pages). Order by explicit indices, not XML order or box position. |
+| All 9,410 lines have per-region `custom readingOrder` | Require exactly one integer index per line, unique complete contiguous indices from zero within its region; concatenate regions then lines. Preserve original line ID, require uniqueness across each page. Reordered XML nodes with unchanged indices preserve ordered line targets; raw XML/provenance hashes correctly change. |
+| One line-level `TextEquiv/Unicode` per line; four empty strings | Read that Unicode literally after standard XML character/entity decoding; an existing empty element means `""`. Missing/multiple Unicode/TextEquiv, nested markup or ambiguity is an error. Never use duplicated region-level TextEquiv text, strip whitespace, expand abbreviations, normalize Unicode or append markers. Raw XML bytes preserve XML newline/entity syntax. |
+| Line Coords polygons have 4–118 vertices | Preserve original points in copied XML; use envelope `x=min(xs), y=min(ys), width=max(xs)-min(xs), height=max(ys)-min(ys)` in pixel coordinates, no +1/rounding/clamping. Require finite integer pairs, at least three distinct vertices, positive envelope and bounds `0<=x<=W`, `0<=y<=H`. This is a declared lossy box view, not a new source annotation. |
+| Two TRAIN lines lack Baseline; two different lines lack custom structure | Keep all four affected lines and their text/Coords; baseline and structure are not required to make a line target. Do not infer missing types from parent/position or fabricate baselines. Reject absent line Coords. |
+| Paragraph/page-number/heading/marginalia regions; 499 marginalia regions overall | Include every line, including marginalia, numbers, headings, empty strings and struck-through text. Region polygons, PrintSpace and region text are provenance only; never turn them into extra line targets or prediction crops. |
+| `unclear`20, `abbrev`1715, `textStyle`224 and `sic`2 custom span blocks; six standalone TextStyle elements | Preserve full custom/XML, including expansions/style/span offsets. These are not whole-line illegibility flags. No explicit whole-line illegibility was found: emit `SourceRegion.illegible=False` meaning “not explicitly flagged,” not certified legibility. Do not interpret partial unclear spans, missing Baseline or empty text as true. Unknown line-flag semantics require review, not a guessed true/false mapping. |
+| All 400 images: JPEG, RGB, single frame, no EXIF orientation; PAGE sizes agree; no rotation attributes observed | Preserve bytes and raw orientation; no `exif_transpose`, rotation, crop, deskew or resize. Require JPEG/RGB/single frame, full decode, PAGE dimensions, absent/identity EXIF orientation and absent/zero declared rotation. Reject any nonidentity transform or unsupported mode instead of silently repairing it. |
+
+Only reading-order indices are interpreted from `custom`; retain known opaque structure/style/
+unclear/sic/abbrev blocks unchanged in XML. Reject duplicate/malformed reading-order blocks,
+unsupported structural nodes/order schemes or newly encountered annotation block names pending
+mapping review. Do not classify semantic legibility from text content. Existing source-derived
+literal text feeds the unchanged `page-text-nfc-v1` evaluation copy; converter text remains literal.
+
+#### Callable conversion and output integrity
+
+Proposed public function in new `integrations/public_dataset.py`:
+
+```python
+convert_read2016(archive: Path, extracted: Path, output: Path, *,
+                 source_policy: SourcePolicy) -> Path  # returns output/pages.jsonl
+```
+
+Only the exact READ policy is accepted. Use existing Pillow/Pydantic and standard-library
+XML/tar/hash/filesystem code; no new dependency, network fetch or importer framework. Verify the
+archive's pinned bytes/SHA-256 and stream its regular-member hashes, then compare the staged
+`extracted/PublicData` bytes against that inventory. Reject unsafe/duplicate member names, hard
+links, special files, extra/missing regular files, TEST content and symlinked staged paths.
+The archive's 400 known relative image symlinks are deliberately omitted only when their
+normalized targets are the matching regular JPG in the same split, matching prior staging.
+Never extract/follow those links. Ignore normal directory entries. Enforce 804 regular files,
+350/50 image/XML pairs and the pinned archive identity at the public entry point; parser unit
+fixtures exercise lower-level helpers without adding a production bypass or alternative archive.
+Reject XML DTD/entity declarations; use no network or external entity resolution.
+
+Reserve the destination with exclusive `mkdir(exist_ok=False)`; reject an existing directory
+(including an empty one), file or symlink. Build in an invocation-owned temporary sibling; copy
+all 804 regular files byte-for-byte under `source/PublicData`, parse **those copied bytes**, and
+build inventory/provenance plus a pending manifest referencing
+`source/PublicData/<split>/Images/...`. All output-relative paths stay inside that fresh dataset.
+Hash copied bytes against the verified archive, fully decode each image once, check counts/order/
+geometry and re-read the pending manifest/provenance with the explicit policy before publication.
+Move completed source/provenance into the reserved directory, then atomically publish
+`pages.jsonl` **last**. Its presence is the dataset completion boundary; an empty/pending output
+directory is never consumable. A crash before that boundary requires a fresh output path; no
+resume/overwrite mode. Report the owned incomplete path rather than deleting unrelated content.
+On handled failure clean only this invocation's files; concurrent creation loses at exclusive
+mkdir and cannot touch the winner. No directory rename may replace an existing destination.
+Revalidate copied bytes before publication and bytes saved by oracle freeze against their frozen
+hashes to catch mutation between validation and copying. Original files are never modified or
+hard-linked. Output is reproducible for identical source/mapping/code SHA regardless of output
+directory or enumeration order. Flush completed output before publishing its manifest; no claim
+of recovery from filesystem/hardware failure beyond the existing local persistence guarantees.
+
+One documented direct invocation is sufficient; **no CLI change in this slice**:
+
+```python
+from pathlib import Path
+from active_ocr.integrations.public_dataset import convert_read2016
+from active_ocr.integrations.simulation import LocalOracle
+from active_ocr.pipeline import Pipeline
+
+policy = "read2016-official-unknown-engineering-v1"
+manifest = convert_read2016(
+    Path(".local/assets/read2016-1.2.0/Train-And-Val-ICFHR-2016.tgz"),
+    Path(".local/assets/read2016-1.2.0/extracted"),
+    Path(".local/prepared/read2016-v1"), source_policy=policy,
+)
+pipeline = Pipeline.for_simulation(Path(".local/verification/read2016-v1"))
+snapshot = LocalOracle.freeze(manifest, pipeline.store, source_policy=policy)
+LocalOracle(snapshot)  # reload integrity check; no model or training call
+```
+
+An API-created simulation must additionally set `SimulationConfig(source_policy=policy)`;
+existing CLI start supplies the strict default and therefore refuses this source. This is
+intentional until an explicit source-policy CLI is separately released; do not auto-enable it.
+Actual conversion structural smoke follows reviewed code and Manager release, with no GPU or
+model dependency. It prepares all 400 pages but does not run a learning experiment or expose
+labels to a model. Budget estimate: under 0.6 GB converted output plus under 0.6 GB image/source
+snapshot, sequential image decoding, no cloud spend; require 2 GiB available scratch headroom.
+These are disk estimates from the 499,592,094-byte source, not measured converter runtime/RAM.
+
+#### Exact ownership and independent acceptance
+
+Development alone owns this bounded implementation scope, released by Manager after exact v0.3 review.
+
+| Files | Allowed changes |
+| --- | --- |
+| `src/active_ocr/models.py` | SourcePolicy/SourceArtifact, simulation-only nullable document field, config/snapshot/page consistency and provenance reference. Keep Page/legacy validation strict. |
+| `src/active_ocr/integrations/simulation.py` | SourcePage fields; explicit policy-aware `_read_source`, freeze/reload and provenance verification/projection. Preserve selected-TRAIN and validation-only oracle boundaries. |
+| New `src/active_ocr/integrations/public_dataset.py` | Single pinned READ converter, fixed source mapping, safe deterministic output; directly callable, no generic registry. |
+| `src/active_ocr/pipeline.py` | Pass/compare source policy at creation/resume/pre-commit; add export disclosure columns only. No model/evaluator/selection redesign. |
+| New `tests/test_public_dataset.py`; `tests/test_simulation.py` | Synthetic source/parser/integrity/compatibility and API propagation coverage below. Existing independent tests remain untouched. |
+| `docs/simulation.md` | Direct invocation, output/provenance policy, limitations, compatibility and observed structural smoke reproduction once executed. |
+
+No legacy importer, entrypoints/CLI, storage implementation, Qwen, Modal, selector, evaluator,
+config defaults outside these records, dependencies/lock, source labels or split edits. Testing
+owns a separate `tests/test_read2016_independent.py` and small review record when assigned.
+
+| Check | Required independent evidence at exact implementation SHA |
+| --- | --- |
+| C1 strict compatibility | Actual historical fixture JSON resumes/exports with strict defaults; Page and legacy import reject null/missing document IDs. Known documents crossing splits and identical cross-split images still reject. All existing 1A regressions pass. |
+| C2 admission | Null documents without explicit READ caller/config/row/snapshot policy reject. Mixed policy/known-ID rows, fake `-1`, TEST, wrong source/version/hash or inconsistent provenance coverage reject. READ duplicate image content rejects even within one split. |
+| C3 lossless text/order | Synthetic shuffled XML nodes retain explicit index order. Reject duplicate/missing/unknown references or gapped line indices; accept preserved gapped region indices with complete coverage. Preserve exact Unicode, whitespace, blank lines, abbreviations and struck-through/unclear span text; all provenance XML bytes match input. No extra region-level targets. |
+| C4 geometry/orientation | Hand-computed nonrectangular/marginal polygon envelope; preserve missing Baseline/structure; reject nonfinite/degenerate/out-of-bounds/missing Coords, mismatched dimensions, bad JPEG, nonidentity orientation/rotation, unsupported mode and ambiguous text. No hidden rotation or +1. |
+| C5 provenance/mutation | Tamper with manifest, policy, provenance, source XML/doc.xml, original/frozen image or copied dimensions: fail freeze/resume/pre-commit before model/budget publication. Test mutations during freeze as well as after; match bytes actually persisted. Different output roots produce identical manifest/provenance bytes for the same clean code SHA. |
+| C6 filesystem/atomicity | Archive/member/path traversal, staged symlink, duplicate/missing/extra member, target collision (including empty dir/symlink), I/O interruption and concurrent publication never overwrite source/destination or publish partial output. Test DTD/entity refusal without external access. |
+| C7 isolation/export | Spy fit sees selected TRAIN SourceRegions only; predict pages contain no provenance/XML/polygon/text/region count. Validation truth reaches only evaluator; reveal validation rejects. Fresh-process snapshot/run reload and JSON preserve null document IDs; JSON/CSV retain policy and engineering limitation; fixture kind is never relabelled real. |
+| C8 actual structural smoke | After reviewed code release, independently compare all 350/50 rows and 8,367/1,043 lines to copied original XML order/literal text/envelopes and image hashes; all four empty lines and two missing baselines retained, all804 originals hash-identical, no TEST. Freeze/reopen full dataset under explicit policy. Record command, clean SHA, archive/provenance/manifest/ground-truth hashes and counts locally; public evidence contains counts/hashes only. No OCR quality claim. |
+
+Run focused author/independent cases, full suite and configured Ruff at the final candidate;
+there is no configured type checker. Reject implementation on any compatibility/leakage/integrity
+failure. Technical acceptance requires independent Testing and Manager acceptance; the subsequent
+actual structural smoke supplies source execution evidence. No further source-use permission
+question is needed within this admitted scope. Comparative independence, final test, model and
+provider execution remain separate gates. Publish no full normalized manifest or raw source GT.
+
+### Candidate 2 — concrete Qwen runtime, training and checkpoints
+
+**v0.4 specification accepted by Manager at publication `320790d69970348386ac180c524f5f568e035159`.** Implement the model boundary after converter acceptance;
+this section does not release implementation or a paid run. Source admission, the two-Volume /
+one-dispatcher architecture and USD30 total / USD5 first reviewed smoke remain accepted. Keep
+candidate3 responsible for transport/journal/real CLI and enabling `RunKind.REAL` in Pipeline.
+The existing `QwenRunner` and loose `parse_output` are unused placeholders, not a second supported
+execution API. Replace their implementation surface with the one runtime below; no legacy job adapter.
+
+#### Pins, owned files and API
+
+Use Linux x86-64, Python3.11 and the [accepted runtime pins](../docs/modal-preflight.md):
+`torch==2.14.0`, `torchvision==0.29.0`, `transformers==5.16.1`, `peft==0.20.0`,
+`accelerate==1.14.0`; retain the reviewed transitive lock including tokenizers0.23.2,
+safetensors0.8.0 and Pillow12.3.0. Development adds torchvision and pins the GPU optional group
+and Linux resolution in `pyproject.toml`/`uv.lock`. Modal1.5.5 stays candidate3; no local ML install
+is requested by this planning publication. Metadata/source compatibility is not a passed build.
+Use native PyTorch SDPA, no third-party FlashAttention, TRL/Trainer, quantization or extra framework.
+
+Development owns only `src/active_ocr/integrations/qwen.py`, `pyproject.toml`, `uv.lock`, new
+`tests/test_qwen.py` and new `docs/qwen-runtime.md`. Keep small private recipe/checkpoint records
+and helpers in qwen.py using the existing immutable Model base; no new general configuration
+system or shared-model edit is presently needed. Imports of torch/Transformers/PEFT are lazy;
+ordinary local fixture imports/tests must continue without the GPU group. Testing owns its own
+independent test/review files when assigned. No converter, Pipeline, CLI, Modal entrypoint, metric,
+selector or source changes in candidate2. Report a concrete scope exception if one becomes necessary.
+
+Proposed `QwenModel(input_root: Path, output_root: Path, real_config: RealOCRConfig,
+*, runtime_manifest: Path)` has `backend="qwen3-vl-v1"`, `kind=RunKind.REAL`, the existing
+reset-fit policy, recipe/identity metadata and optional ExecutionTelemetry. Constructor validates
+records/paths without loading weights. Methods match the current protocol:
+
+```python
+load_base(*, experiment_id: str) -> str
+fit(examples: tuple[RevealedExample, ...], *, seed: int,
+    experiment_id: str, round_number: int) -> str
+predict(pages: tuple[SimulationPage, ...], *, experiment_id: str,
+        round_number: int, model_id: str,
+        purpose: PredictionPurpose = PredictionPurpose.POOL) -> tuple[Prediction, ...]
+```
+
+Use `input_root/model` and verified `input_root/images`; write only under output_root. The later
+Modal adapter maps safe image keys to worker-local paths; Qwen consumes `image_uri`, original
+size/hash and ID, never `source_image`, oracle files or document/GT-derived hints. Reject escaping
+paths/symlinks, altered image bytes/dimensions, TEST input, malformed ownership, duplicate pages
+and missing assets before loading/forward work. Fit accepts only nonempty unique selected TRAIN
+examples at a positive round, cumulative as supplied; it does not call the oracle or select data.
+Baseline prediction is round0/BASELINE_VALIDATION/base checkpoint, using the existing
+PredictionPurpose.BASELINE_VALIDATION enum. Acquired VALIDATION and optional POOL requests
+are positive-round and match checkpoint ownership; never collapse the two validation purposes. Random smoke/pilot never call pool;
+all predictions have confidence/entropy=None. Empty prediction page tuples return empty after
+identity validation without generation. Keep runtime methods synchronous for one later dispatcher.
+
+**Worker identity is not local Git discovery.** The local coordinator retains its existing
+checkout-based `check_local_identity`; a copied installation without `.git` remains fail-closed.
+Run that future CLI from verified checkout source/editable setup. Workers intentionally receive
+no `.git` or whole repository. Candidate2 verifies the supplied reviewed runtime manifest's
+source SHA, explicit code-file hashes and installed Linux package fingerprint against frozen
+`ExpectedIdentity.code_bundle_sha256`/`remote_dependency_sha256`, plus recipe/model/processor
+identities, before load or generation. Candidate3's allowlisted build produces this manifest and
+binds deployment/build references; local code/dependency fingerprints are not compared to remote
+Linux packages. No new identity service, self-reported GPU-as-identity or prior successful GPU run
+is required. CPU build/import evidence can establish the expected package/code bundle first.
+
+#### Whole-page processor and bounded sequences
+
+Load only revision `ebb281ec70b05090aa6165b016eac8ec08e71b17` from checked local files, with
+`local_files_only=True`, `trust_remote_code=False` where supported, and offline Hub settings.
+Construct Qwen3VLProcessor explicitly from Qwen2VLImageProcessor.from_pretrained (the pinned
+TorchvisionBackend class), AutoTokenizer.from_pretrained(use_fast=True) and
+Qwen3VLVideoProcessor.from_pretrained, all from the local snapshot; supply the exact
+`chat_template.json` string. The video component is required by this processor constructor but
+video inputs are rejected. This avoids passing one ambiguous backend keyword through all three
+component loaders. Assert concrete image/processor classes, fast tokenizer and pinned template/
+settings; never accept an automatically substituted PIL processor. The mapping
+and resize implementation are inspected at Transformers5.16.1 commit
+`93c8b7b485963a10800c91f55304db6be211c2bd`:
+[auto mapping](https://github.com/huggingface/transformers/blob/93c8b7b485963a10800c91f55304db6be211c2bd/src/transformers/models/auto/image_processing_auto.py),
+[image processor](https://github.com/huggingface/transformers/blob/93c8b7b485963a10800c91f55304db6be211c2bd/src/transformers/models/qwen2_vl/image_processing_qwen2_vl.py).
+
+Freeze training/decode IDs `qwen3-vl-page-lora-v1` / `qwen3-vl-page-greedy-v1`, recipe
+`qwen3-vl-read-engineering-v1`. For original H,W, set per-page area ceiling
+`B=ceil(1024**2 * min(H,W)/max(H,W))`; require `B>=65536`. Pass
+`images_kwargs={"size":{"shortest_edge":65536,"longest_edge":B}}` to each processor call.
+These keys mean **pixel area**, not lengths. Use its pinned smart_resize: initially round each
+dimension to a multiple of32; if rounded area exceeds B, scale by `sqrt(H*W/B)` and floor each
+dimension to a multiple of32 (minimum32); if below65536, scale up to that area and ceil to32.
+Require the actual result to agree with this calculation, area bounds and longest side<=1024;
+otherwise fail. No crop/tiling/padding, external resize, EXIF transform or target-guided shape.
+This changes the former unspecified long-side proposal into one tested algorithm, not a new cap.
+
+Use CPU torchvision bicubic/antialias=True preprocessing, rescale1/255, mean/std=(0.5,0.5,0.5),
+patch16, temporal_patch2, merge2 from the pinned config. Input must already be admitted RGB with
+identity orientation. Spatial rounding slightly changes aspect ratio: coordinate mapping is
+`x_processed=x_original*W'/W`, `y_processed=y_original*H'/H`, with no offset. Targets and outputs
+remain normalized to the original full page, so inverse x*W/1000,y*H/1000 is unchanged.
+[Resize backend](https://github.com/huggingface/transformers/blob/93c8b7b485963a10800c91f55304db6be211c2bd/src/transformers/image_processing_backends.py).
+
+Assert `image_grid_thw=[1,H'/16,W'/16]`; expanded image placeholders count is
+`grid.prod()/4 = H'*W'/1024`. Temporal patches duplicate the still frame; they do not double this
+LLM token count. The [pinned processor](https://github.com/huggingface/transformers/blob/93c8b7b485963a10800c91f55304db6be211c2bd/src/transformers/models/qwen3_vl/processing_qwen3_vl.py)
+implements that expansion. Pure dimension arithmetic for the400 staged pages predicts1024-high
+outputs: width608/640/672/704 for4/30/206/160 pages respectively, hence608–704 image tokens.
+This is an ESTIMATE from source dimensions/source code, not executed processor or VRAM evidence.
+Preserve actual grid, prompt/target counts and transform dimensions in execution receipts.
+
+Hard limits: expanded prompt P<=2048, supervised target T (JSON plus terminal token)<=4096,
+full training sequence P+T<=6144; generation max_new_tokens=2048 and P+2048<=6144. Count **actual
+expanded tokenizer IDs**, including framing/image tokens, not characters. No target/image-token
+truncation, dropped pages, automatic lower resolution or selected-page substitution. Preflight
+all selected targets before first optimizer work; overflow stops the fit without a checkpoint.
+Prediction overflow is an operation error before generation. Coverage of these limits is
+unmeasured; T>2048 is disclosed as exceeding the generation budget, not silently shortened.
+A cap change needs a versioned reviewed recipe; no adequacy/quality claim follows a completed fit.
+
+#### Literal target, prompt and causal mask
+
+One user message contains the image then the following fixed text (no system/tools/vision IDs):
+
+> Transcribe every text line in reading order, including headings, page numbers and marginalia.
+> Return only JSON with exactly this shape: {"regions":[{"text":"...","bbox":[x1,y1,x2,y2]}]}.
+> Preserve spelling, punctuation, spacing and empty text. Give one box per line. Coordinates are
+> numbers from 0 to 1000 relative to the original full page, with x2>x1 and y2>y1. Do not explain.
+
+Freeze the prompt as one constant with LF joining these four lines. It contains no source text,
+line count, region order, boxes, filename or split. Selected training targets alone serialize the
+ordered SourceRegions: exact `text`, bbox `[1000*x/W,1000*y/H,1000*(x+w)/W,1000*(y+h)/H]`.
+Use fixed key order (regions, then text/bbox), compact JSON, `ensure_ascii=False`, `allow_nan=False`,
+finite binary64 values without coordinate rounding/clamping. Escape every literal `<` in the
+serialized JSON as `\u003c` so source strings resembling tokenizer control tokens remain ordinary
+JSON content; parsing recovers the exact text. This is reversible serialization, not GT rewriting.
+Do not supervise IDs, illegibility, source span annotations or region classes.
+
+The [staged chat template](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct/blob/ebb281ec70b05090aa6165b016eac8ec08e71b17/chat_template.json)
+has no `{% generation %}` block; do not request/trust an automatic
+assistant mask. Its generation prefix ends in `<|im_start|>assistant\n`; the complete assistant
+message appends JSON then `<|im_end|>\n`. Render the pinned template twice with
+`tokenize=False`: user-only/add_generation_prompt=True and user+assistant/False. Process each
+with the same image settings, `add_special_tokens=False`, `padding=False`, `truncation=False`,
+`return_tensors="pt"`. Assert the full input's first P IDs exactly equal the processed prompt,
+including expanded image placeholders; mismatches stop, never infer a mask by decoded lengths.
+Verify the remaining token span is exactly the serialized target followed by end ID151645 and
+the template's trailing newline. Remove only that trailing framing newline from training inputs;
+keep the end token. Labels are -100 at positions[0,P), copied input IDs at[P,P+T). No extra BOS,
+manual causal shift, prompt/image/pad loss or double EOS. Batch1 has no padding; tests verify any
+padding is attention-masked and labelled -100. Assert control tokens cannot occur inside the
+encoded JSON, and supervise at least the nonempty JSON/EOS span even for `regions=[]`.
+[Template processing](https://github.com/huggingface/transformers/blob/93c8b7b485963a10800c91f55304db6be211c2bd/src/transformers/processing_utils.py)
+documents the generation-block requirement; the [causal loss](https://github.com/huggingface/transformers/blob/93c8b7b485963a10800c91f55304db6be211c2bd/src/transformers/loss/loss_utils.py)
+shifts labels internally and computes FP32 cross-entropy ignoring -100.
+
+Generation explicitly overrides the staged sampling defaults: greedy, one beam/return sequence,
+no sampling, repetition_penalty1, no_repeat_ngram_size0, max_new_tokens2048, EOS151645,
+pad151643, no forced tokens/stop strings or length penalty tuning. Build a fresh GenerationConfig
+rather than inheriting top-k/top-p/temperature settings; do not retain training labels. Set eval,
+inference_mode and use_cache=True. Preserve `mm_token_type_ids` and image/grid tensors from the
+processor; let the pinned model calculate multimodal positions, never replace them with flat IDs.
+Slice returned token IDs after the exact input length; retain raw IDs/text and termination reason.
+Decode without cleanup or skipping unexpected special tokens; remove only the verified terminal
+EOS from the response. EOS absent at the limit means truncated even if partial JSON parses.
+
+Strict parser rejects duplicate/extra keys, markdown wrappers/trailing prose, NaN/Infinity,
+booleans/coerced coordinate strings, malformed UTF-8 strings and nonfinite/out-of-range or
+nonpositive boxes. Empty regions and empty text are valid; keep ordered entries, assign IDs
+`line-0001`, etc., map floats to original pixels and set Region.illegible=False. Never repair
+JSON, clamp geometry, split blocks using GT or fabricate full-page boxes. Malformed output is
+`invalid_output`, token-limit termination is `truncated`, both with empty structured regions and
+raw evidence. A plain model has no reliable refusal flag: do not guess one from words; preserve
+invalid raw text. `refusal` is used only if an explicit future supported termination signal exists.
+Exceptions such as OOM/deadline/identity failure fail the operation, not a fabricated blank page.
+
+#### Reset-fit and exact trainability
+
+Load `Qwen3VLForConditionalGeneration.from_pretrained` from the checked local snapshot with
+`dtype=torch.bfloat16`, `attn_implementation="sdpa"`, `device_map={"":"cuda:0"}`; no auto
+placement/offload. Verify
+BF16/device/library support; never run4B on the laptop/CPU or fall back. Within CUDA forward/
+generation, select only PyTorch's built-in `SDPBackend.FLASH_ATTENTION` with `sdpa_kernel` (not
+an external flash-attn package); unsupported kernels fail. Pin this backend choice in the recipe.
+Use BF16 autocast, FP32 trainable adapters/Adam state, no GradScaler, compile or distributed mode.
+Disable TF32; record driver/CUDA/device and attention implementation as observations/recipe checks.
+CPU tiny-model tests use FP32/math SDPA explicitly as test evidence, not a production fallback.
+[PyTorch2.14 SDPA control](https://github.com/pytorch/pytorch/blob/2b3ec34829036a65cd9d1398ea72a0167dc37470/torch/nn/attention/__init__.py).
+
+Expand exactly `model.language_model.layers.{i}.self_attn.{q_proj,v_proj}` for i=0..35 into72
+names; compare named_modules and tensor shapes before PEFT wrapping. Staged safetensor headers
+independently confirm36q weights(4096,2560) and36v weights(1024,2560). Configure PEFT LoraConfig:
+r16, alpha32, dropout0, bias="none", task_type="CAUSAL_LM", init_lora_weights=True,
+use_rslora=False, use_dora=False, modules_to_save=None, full explicit target list; default adapter
+only, autocast_adapter_dtype=True. Assert exactly144 trainable A/B tensors, all FP32, with
+`36*16*((2560+4096)+(2560+1024))=5,898,240` parameters. Everything else, including vision,
+mergers/DeepStack, embeddings/tied lm_head, norms and base language weights, is frozen. No suffix
+regex matching vision layers. [Pinned model](https://github.com/huggingface/transformers/blob/93c8b7b485963a10800c91f55304db6be211c2bd/src/transformers/models/qwen3_vl/modeling_qwen3_vl.py),
+[PEFT0.20 wrapping](https://github.com/huggingface/peft/blob/a5526d27a9d47d1e8264d5e1b1f96c0fdc79464e/src/peft/mapping_func.py),
+[LoRA initialization](https://github.com/huggingface/peft/blob/a5526d27a9d47d1e8264d5e1b1f96c0fdc79464e/src/peft/tuners/lora/layer.py).
+
+Every fit discards any cached/adapted model and creates a fresh pinned base, adapter and optimizer;
+release old tensors before loading another4B copy. Never resume from the previous round's adapter.
+Validate seed is unsigned32bit; reset Python/NumPy/Torch/CUDA RNG from that seed, independent of
+UUID, hashes, round number and prior calls. Begin each epoch from sorted selected page IDs and
+shuffle using a separate `random.Random(seed+epoch)` for epoch0..2; record order. Three epochs,
+pagebatch1, accumulation4, no packing/augmentation. Call gradient_checkpointing_enable with
+`gradient_checkpointing_kwargs={"use_reentrant":False}`; use_cache=False during training; test gradient flow with frozen inputs, without unfreezing embeddings.
+
+Use torch.optim.AdamW on only the asserted trainables: lr1e-4, betas(0.9,0.999), eps1e-8,
+weight_decay0, foreach=False, fused=False. Constant LR, no warmup/scheduler. Partition each epoch
+into groups of up to4 pages. Divide each page's mean supervised-token loss by the group's actual
+size, backward, then finite-gradient check, global clip norm1, optimizer.step and zero_grad.
+Thus pages are equally weighted within a group; this is not a global token-weighted batch loss.
+Flush the last partial group each epoch; updates=`3*ceil(N/4)` (N2=>3,N10=>9,N20=>15).
+Require finite loss/gradients and nonzero aggregate update; zero A gradients on the first step
+are expected from initially zero B. Compare chunked hashes of frozen parameters before/after fit;
+record trainable changes, update/supervised-token counts and finite diagnostics, not raw targets.
+No partial checkpoint on failed fit and no within-fit optimizer/RNG recovery in this release.
+
+#### Immutable checkpoint and fresh reload
+
+Maintain two canonical input manifests: base files(config, generation config, safetensors index,
+two shards) and processor files(config plus chat template, preprocessor/video-preprocessor,
+tokenizer config/JSON, vocab, merges). Sorted relative filenames/bytes/SHA-256 bind each manifest
+to repository/revision and schema1; verify against staged public provenance, then against actual
+files on load. These digests populate model/processor ExpectedIdentity. No on-demand downloads.
+
+`load_base` verifies/loads the actual base and publishes a base-kind reference manifest; it does
+not train. `fit` saves only adapter weights/config via safe serialization with
+`save_embedding_layers=False`. Normalize the saved config's base reference to the pinned repository/
+revision, not the machine path; reload always receives an explicitly loaded verified base, never
+AutoPeftModel or a Hub lookup. Publish only adapter_model.safetensors and adapter_config.json from
+the fresh PEFT staging output; exclude autogenerated cards/caches. Verify exact keys/shapes/dtypes,
+finite tensor values, hashes and strict config, then publish the manifest last in a new immutable
+directory. Repeated paths are reusable only if their complete manifests/bytes match; never overwrite.
+[PEFT save/load](https://github.com/huggingface/peft/blob/a5526d27a9d47d1e8264d5e1b1f96c0fdc79464e/src/peft/peft_model.py).
+
+Model ID remains `checkpoint:sha256:<canonical-manifest-hash>`. Manifest schema1 binds kind,
+base/processor identities, exact recipe/prompt/target format/limits and code/build/package hashes;
+adapter manifests additionally bind owner run/positive round, ordered selected image IDs/hashes,
+selected-target digest, seed, actual updates/tokens and adapter file inventory. Use canonical
+UTF-8 JSON (sorted keys, compact separators, no NaN); omit paths outside the artifact, IDs for
+provider attempts, timings, costs and raw targets. The manifest does not contain its own hash.
+Base reference may be shared; an adapter is owned by its recorded run/round. Check the whole
+manifest and referenced bytes before model load, then actual loaded adapter keys/values before
+forward. Reject missing/extra/corrupt files or recipe/base mismatch; never substitute base weights.
+Receipts hold telemetry and verification results separately; journal/call reuse is candidate3.
+
+Independent fresh-process reload test uses the same saved adapter, software/device/backend and
+the lexicographically first **selected TRAIN** page (no validation selection). Record one greedy
+probe before destruction and after fresh base+`PeftModel.from_pretrained(..., is_trainable=False,
+autocast_adapter_dtype=True)` load. Require exact adapter tensor equality and identical generated
+IDs, status and parsed regions. Also compare FP32-converted raw full-vocabulary next-token logits
+for the first min(8,generated_length) positions, evaluated on the same fixed pre-save generated
+prefix in both instances, with `rtol=1e-3, atol=1e-2`; require finite values and record maximum
+absolute difference. This is a predeclared acceptance threshold, not a proven hardware guarantee.
+If it fails, retain evidence and investigate; do not widen tolerance after seeing results or claim
+two separately trained runs must be bit-identical. eval/inference mode and dropout0 apply to both.
+The train probe and its outputs are engineering exposure, never unbiased evaluation.
+
+#### Independent acceptance and execution boundary
+
+| Check | Required evidence at exact candidate SHA |
+| --- | --- |
+| Q1 load/identity | Pure boundary tests reject wrong recipe/package/code/input/manifest before model calls. Local package import needs no ML group; worker succeeds without Git only with verified bundle metadata. Pinned Linux build/import must be reproduced separately; metadata compatibility alone does not pass. |
+| Q2 actual processor | On pinned tokenizer/torchvision/processor with synthetic images, verify template bytes, IDs151643/151645/151655, image expansion/grid, per-page area arithmetic/32rounding, transform inverse, prompt+full prefix equality and limits. Golden tall/wide/rounding cases; no4B load. |
+| Q3 mask/serialization | Actual tokenization of Unicode, whitespace, quotes/backslashes, empty lines, literal control-token-looking text and zero regions. Decode target JSON back to exact inputs; verify prompt/image/pad=-100, JSON+EOS supervised, trailing framing newline excluded and causal first/last positions by hand-counted CE. Overflow never truncates/drops. |
+| Q4 tiny CPU model | Build random tiny Qwen3VL configs using pinned classes (two language/vision layers, small hidden dimensions, compatible DeepStack/mRoPE/head sizes, vocabulary retaining pinned token IDs), use FP32/mathSDPA and synthetic64x64image. Actual forward/backward/PEFT injection, non-reentrant checkpointing and causal loss; explicit test-sized targets, no public4B/runtime fallback. Proves library boundary/gradients only. |
+| Q5 LoRA/reset | Verify all72 real names/shapes from headers and later loaded model; exact144tensors/5,898,240FP32trainables on4B. Tiny tests show fresh A/zero B, frozen weights unchanged, same seeded initial state after intervening fits, cumulative inputs only and correct3/9/15updates/partial-group scaling vs manual optimizer reference. |
+| Q6 decode/parse | Explicit generation config overrides publisher sampling; exact input slicing/EOS termination, cap-truncated valid-looking JSON, unexpected control tokens, duplicate keys, booleans/nonfinite/out-of-bounds geometry, empty valid output and invalid raw evidence. No GT-based repair, scores or heuristic refusal labels. |
+| Q7 checkpoint | Tiny-model safe save/fresh-process reload plus corrupt/missing/extra tensor/file/config/base/path cases fail closed; requesting base after an adapted prediction actually restores base; optimizer/labels/caches absent. IDs hash exact manifests; requested checkpoint is actually loaded. CPU equality/tolerance evidence is distinct from4B/CUDA acceptance. |
+| Q8 isolation | Spies prove only selected TRAIN targets enter serialization/fit; prompt/image preparation consumes no GT/order/boxes/counts/document hints. Prediction accepts only page metadata; output/raw references contain no hidden-source material. Invalid ownership/identity/image mutation publishes no result/checkpoint. |
+| Q9 future4B smoke | After model+transport review, verify actual CUDA/BF16/SDPA support, mask/token/grid coverage, finite loss/gradients, intended LoRA updates/frozen hashes,3updates on2selected pages, base/postfit2validation predictions, fresh reload probe/tolerance, timing/peakVRAM/cost. Failures stop within the accepted envelope; no OCR-quality or adequate-training verdict inferred. |
+
+Acceptance order is deliberately staged, not circular:
+
+1. Candidate2 publication: run pure helpers/boundary tests, header/shape checks, full existing
+   local regression and Ruff without installing ML locally. Independent Testing can pass **only
+   this offline scope** and inspect the actual-ML test code. Q2–Q4/Q7 actual processor/tiny-model
+   execution, the loaded4B part of Q5 and Q9 stay explicitly pending; skips are not PASS.
+   Manager may then release candidate3 implementation without waiting for a GPU or Linux build.
+2. First reviewed build: candidate3/Platform constructs the pinned Linux image and runs the
+   actual tokenizer/processor/tiny-model/fresh-process tests on CPU before any4B load or GPU call.
+   Use only allowlisted synthetic self-check code and pinned small processor assets; never
+   dataset XML/labels or full weights in the build. Account for this CPU build/check time inside
+   the already approved first USD5 envelope and USD30 gross total. If checks fail or exceed the
+   reviewed build allowance, stop; no automatic rebuild or CUDA submission. Independent Testing
+   reviews the CPU evidence before the GPU portion is released. No extra platform framework.
+3. Bounded GPU portion: after the code/transport review and CPU checks, Q9 acquires loaded4B
+   module/trainability, CUDA headroom, decoding coverage and reload-tolerance evidence within
+   the same reviewed smoke envelope. These are runtime checks, not prerequisite past successes.
+
+No model/build execution is claimed by this plan. Training adequacy, later uncertainty extraction
+and final-test methodology remain held; keep random and score=none.
 
 ### Candidate 3 — one Modal adapter, journal and CLI
 
 Development owns new `integrations/modal_model.py`, operation records, only justified SQLite
-transaction support, real CLI construction/preflight/reconcile, exports and tests. Platform alone
+transaction support, real CLI construction/preflight/reconcile, exports and tests. Candidate3 also
+adds a minimal optional frozen validation-page ID subset to SimulationConfig and passes that
+exact subset to prediction and LocalOracle evaluation. Omitted means the full official validation
+set; an explicit subset must be nonempty, unique and entirely VALIDATION, checked at creation
+and resume. The smoke records its fixed two IDs; exports identify subset membership and size.
+This scopes engineering evaluation without changing source rows, labels, splits or the400-page
+provenance requirement. Keep the subset in run identity/config and test rejected changes, wrong
+split/duplicate/unknown IDs and exact baseline/round metric coverage. Platform alone
 owns new `entrypoints/modal_app.py`, runtime mounts/resource bounds. Development is sole writer
 of `pyproject.toml`/lock after Platform agrees pins. Freeze shared request schemas first; do not
 concurrently edit shared files. Model/metric logic stays outside the Modal entrypoint.
 
 One synchronous adapter wraps `load_base/fit/predict` with one sequential GPU Function dispatcher
-and one Volume. Strict `RemotePage` is id, document reference if available, original dimensions,
+and two Volumes: one input bundle mounted read-only and one output subtree mounted writable.
+Strict `RemotePage` is id, document reference if available, original dimensions,
 image_sha256 and safe image key—no `source_image`, host paths or `regions`. Fit arguments contain
 only cumulative selected TRAIN examples; predict arguments contain no targets. The uploaded
 code/image allowlist must exclude oracle source, original GT/archive, SQLite DB, local memory,
 test images and labelled caches. Do not upload artifact_root or repository wholesale. Store only
-images, pinned model assets, trained checkpoints and derived outputs on the Volume. No selected
-text dataset/targets in persistent trainer caches/logs; trained weights may retain learned text.
-Use read-only image/base subpaths and disjoint writable outputs; verify actual mounts at smoke.
+images and pinned model assets in the input Volume; trained checkpoints and derived outputs
+belong in the output Volume. No selected text dataset/targets in persistent trainer caches/logs;
+trained weights may retain learned text. Mount only the assigned bundle/run subdirectories,
+using provider read-only input enforcement; verify actual mounts at smoke. The two-Volume
+correction is required because SDK 1.5.5 rejects one Volume ID at multiple mount paths,
+confirmed by installed-source inspection and an offline duplicate-ID probe. See the accepted
+[Modal preflight](../docs/modal-preflight.md); no additional worker, queue or service is added.
 
 The common request carries schema, operation, run/round/purpose, ordered image ID+hash list,
 exact input checkpoint/base and recipe identities; fit also carries selected-only target digest.
@@ -398,7 +830,7 @@ not cloud behavior. Application retries0 does not stop infrastructure crash resc
 ([retries](https://modal.com/docs/guide/retries)); per-attempt timeout excludes scheduling and
 restarts on retry ([timeouts](https://modal.com/docs/guide/timeouts)). Bound total attempt/startup
 time and absolute deadline; verify cancellation/terminal state before any subsequent attempt.
-Unknown auth, deployment, storage/cancel behavior gates cloud work, never candidate-1A tests.
+Account readiness, deployment and storage/cancel behavior gate cloud work, never candidate-1A tests.
 
 Explicit real CLI creation/resume must reconstruct the frozen recipe and adapter, fail on missing
 SDK/auth/checkpoint, and never fall back to fixture. Before submission compare actual immutable
@@ -416,7 +848,7 @@ hashes must be frozen after source admission; no synthetic document grouping to 
 | Stage | Fixed proposed workload | Meaning / gate |
 | --- | --- | --- |
 | Offline 1A | Synthetic known-group pages and doubles only; no actual READ or cloud | Proves L1–L9 contracts. |
-| Minimal real smoke | Seed824; 2 TRAIN pages, batch2/budget2/1 fit; 2 fixed validation pages; 3-epoch recipe (3 optimizer updates); base and postfit validation (4 page predictions), plus one selected-train probe before/after reload (2 predictions) | Proves real fit/geometry/checkpoint/transport if successful; label exposure recorded. Group-unknown use needs explicit engineering-only admission first. |
+| Minimal real smoke | Seed824; 2 TRAIN pages, batch2/budget2/1 fit; 2 fixed validation pages; 3-epoch recipe (3 optimizer updates); base and postfit validation (4 page predictions), plus one selected-train probe before/after reload (2 predictions) | Proves real fit/geometry/checkpoint/transport if successful; label exposure recorded. Engineering-only admission is granted; reviewed conversion and smoke release remain required. |
 | Random engineering pilot | Seed824; official TRAIN pool, batch10/budget20/2 rounds; first 10 fixed validation pages for diagnostics, then all50 for base/round exploratory tables | 2 fits with9/15 updates under the3-epoch recipe; 150 full-validation predictions, plus diagnostic repeats if required. No pool scores. Tests stable pipeline, not adequate training or independent-document quality. |
 | Later adequately calibrated comparison | Only after grouping/design resolution, stable training and score acceptance: random/least-confidence/entropy, seeds824/825/826, batch20/budget60/3 rounds, same frozen approved pool and all50 validation pages | 27 fits, 1800 base+round validation page predictions. With350 train pages and terminal pool scoring retained: two scored methods *3 seeds *(330+310+290)=5580 pool predictions. Requote if pool changes. No execution default until these gates pass. |
 
@@ -474,9 +906,11 @@ calibrated probabilities of page correctness. These are later scientific gates o
 
 Platform's pricing proposal uses one L40S, 2 physical CPU cores and32GiB RAM, approximately
 USD2.301264/hour at its 2026-09-14 [official pricing](https://modal.com/pricing) observation.
-USD5 smoke /USD20 pilot were unapproved provisional ceilings for earlier workloads, **not quotes
-for this revised table**. User ceiling/authentication and measured VRAM/time remain required for
-paid release. Do not assume credits, actual availability or model fit from installed SDK/weight size.
+On 2026-09-16 the user approved a **USD30 gross total** for setup verification/initial pilot,
+with the first reviewed smoke at most **USD5**, before credits. This supersedes provisional
+USD5/USD20 ceilings; it is not a new quote or permission to run unreviewed code. Exact account,
+resource/deadline/accounting checks and measured VRAM/time still gate execution/scaling.
+Do not assume credits, actual availability or model fit from installed SDK/weight size.
 Two-byte4B weights alone are approximately8GB decimal, before activations/KV/optimizer/workspace.
 
 For the revised smoke, propose at most40 minutes total billed startup+GPU execution, 10-minute
@@ -499,7 +933,7 @@ exports never overwrite prior results.
 | Readiness verdict | Required evidence; who decides |
 | --- | --- |
 | Slice1A technical acceptance | Exact code SHA, L1–L9, full regression+Ruff and independent Testing review; Manager accepts warnings. No real-model PASS. |
-| Converter admission | Actual source mapping/grouping representation decision, original hashes/order/blank/polygon checks and parser tests. Unknown groups constrain engineering use; no fabricated identities. |
+| Converter acceptance | Completed at candidate8db5833, independent C1–C8 evidencef84f26b. All400 actual pages compared, frozen and reopened. Unknown groups still constrain engineering use; no independence claim. |
 | Candidate2/3 preflight acceptance | Exact code/recipe, supervised-mask/reset/checkpoint tests, purpose-bound journal failure matrix, upload/mount allowlists, identity checks and independent review. Fakes cannot prove hardware/provider behavior. |
 | Paid smoke release | Accepted source/recipe/code, account/access, precise resource/cost/deadline envelope and user spend authorization. Runtime-only evidence is acquired during smoke, not required as a past success to authorize first smoke. |
 | Real engineering acceptance | Finite loss/gradients and intended update on CUDA, unchanged frozen weights, full-page geometry evidence, fresh checkpoint reload equivalence with declared tolerance, known-call/receipt recovery and separate-process CLI resume, accounting and independent Testing review. No efficacy threshold. |
@@ -522,3 +956,37 @@ remove later source/method/hardware gates. No production code or job was changed
   `d659c48f38639e54e19ac6aceff1b5adf853355a`; all later gates remain as stated above.
   Corrected local candidate `dee5e1a5ecbbc326921e0f4019792c8f7e5deab2` is now independently
   passed and integrated; source conversion, actual model execution and cloud releases remain pending.
+
+- v0.3: records completed 1A and user admission of the official READ split with unknown groups;
+  proposes only the concrete 1B schema/policy, literal PAGE mapping, direct conversion invocation,
+  provenance/mutation boundaries and C1–C8 independent checks; corrects the earlier region-index
+  contiguity assumption using the two observed gapped pages. Records the approved USD30 total /
+  USD5 first reviewed smoke without releasing cloud work. Manager accepted exact specification
+  `653fe7dff2018de1e35c91d616c24ed848681a16`; converter implementation and independent C1–C8
+  evidence remain pending.
+
+- 2026-09-16 runtime amendment: Manager accepted Platform preflight
+  `c2dbd4452bad4c89194e0a10b16b88be2b3a6cdf` and independently reproduced the pinned
+  SDK's duplicate-Volume mount rejection. Candidate 3 therefore uses two Volumes with one
+  sequential dispatcher. This preserves read-only input enforcement and the same total-byte
+  storage estimate; source/methodology, converter scope and user budget are unchanged.
+  Candidate dependency pins and USD2.894150 gross smoke estimate remain preflight proposals
+  until exact code/build/runtime verification. No resource or paid execution is released here.
+
+- v0.4: proposes the exact candidate2 Qwen API, pinned processor/area-grid limits, explicit
+  causal target/EOS mask,72language-only LoRA targets/reset-fit, checkpoint/reload threshold
+  and Q1–Q9 independent checks. Worker bundle identity is distinct from local Git discovery.
+  Accepted converter, two-Volume topology, source admission and budgets are unchanged.
+  No model load, dependency installation/build, production edit or paid execution in Planning.
+
+Manager reviewed the exact v0.4 publication and accepted its bounded candidate2 contract and
+staged offline/build/GPU acceptance order. This accepts a specification, not model execution
+or a cloud release; the stated independent review and runtime gates remain in force.
+
+Implementation clarification: use the existing BASELINE_VALIDATION purpose for round zero;
+the previously planned two-page smoke requires an explicit frozen evaluation subset, with full
+source provenance unchanged. This does not change the accepted smoke workload or metric policy.
+
+2026-09-16 converter acceptance: Manager verified C1–C8 publication, local receipt/script and
+prepared manifest/provenance hashes, independently rehashed all804 copied files and checked counts.
+Implementation and independent review are integrated; no model or cloud execution is implied.

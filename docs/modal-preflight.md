@@ -3,7 +3,8 @@
 Recommendation checked 2026-09-16 against main
 `83c026dc6acb4575553fe234a90350435f835ffd`, its `uv.lock`, Modal SDK 1.5.5,
 and [the accepted engineering plan](../plans/PLAN-003-real-ocr-modal.md).
-This is a runtime specification for review, not evidence of a successful build,
+Manager accepted this preflight and the two-Volume correction after independently reproducing
+the SDK restriction. This is a runtime specification, not evidence of a successful build,
 model load, training run or bill. Development owns dependencies/model/transport;
 Platform owns the eventual entrypoint only after explicit file assignment.
 
@@ -64,7 +65,7 @@ multimodal sequence bound. Validate the full sequence and fail on overflow rathe
 than truncate labels. [Model source](https://raw.githubusercontent.com/huggingface/transformers/v5.16.1/src/transformers/models/qwen3_vl/modeling_qwen3_vl.py),
 [processor token expansion](https://raw.githubusercontent.com/huggingface/transformers/v5.16.1/src/transformers/models/qwen3_vl/processing_qwen3_vl.py).
 
-## One dispatcher; Volume constraint needs plan amendment
+## One dispatcher and two Volumes
 
 Recommend one sequential Function with `gpu="L40S"`, `cpu=(2, 2)`,
 `memory=(32768, 32768)`, `max_containers=1`, `min_containers=0`,
@@ -75,10 +76,10 @@ container count alone does not bound cumulative jobs. CPU throttling and RAM OOM
 limits constrain this quote; exceeding memory is a failure, not an automatic
 resource increase. [Resource semantics](https://modal.com/docs/guide/resources).
 
-**Blocking SDK fact:** 1.5.5 `validate_volumes_by_object_id` rejects the same
+**Verified SDK constraint:** 1.5.5 `validate_volumes_by_object_id` rejects the same
 Volume ID mounted at multiple paths, irrespective of `sub_path` or read-only
-options. Separate handles do not solve this. The plan's one-Volume requirement
-cannot implement separate provider-enforced read-only input and writable output
+options. Separate handles do not solve this. The previous one-Volume proposal
+could not implement separate provider-enforced read-only input and writable output
 mounts as proposed. This is established by installed SDK source, without launching
 anything. Reproduce by inspecting `modal/_utils/mount_utils.py` in the pinned
 [Modal 1.5.5 distribution](https://pypi.org/pypi/modal/1.5.5/json): both
@@ -86,13 +87,13 @@ anything. Reproduce by inspecting `modal/_utils/mount_utils.py` in the pinned
 the restriction. An offline duplicate-ID probe of the latter raises `InvalidError`;
 it uses stand-in records and makes no remote request.
 
-**Recommendation requiring Manager/Planning acceptance:** keep one dispatcher and
+**Accepted architecture correction:** keep one dispatcher and
 use two named Volumes: consolidate images/base files in one read-only input
 Volume; use another for writable run outputs. Storage is billed by total bytes,
 so the same 12 GiB estimate below applies. Do not silently weaken immutability by
 mounting a single shared root writable. No resource is created by this document.
 
-Proposed amended mounts:
+Accepted mount design, pending implementation:
 
 | Container path | Volume / subdirectory | Access |
 | --- | --- | --- |
@@ -178,9 +179,9 @@ remain risks. Stop after the first observed failure and reconcile before review.
 ## Release and evidence
 
 Before any resource/build/upload/job: exact reviewed converter/model/transport/
-entrypoint commits and dependency lock; accepted source mapping and Volume
-amendment; explicit code
-execution release within the approved $5 smoke / $30 total; verified account,
+entrypoint commits and dependency lock; accepted source mapping and two-Volume
+implementation; explicit code execution release within the approved $5 smoke / $30 total;
+verified account,
 mount allowlist and cancellation path. Preserve official READ train/validation
 membership and unknown document grouping; this is engineering verification only.
 

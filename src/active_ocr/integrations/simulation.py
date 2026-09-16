@@ -10,10 +10,10 @@ import re
 import subprocess
 from importlib.metadata import distributions, version
 from pathlib import Path
-from typing import Protocol
+from typing import Annotated, Protocol
 
 from PIL import Image, ImageDraw
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from active_ocr.evaluation import page_text_metrics
 from active_ocr.integrations.storage import SQLiteStore
@@ -27,8 +27,11 @@ from active_ocr.models import (
     RevealedExample,
     RunKind,
     SimulationPage,
+    SourceArtifact,
+    SourcePolicy,
     SourceRegion,
     Split,
+    validate_source_policy,
 )
 
 
@@ -39,15 +42,40 @@ def sha256(data: bytes) -> str:
 class SourcePage(Page):
     """One JSONL row; image_uri is a local path relative to the manifest."""
 
+    document_id: Annotated[str, Field(min_length=1)] | None
+    source_policy: SourcePolicy = SourcePolicy.KNOWN_DOCUMENT
+    source_provenance: SourceArtifact | None = None
     split: Split  # Explicit; never infer or reassign a source split.
     image_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     regions: tuple[SourceRegion, ...] | None = None
 
+    @model_validator(mode="after")
+    def validate_policy(self) -> SourcePage:
+        validate_source_policy(self.document_id, self.split, self.source_policy)
+        if (self.source_policy is SourcePolicy.READ2016) != (self.source_provenance is not None):
+            raise ValueError("source provenance must be present exactly for READ policy")
+        return self
 
-def _read_source(data: bytes, directory: Path) -> tuple[SourcePage, ...]:
+
+def _read_source(
+    data: bytes, directory: Path, *, source_policy: SourcePolicy = SourcePolicy.KNOWN_DOCUMENT
+) -> tuple[SourcePage, ...]:
+    from active_ocr.integrations.public_dataset import (
+        source_path,
+        validate_image,
+        validate_provenance,
+    )
+
+    source_policy = SourcePolicy(source_policy)
     pages = tuple(
         SourcePage.model_validate_json(line) for line in data.splitlines() if line.strip()
     )
+    if any(p.source_policy is not source_policy for p in pages):
+        raise ValueError("caller/row source policy mismatch")
+    if source_policy is SourcePolicy.READ2016:
+        if not pages or any(p.source_provenance != pages[0].source_provenance for p in pages):
+            raise ValueError("READ requires one consistent provenance reference")
+        validate_provenance(directory, pages[0].source_provenance, pages)
     ids: set[str] = set()
     documents: dict[str, Split] = {}
     images: dict[str, Split] = {}
@@ -55,18 +83,30 @@ def _read_source(data: bytes, directory: Path) -> tuple[SourcePage, ...]:
         if page.id in ids:
             raise ValueError(f"duplicate page ID: {page.id}")
         ids.add(page.id)
-        for mapping, key in ((documents, page.document_id), (images, page.image_sha256)):
-            if key in mapping and mapping[key] != page.split:
+        if page.document_id is not None:
+            if page.document_id in documents and documents[page.document_id] != page.split:
                 raise ValueError("document or duplicate image content crosses splits")
-            mapping[key] = page.split
-        path = (directory / page.image_uri).resolve()
+            documents[page.document_id] = page.split
+        if page.image_sha256 in images and (
+            images[page.image_sha256] != page.split or source_policy is SourcePolicy.READ2016
+        ):
+            raise ValueError("document or duplicate image content crosses splits or READ pages")
+        images[page.image_sha256] = page.split
+        path = (
+            source_path(directory, page.image_uri)
+            if source_policy is SourcePolicy.READ2016
+            else (directory / page.image_uri).resolve()
+        )
         image_bytes = path.read_bytes()
         if sha256(image_bytes) != page.image_sha256:
             raise ValueError(f"image checksum changed: {page.id}")
-        with Image.open(path) as image:
-            image.load()
-            if image.size != (page.width, page.height):
-                raise ValueError(f"image dimensions do not match: {page.id}")
+        if source_policy is SourcePolicy.READ2016:
+            validate_image(image_bytes, page.width, page.height)
+        else:
+            with Image.open(path) as image:
+                image.load()
+                if image.size != (page.width, page.height):
+                    raise ValueError(f"image dimensions do not match: {page.id}")
         region_ids = set()
         for region in page.regions or ():
             if region.id in region_ids:
@@ -105,27 +145,59 @@ class LocalOracle:
         frozen = Path(snapshot.frozen_manifest).read_bytes()
         if sha256(data) != snapshot.manifest_sha256 or frozen != data:
             raise ValueError("dataset manifest/ground truth changed")
-        source = _read_source(data, Path(snapshot.source_manifest).parent)
+        source = _read_source(
+            data, Path(snapshot.source_manifest).parent, source_policy=snapshot.source_policy
+        )
+        if any(p.source_provenance != snapshot.source_provenance for p in source):
+            raise ValueError("snapshot/source provenance mismatch")
         self._source = {page.id: page for page in source}
         self._pages = {page.id: page for page in snapshot.pages}
-        if set(self._source) != set(self._pages):
+        if len(self._pages) != len(snapshot.pages) or set(self._source) != set(self._pages):
             raise ValueError("dataset membership changed")
         for page in snapshot.pages:
+            metadata = {
+                "id",
+                "document_id",
+                "split",
+                "width",
+                "height",
+                "image_sha256",
+                "source_policy",
+            }
+            if page.model_dump(include=metadata) != self._source[page.id].model_dump(
+                include=metadata
+            ):
+                raise ValueError("source/frozen page metadata mismatch")
             if sha256(Path(page.image_uri).read_bytes()) != page.image_sha256:
                 raise ValueError(f"frozen image changed: {page.id}")
 
     @staticmethod
-    def freeze(manifest: Path, store: SQLiteStore) -> DatasetSnapshot:
+    def freeze(
+        manifest: Path,
+        store: SQLiteStore,
+        *,
+        source_policy: SourcePolicy = SourcePolicy.KNOWN_DOCUMENT,
+    ) -> DatasetSnapshot:
+        source_policy = SourcePolicy(source_policy)
+        if source_policy is SourcePolicy.READ2016 and (
+            manifest.is_symlink() or manifest.parent.is_symlink()
+        ):
+            raise ValueError("symlinked READ manifest/root")
         manifest = manifest.resolve()
         data = manifest.read_bytes()
-        source = _read_source(data, manifest.parent)
+        source = _read_source(data, manifest.parent, source_policy=source_policy)
         pages = []
         for page in source:
             original = (manifest.parent / page.image_uri).resolve()
-            image = store.save_artifact("simulation-images", original.read_bytes())
+            image_bytes = original.read_bytes()
+            if sha256(image_bytes) != page.image_sha256:
+                raise ValueError("source image changed during freeze")
+            image = store.save_artifact("simulation-images", image_bytes)
+            if sha256(image.read_bytes()) != page.image_sha256:
+                raise ValueError("persisted image changed during freeze")
             pages.append(
                 SimulationPage(
-                    **page.model_dump(exclude={"regions", "image_uri"}),
+                    **page.model_dump(exclude={"regions", "image_uri", "source_provenance"}),
                     image_uri=str(image.resolve()),
                     source_image=str(original),
                 )
@@ -134,13 +206,17 @@ class LocalOracle:
             (p.id, None if p.regions is None else [r.model_dump() for r in p.regions])
             for p in source
         ]
-        return DatasetSnapshot(
+        snapshot = DatasetSnapshot(
+            source_policy=source_policy,
+            source_provenance=source[0].source_provenance if source else None,
             source_manifest=str(manifest),
             frozen_manifest=str(store.save_artifact("simulation-source", data, ".jsonl").resolve()),
             manifest_sha256=sha256(data),
             ground_truth_sha256=sha256(json.dumps(labels, ensure_ascii=False).encode()),
             pages=tuple(pages),
         )
+        LocalOracle(snapshot)  # Verify the bytes actually persisted, plus any source mutation.
+        return snapshot
 
     def reveal(self, page_ids: tuple[str, ...]) -> tuple[RevealedExample, ...]:
         if len(set(page_ids)) != len(page_ids):
