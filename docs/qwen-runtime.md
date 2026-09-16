@@ -116,7 +116,9 @@ inputs, uses eval/inference mode, cache and native Flash SDPA. It slices after t
 length, retains raw IDs/text and removes only a verified terminal EOS for strict parsing.
 At the cap without EOS, even valid-looking JSON is `TRUNCATED`. Duplicate/extra keys, wrappers,
 trailing text, special tokens, nonfinite/string/bool coordinates, malformed Unicode or invalid
-boxes yield `INVALID_OUTPUT` with empty regions and raw evidence. Empty valid regions/text
+boxes yield `INVALID_OUTPUT` with empty regions and raw evidence. A recursion-depth failure
+from parsing generated JSON has the same page-failure treatment; recursion errors from the
+tokenizer or other runtime components still propagate as operation errors. Empty valid regions/text
 remain valid; there is no word-based refusal detector. Scores are always absent.
 
 Normalized endpoints are mapped individually into original pixels, then extents are computed
@@ -151,7 +153,16 @@ optimizer state, provider attempts, timing or costs enter the checkpoint manifes
 Only `adapter_config.json` and `adapter_model.safetensors` are copied from PEFT staging.
 The base reference is normalized to the pinned repository/revision. Exact configuration,
 keys, shapes, FP32 dtype and finite values are checked before base loading, and loaded adapter
-values are compared with the verified file before forward. Fresh reload always receives an
+values are compared with the verified file before forward. The verified adapter file inventory
+and tensor hashes are retained as one operation's identity, including through image preparation.
+Loading uses those retained hashes rather than accepting the current file as a new expectation.
+The requested manifest/inventory is rechecked immediately before and after loading, before each
+generation, and after final runtime/image/telemetry checks before receipt publication. A transient
+replacement loaded into memory is rejected against the retained tensor hashes even if original
+file bytes are restored. Fit likewise retains its staged adapter inventory through reload and
+checkpoint publication. These are synchronous integrity checks, not a filesystem write lock;
+provider read-only inputs and single-dispatcher output ownership remain transport requirements.
+Fresh reload always receives an
 explicit verified base; there is no AutoPeft/Hub lookup or base substitution. Directory creation
 is exclusive, files are fsynced, and the manifest is written last. Existing content is reusable
 only when every byte and the complete inventory match; incomplete directories remain errors.
@@ -187,7 +198,10 @@ Set `QWEN_HEADER_DIR` to the existing staged model directory to run the read-onl
 It reads only the safetensors header bytes, verifies all72 shapes and the adapter count, and
 never loads tensors. Pure tests cover strict JSON/geometry, serialization/loss-span arithmetic,
 paths/images, identity failures, package/code mutation, checkpoint bytes/ownership, purposes,
-partial-group orders and counts, and fixture-import independence. The worker identity success
+partial-group orders and counts, and fixture-import independence. Checkpoint-mutation tests
+cover preparation, loading, generation and final observation; loader spies also exercise a
+replacement restored on disk after load. The gated actual adapter test writes a different finite,
+correctly shaped safetensors payload and requires inventory rejection before any CUDA load. The worker identity success
 case uses an explicitly synthetic file/package/platform fixture; it is not a Linux runtime pass.
 The full existing suite deliberately rejects a dirty Git identity, so dirty-tree failures are
 not evidence against the clean candidate and must be rerun after publication.

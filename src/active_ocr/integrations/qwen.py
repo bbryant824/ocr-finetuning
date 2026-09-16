@@ -301,7 +301,10 @@ def serialize_target(example: RevealedExample) -> str:
 
 def parse_regions(raw: str, width: int, height: int) -> tuple[Region, ...]:
     raw.encode("utf-8", errors="strict")
-    data = strict_json(raw)
+    try:
+        data = strict_json(raw)
+    except RecursionError as exc:
+        raise ValueError("generated JSON nesting exceeds parser depth") from exc
     if not isinstance(data, dict) or set(data) != {"regions"}:
         raise ValueError("expected only regions")
     if not isinstance(data["regions"], list):
@@ -718,6 +721,11 @@ def publish_checkpoint(root: Path, checkpoint: Checkpoint, staged: Path | None =
     return "checkpoint:sha256:" + key
 
 
+def verify_adapter_files(directory: Path, files: tuple[FileEntry, ...]) -> None:
+    if inventory(directory, [f.filename for f in files]) != [f.model_dump() for f in files]:
+        raise ValueError("checkpoint bytes changed")
+
+
 def verify_checkpoint_files(directory: Path, checkpoint: Checkpoint, data: bytes) -> None:
     actual_names = {p.name for p in directory.iterdir()}
     names = [f.filename for f in checkpoint.files]
@@ -725,8 +733,7 @@ def verify_checkpoint_files(directory: Path, checkpoint: Checkpoint, data: bytes
         raise ValueError("checkpoint file inventory mismatch")
     if safe_path(directory, "manifest.json").read_bytes() != data:
         raise ValueError("checkpoint manifest bytes changed")
-    if inventory(directory, names) != [f.model_dump() for f in checkpoint.files]:
-        raise ValueError("checkpoint bytes changed")
+    verify_adapter_files(directory, checkpoint.files)
 
 
 def train_epochs(model, batches: dict[str, dict], seed: int, parameters: list, context):
@@ -871,6 +878,7 @@ class QwenModel:
         self.images_root = safe_path(self.input_root, "images")
         self._model = None
         self._processor = None
+        self._adapter_identity: tuple[Path, tuple[FileEntry, ...], dict[str, str]] | None = None
         self.telemetry = None
         self._check_recipe()
         WorkerManifest.model_validate(strict_json(self.runtime_manifest.read_bytes()))
@@ -1021,12 +1029,27 @@ class QwenModel:
 
             torch.cuda.empty_cache()
 
+    def _bind_adapter(self, adapter: Path, files: tuple[FileEntry, ...]):
+        # One synchronous operation owns this snapshot; never derive a replacement on load.
+        self._adapter_identity = None
+        verify_adapter_files(adapter, files)
+        tensors = check_adapter(adapter)
+        verify_adapter_files(adapter, files)
+        self._adapter_identity = (adapter, files, tensors)
+
     def _load(self, adapter: Path | None = None):
         import torch
         from peft import PeftModel, get_peft_model_state_dict
         from transformers import Qwen3VLForConditionalGeneration
 
-        expected = check_adapter(adapter) if adapter is not None else None
+        identity = self._adapter_identity
+        if adapter is not None:
+            if identity is None or identity[0] != adapter:
+                raise ValueError("adapter load requires its verified identity")
+            _, files, expected = identity
+            verify_adapter_files(adapter, files)
+        else:
+            self._adapter_identity = None
         self._drop()
         if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported(
             including_emulation=False
@@ -1061,6 +1084,7 @@ class QwenModel:
             actual = {k: tensor_hash(v) for k, v in get_peft_model_state_dict(model).items()}
             if actual != expected:
                 raise ValueError("loaded adapter values differ from verified file")
+            verify_adapter_files(adapter, files)
         self._model = model
         return model
 
@@ -1099,7 +1123,8 @@ class QwenModel:
             ):
                 raise ValueError("adapter ownership/training metadata mismatch")
             check_training_record(checkpoint)
-            check_adapter(directory)
+            self._bind_adapter(directory, checkpoint.files)
+            verify_checkpoint_files(directory, checkpoint, raw)
         return checkpoint, directory
 
     def load_base(self, *, experiment_id: str) -> str:
@@ -1136,13 +1161,17 @@ class QwenModel:
             return ()
         processor = self._processor_ready()
         prepared = [encode_page(processor, images[p.id]) for p in pages]
+        manifest_bytes = canonical(checkpoint.model_dump(mode="json"))
+        verify_checkpoint_files(directory, checkpoint, manifest_bytes)
         model = self._load(directory if checkpoint.kind == "adapter" else None)
+        verify_checkpoint_files(directory, checkpoint, manifest_bytes)
         import torch
 
         model.eval()
         results, evidence = [], []
         for page, (batch, receipt) in zip(pages, prepared, strict=True):
             inputs = {k: v.to("cuda:0") for k, v in batch.items()}
+            verify_checkpoint_files(directory, checkpoint, manifest_bytes)
             with torch.inference_mode(), cuda_context():
                 generated = model.generate(**inputs, generation_config=generation_config())
             prefix = inputs["input_ids"].shape[1]
@@ -1178,6 +1207,7 @@ class QwenModel:
         self._verify_runtime()
         self._images(pages, split)
         self._observe(started)
+        verify_checkpoint_files(directory, checkpoint, manifest_bytes)
         raw_ref = self._receipt(
             {
                 "operation": "predict",
@@ -1282,7 +1312,11 @@ class QwenModel:
                 config = strict_json(cfg_path.read_bytes())
                 config.update(base_model_name_or_path=REPOSITORY, revision=REVISION)
                 cfg_path.write_bytes(canonical(config))
-                check_adapter(stage)
+                adapter_files = tuple(
+                    FileEntry(**f)
+                    for f in inventory(stage, ("adapter_config.json", "adapter_model.safetensors"))
+                )
+                self._bind_adapter(stage, adapter_files)
                 probe_id = min(targets)
                 probe_inputs = {
                     k: v.to("cuda:0")
@@ -1309,15 +1343,11 @@ class QwenModel:
                     target_sha256=digest([(p.id, targets[p.id]) for p in pages]),
                     seed=seed,
                     training=training,
-                    files=tuple(
-                        FileEntry(**f)
-                        for f in inventory(
-                            stage, ("adapter_config.json", "adapter_model.safetensors")
-                        )
-                    ),
+                    files=adapter_files,
                 )
                 check_training_record(checkpoint)
                 self._observe(started)
+                verify_adapter_files(stage, adapter_files)
                 model_id = "checkpoint:sha256:" + digest(checkpoint.model_dump(mode="json"))
                 self._receipt(
                     {

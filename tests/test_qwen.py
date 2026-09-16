@@ -753,7 +753,7 @@ def test_actual_generation_defaults(processor):
     assert config.stop_strings is None
 
 
-def test_actual_adapter_tensor_and_config_validation(processor, tmp_path):
+def test_actual_adapter_tensor_and_config_validation(processor, tmp_path, worker):
     import torch
     from safetensors.torch import save_file
 
@@ -766,7 +766,18 @@ def test_actual_adapter_tensor_and_config_validation(processor, tmp_path):
     path = tmp_path / "adapter_model.safetensors"
     save_file(tensors, path)
     assert set(q.check_adapter(tmp_path)) == set(tensors)
+    files = tuple(
+        q.FileEntry(**f)
+        for f in q.inventory(tmp_path, ("adapter_config.json", "adapter_model.safetensors"))
+    )
+    worker._bind_adapter(tmp_path, files)
     key = next(iter(tensors))
+    assert worker._adapter_identity[2][key] == q.tensor_hash(tensors[key])
+    tensors[key][0, 0] = 1.0
+    save_file(tensors, path)
+    # Actual finite, correctly shaped replacement still fails the frozen inventory before CUDA.
+    with pytest.raises(ValueError, match="checkpoint bytes changed"):
+        worker._load(tmp_path)
     tensors[key][0, 0] = float("nan")
     save_file(tensors, path)
     with pytest.raises(ValueError, match="tensor"):
@@ -869,3 +880,206 @@ def test_predict_failure_does_not_load_or_publish(worker, tmp_path, monkeypatch)
                 purpose=purpose,
             )
     assert not (worker.output_root / "receipts").exists()
+
+
+def mutable_adapter(worker, tmp_path):
+    stage = tmp_path / "mutable-adapter"
+    stage.mkdir()
+    for name in ("adapter_config.json", "adapter_model.safetensors"):
+        (stage / name).write_bytes(b"original")
+    processing = dict(
+        height=256,
+        width=256,
+        grid=[1, 16, 16],
+        prompt_tokens=100,
+        target_tokens=12,
+        target_exceeds_decode_budget=False,
+    )
+    checkpoint = q.Checkpoint(
+        kind="adapter",
+        binding=worker._binding(),
+        experiment_id="run",
+        round_number=1,
+        selected=(("p", "a" * 64),),
+        target_sha256="b" * 64,
+        seed=824,
+        training=dict(
+            updates=3,
+            epoch_orders=[["p"]] * 3,
+            losses=[1.0] * 3,
+            gradient_norms=[0.1] * 3,
+            processing={"p": processing},
+            supervised_tokens=36,
+            changed_tensors=72,
+            frozen_sha256="c" * 64,
+        ),
+        files=tuple(
+            q.FileEntry(**f)
+            for f in q.inventory(stage, ("adapter_config.json", "adapter_model.safetensors"))
+        ),
+    )
+    ref = q.publish_checkpoint(worker.output_root, checkpoint, stage)
+    directory = worker.output_root / "checkpoints" / ref.rsplit(":", 1)[1]
+    return ref, directory
+
+
+class TokenRows:
+    def __init__(self, values):
+        self.values = values
+        self.shape = (1, len(values))
+
+    def to(self, device):
+        return self
+
+    def __getitem__(self, key):
+        if isinstance(key, tuple):
+            return TokenRows(self.values[key[1]])
+        return self
+
+    def tolist(self):
+        return self.values
+
+
+@pytest.mark.parametrize("when", ["load", "generate", "observe"])
+@pytest.mark.parametrize("file", ["adapter_model.safetensors", "manifest.json"])
+def test_checkpoint_drift_before_forward_or_publication(worker, tmp_path, monkeypatch, when, file):
+    from contextlib import nullcontext
+
+    from active_ocr.models import ExecutionTelemetry
+
+    p = page(tmp_path, split=Split.VALIDATION)
+    ref, directory = mutable_adapter(worker, tmp_path)
+    events = []
+
+    def mutate():
+        (directory / file).write_bytes(b"replacement")
+
+    def generate(**kwargs):
+        events.append("generate")
+        if when == "generate":
+            mutate()
+        return TokenRows([10, 20, 7, q.EOS])
+
+    def load(path):
+        assert path == directory
+        if when == "load":
+            mutate()
+        return SimpleNamespace(eval=lambda: None, generate=generate)
+
+    def observe(started):
+        worker.telemetry = ExecutionTelemetry()
+        if when == "observe":
+            mutate()
+
+    monkeypatch.setattr(worker, "_verify_runtime", lambda: None)
+    monkeypatch.setattr(q, "check_adapter", lambda path: {})
+    monkeypatch.setattr(
+        worker, "_processor_ready", lambda: SimpleNamespace(tokenizer=DecodeTokenizer())
+    )
+    monkeypatch.setattr(q, "encode_page", lambda *a: ({"input_ids": TokenRows([10, 20])}, {}))
+    monkeypatch.setattr(worker, "_load", load)
+    monkeypatch.setattr(worker, "_observe", observe)
+    monkeypatch.setattr(q, "cuda_context", nullcontext)
+    monkeypatch.setattr(q, "generation_config", lambda: None)
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(inference_mode=nullcontext, equal=lambda a, b: a.values == b.values),
+    )
+    with pytest.raises(ValueError, match="checkpoint.*changed"):
+        worker.predict(
+            (p,),
+            experiment_id="run",
+            round_number=1,
+            model_id=ref,
+            purpose=PredictionPurpose.VALIDATION,
+        )
+    assert events == ([] if when == "load" else ["generate"])
+    assert not (worker.output_root / "receipts").exists()
+
+
+@pytest.mark.parametrize("when", ["before_load", "base_load", "adapter_load", "replace_restore"])
+def test_real_load_keeps_bound_tensor_identity(worker, tmp_path, monkeypatch, when):
+    _, directory = mutable_adapter(worker, tmp_path)
+    weights = directory / "adapter_model.safetensors"
+    calls = []
+    model = SimpleNamespace(parameters=lambda: (), requires_grad_=lambda value: None)
+    # Exercise the actual _load method with library spies, not GPU/tensor execution.
+    monkeypatch.setattr(q, "check_adapter", lambda path: {"tensor": weights.read_bytes()})
+    files = tuple(
+        q.FileEntry(**f)
+        for f in q.inventory(directory, ("adapter_config.json", "adapter_model.safetensors"))
+    )
+    worker._bind_adapter(directory, files)
+    assert worker._adapter_identity[2] == {"tensor": b"original"}
+
+    def base_load(*args, **kwargs):
+        calls.append("base")
+        if when == "base_load":
+            weights.write_bytes(b"replaced")
+        return model
+
+    def adapter_load(base, path, **kwargs):
+        calls.append("adapter")
+        if when in ("adapter_load", "replace_restore"):
+            weights.write_bytes(b"replaced")
+        model.state = {"tensor": weights.read_bytes()}
+        if when == "replace_restore":
+            weights.write_bytes(b"original")
+        return model
+
+    monkeypatch.setattr(q, "check_base_modules", lambda model: None)
+    monkeypatch.setattr(q, "tensor_hash", lambda tensor: tensor)
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(
+            cuda=SimpleNamespace(is_available=lambda: True, is_bf16_supported=lambda **kw: True),
+            backends=SimpleNamespace(
+                cuda=SimpleNamespace(matmul=SimpleNamespace()), cudnn=SimpleNamespace()
+            ),
+            bfloat16="BF16",
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "transformers",
+        SimpleNamespace(Qwen3VLForConditionalGeneration=SimpleNamespace(from_pretrained=base_load)),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "peft",
+        SimpleNamespace(
+            PeftModel=SimpleNamespace(from_pretrained=adapter_load),
+            get_peft_model_state_dict=lambda model: model.state,
+        ),
+    )
+    if when == "before_load":
+        weights.write_bytes(b"replaced")
+    with pytest.raises(ValueError, match="checkpoint bytes changed|loaded adapter values differ"):
+        worker._load(directory)
+    assert calls == ([] if when == "before_load" else ["base", "adapter"])
+    assert worker._model is None
+
+
+def test_generated_parser_depth_retains_raw_but_tokenizer_recursion_escapes():
+    raw = '{"regions":' + "[" * 1000 + "]" * 1000 + "}"
+
+    class NestedTokenizer:
+        all_special_ids = [q.EOS]
+
+        def decode(self, ids, **kwargs):
+            return raw
+
+    status, regions, evidence, reason = q.decode_result([7, q.EOS], NestedTokenizer(), 1, 1)
+    assert status is PredictionStatus.INVALID_OUTPUT and regions == ()
+    assert evidence == raw and reason == "eos"
+
+    class BrokenTokenizer(NestedTokenizer):
+        def decode(self, ids, **kwargs):
+            if q.EOS not in ids:
+                raise RecursionError("tokenizer infrastructure failed")
+            return raw
+
+    with pytest.raises(RecursionError, match="tokenizer infrastructure"):
+        q.decode_result([7, q.EOS], BrokenTokenizer(), 1, 1)
