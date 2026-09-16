@@ -345,3 +345,16 @@ The pinned READ converter passed independent C1–C8 verification at
 804unchanged originals and successful full freeze/fresh-process reopen. See the
 [structural review](verification/read2016-converter-review.md) for counts, hashes, commands
 and limits. This establishes engineering data readiness, not OCR/model execution.
+
+## Real adapter and bounded validation subsets
+
+The `real` CLI group now connects the exact identity-checked Modal adapter; fixture and local
+contract-test flows remain available. See [Modal runtime](modal-runtime.md) and its deployment
+bootstrap for required build evidence, settings, observed resource identities and execution gates.
+No real execution is implied by local author tests.
+
+`SimulationConfig.validation_page_ids` optionally freezes an ordered nonempty unique subset.
+Every ID must belong to the frozen validation split at creation and resume. The same pages, in
+that order, go to model prediction and the isolated evaluator; omitted means all validation pages.
+This does not edit source membership, ground truth or final-test policy. Exports preserve the run
+JSON and add `validation.json` with membership/count; CSV includes the same information.

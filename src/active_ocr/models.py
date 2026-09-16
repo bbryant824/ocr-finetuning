@@ -293,9 +293,13 @@ class SimulationConfig(Model):
     fit_policy: str = "reset-fit-cumulative-v1"
     evaluator_id: str | None = Field(default=None, min_length=1)
     real: RealOCRConfig | None = None
+    validation_page_ids: tuple[str, ...] | None = None
 
     @model_validator(mode="after")
     def validate_real_recipe(self) -> SimulationConfig:
+        ids = self.validation_page_ids
+        if ids is not None and (not ids or any(not i for i in ids) or len(set(ids)) != len(ids)):
+            raise ValueError("validation_page_ids must be nonempty and unique")
         if self.real is not None:
             if self.backend != self.real.backend or self.evaluator_id != self.real.evaluator_id:
                 raise ValueError("run backend/evaluator must match real recipe")

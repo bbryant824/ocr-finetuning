@@ -13,7 +13,11 @@ from active_ocr.integrations.simulation import create_fixture
 from active_ocr.models import SimulationConfig, Strategy
 from active_ocr.pipeline import Pipeline
 
-app = typer.Typer(help="OCR active-learning research pipeline.", no_args_is_help=True)
+app = typer.Typer(
+    help="OCR active-learning research pipeline.",
+    no_args_is_help=True,
+    pretty_exceptions_show_locals=False,
+)
 experiment_app = typer.Typer(help="Create and inspect strategy runs.", no_args_is_help=True)
 app.add_typer(experiment_app, name="experiment")
 simulation_app = typer.Typer(help="Local true-label simulation; fixture model only.")
@@ -124,6 +128,175 @@ def simulation_export(directory: Path, run_id: str, output: Path) -> None:
     """Write JSON and CSV to a new directory; never overwrite previous exports."""
     Pipeline.for_simulation(directory).export_simulation(run_id, output)
     typer.echo(output)
+
+
+real_app = typer.Typer(help="Identity-checked real OCR runs with durable Modal recovery.")
+app.add_typer(real_app, name="real")
+
+
+def _real_model(directory, run_id, settings, deployment=None, *, remote=False):
+    from active_ocr.integrations.modal_model import (
+        DeploymentObservation,
+        ModalModel,
+        RuntimeSettings,
+        SDKTransport,
+    )
+    from active_ocr.integrations.qwen import strict_json
+    from active_ocr.integrations.simulation import LocalOracle, check_local_identity
+    from active_ocr.models import RunKind
+
+    pipeline = Pipeline.for_simulation(directory)
+    run = pipeline.get_simulation(run_id)
+    if run.kind is not RunKind.REAL:
+        raise ValueError("real commands require a real run")
+    check_local_identity(run.config.real.expected_identity)
+    LocalOracle(run.dataset)
+    pipeline._validation_pages(run.config, run.dataset.pages)
+    runtime = RuntimeSettings.model_validate(strict_json(settings.read_bytes()))
+    transport = None
+    if remote:
+        if deployment is None:
+            raise ValueError("an observed deployment file is required")
+        observed = DeploymentObservation.model_validate(strict_json(deployment.read_bytes()))
+        transport = SDKTransport(runtime, observed)
+    model = ModalModel(runtime, pipeline.store, transport)
+    model.check_run(run, pipeline.store)
+    return pipeline, model
+
+
+@real_app.command("create")
+def real_create(manifest: Path, directory: Path, configuration: Path):
+    """Freeze a real configuration with observed CPU-build identity; no remote call."""
+    from active_ocr.integrations.qwen import strict_json
+    from active_ocr.models import RunKind
+
+    config = SimulationConfig.model_validate(strict_json(configuration.read_bytes()))
+    run = Pipeline.for_simulation(directory).create_simulation(manifest, config, kind=RunKind.REAL)
+    typer.echo(run.id)
+
+
+@real_app.command("preflight")
+def real_preflight(
+    directory: Path,
+    run_id: str,
+    settings: Path,
+    deployment: Path | None = None,
+    provider: bool = False,
+):
+    """Verify local run/settings. --provider additionally checks existing Function/Volume IDs."""
+    pipeline, model = _real_model(directory, run_id, settings, deployment, remote=provider)
+    if provider:
+        model.transport.preflight()
+    typer.echo(
+        json.dumps(
+            dict(
+                run_id=run_id,
+                local="verified",
+                provider="verified" if provider else "not_checked",
+                validation_ids=[
+                    p.id
+                    for p in pipeline._validation_pages(
+                        pipeline.get_simulation(run_id).config,
+                        pipeline.get_simulation(run_id).dataset.pages,
+                    )
+                ],
+            )
+        )
+    )
+
+
+@real_app.command("run")
+@real_app.command("resume")
+def real_run(
+    directory: Path, run_id: str, settings: Path, deployment: Path, one_round: bool = False
+):
+    """Execute or reattach known work within the original absolute deadline."""
+    pipeline, model = _real_model(directory, run_id, settings, deployment, remote=True)
+    method = pipeline.step_simulation if one_round else pipeline.run_simulation
+    typer.echo(method(run_id, model=model).model_dump_json(indent=2))
+
+
+@real_app.command("status")
+def real_status(directory: Path, run_id: str):
+    """Read committed rounds, redacted operation states and the frozen deadline."""
+    from active_ocr.integrations.modal_model import ModelOperation, RunControl
+
+    pipeline = Pipeline.for_simulation(directory)
+    run = pipeline.get_simulation(run_id)
+    control = pipeline.store.load("model-control", run_id, RunControl)
+    operations = [
+        r.model_dump(mode="json")
+        for r in pipeline.store.list("model-operation", ModelOperation)
+        if r.semantic["context"]["experiment_id"] == run_id
+    ]
+    typer.echo(
+        json.dumps(
+            dict(
+                run=run.model_dump(mode="json"),
+                control=control.model_dump(mode="json") if control else None,
+                operations=operations,
+            ),
+            indent=2,
+        )
+    )
+
+
+@real_app.command("export")
+def real_export(directory: Path, run_id: str, output: Path):
+    """Export a committed snapshot with explicit validation membership/count."""
+    Pipeline.for_simulation(directory).export_simulation(run_id, output)
+    typer.echo(output)
+
+
+@real_app.command("reconcile")
+def real_reconcile(
+    directory: Path,
+    run_id: str,
+    settings: Path,
+    deployment: Path,
+    operation_id: str,
+    call_id: str | None = None,
+    completion: Path | None = None,
+    cancel: bool = False,
+):
+    """Attach an observed call or verify completion. Never launches/retries a model operation."""
+    from active_ocr.integrations.modal_model import (
+        REQUEST_ADAPTER,
+        FitRequest,
+        ModelOperation,
+        RemoteExample,
+        remote_page,
+    )
+    from active_ocr.integrations.qwen import strict_json
+    from active_ocr.integrations.simulation import LocalOracle
+
+    pipeline, model = _real_model(directory, run_id, settings, deployment, remote=True)
+    record = pipeline.store.load("model-operation", operation_id, ModelOperation)
+    if record is None or record.semantic["context"]["experiment_id"] != run_id:
+        raise ValueError("operation does not belong to this run")
+    if cancel:
+        if call_id is not None or completion is not None:
+            raise ValueError("cancel cannot also attach/complete")
+        typer.echo(model.cancel(operation_id).model_dump_json(indent=2))
+        return
+    semantic = dict(record.semantic)
+    if semantic["operation"] == "fit":
+        pages = semantic.pop("pages")
+        semantic.pop("target_sha256")
+        examples = LocalOracle(pipeline.get_simulation(run_id).dataset).reveal(
+            tuple(p["id"] for p in pages)
+        )
+        request = FitRequest(
+            **semantic,
+            examples=tuple(
+                RemoteExample(page=remote_page(e.page), regions=e.regions) for e in examples
+            ),
+        )
+    else:
+        request = REQUEST_ADAPTER.validate_python(semantic)
+    response = strict_json(completion.read_bytes()) if completion else None
+    result = model.reconcile(request, call_id=call_id, response=response)
+    typer.echo(result.model_dump_json(indent=2))
 
 
 if __name__ == "__main__":
