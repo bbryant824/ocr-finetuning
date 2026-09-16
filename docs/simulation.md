@@ -128,7 +128,7 @@ SQLite rollback and concurrent stale writes, reset-fit retries, held-out validat
 ## Local baseline and real-adapter contracts
 
 **Implementation state:** local records, boundary checks and synthetic adapter execution exist.
-Qwen/Modal adapter construction and execution, weight-byte verification, source conversion, remote
+Qwen/Modal adapter construction and execution, weight-byte verification, remote
 operation recovery and uncertainty remain unavailable. The CLI still constructs fixtures only.
 These contracts make no OCR, GPU, learning or annotation-time claim.
 
@@ -251,3 +251,92 @@ These tests establish local contract behavior only. Manager accepted corrected i
 `dee5e1a5ecbbc326921e0f4019792c8f7e5deab2` after independent Testing passed the 197-test
 candidate suite and 40 independent cases. The [review](verification/local-contract-review.md)
 records resolved defects, exact reproduction and limits. Real model/GPU execution remains unavailable.
+
+
+## READ2016 engineering source conversion
+
+`integrations.public_dataset.convert_read2016` implements one pinned mapping for READ2016 1.2.0,
+Zenodo record1297399, archive SHA-256
+`f4748c58af757e06804e638a6e84c2150daab19f50d55e10aac3115e6bfc1756`.
+It requires explicit `read2016-official-unknown-engineering-v1` policy. This permits engineering
+verification of the official350 TRAIN/50 VALIDATION pages with grouping recorded **unknown**;
+it does not establish document-independent evaluation. TEST content is excluded. The converter
+checks the original archive, staged files and image/XML pairs; it does not download or extract.
+The400 known relative image symlinks are verified against regular same-split images and omitted.
+All804 regular files, including doc.xml/list exports, are copied byte-for-byte without hard links.
+
+Legacy `Page` and its importer still require known document IDs. Only `SourcePage` and
+`SimulationPage` support a required-but-null document field under the explicit READ policy.
+The strict default `known-document-v1` continues to reject null documents and cross-split known
+documents/images. READ requires null on every page, no TEST, consistent row/config/snapshot policy,
+and the pinned provenance/membership. Neither filenames nor `-1` become document identities.
+Duplicate image content anywhere in READ is rejected; strict known-group behavior is unchanged.
+
+The converter requires PAGE2013-07-15 XML with exact same-split JPG basename pairing. Region order
+comes from complete unique indexed references with matching custom indices; explicit region gaps
+are retained. Per-region line order must be contiguous from zero. Every line is included, with
+its original ID and one literal Unicode element, including blank strings. Standard XML decoding
+applies, with no trimming, Unicode normalization, abbreviation expansion or illegibility marker
+insertion. Partial unclear/style/abbreviation/sic spans remain raw XML, not invented whole-line
+flags; `illegible=False` means not explicitly flagged. Missing Baseline or structure is preserved.
+Unknown nodes, annotation attributes/blocks, ambiguous text/order, DTDs and entity declarations fail.
+
+Line polygons remain in original XML. The normalized box is their positive bounded pixel envelope
+(maximum minus minimum), with no +1, rounding or clamping. JPEG RGB, single-frame, full decode,
+matching dimensions and absent/identity EXIF orientation are required. Nonidentity declared rotation,
+unsupported modes and bad images are rejected. No image rotation/crop/resize or source split changes.
+
+Output consists of `source/PublicData/...`, a deterministic `provenance.json`, and `pages.jsonl`.
+Provenance has a fixed schema/mapping version, pinned source identity, clean converter code SHA,
+engineering/grouping limitations, sorted804-file size/hash inventory and ordered page mappings/counts.
+It contains no transcript copies, absolute paths, timestamps or runtime UUIDs. Every row hashes the
+same relative provenance file; the manifest is not included in that file's inventory. Original XML
+preserves all polygons/custom metadata for audit. Predict/fit page projections explicitly omit the
+provenance reference; fitting receives only selected TRAIN line targets and validation truth still
+goes only to the evaluator. These cooperative local interfaces are not a sandbox against adapters.
+
+The destination must be new, even if an existing directory is empty. At least2GiB scratch headroom
+and a clean Git checkout are required. Conversion reserves the destination exclusively, builds in a
+temporary sibling, validates copied bytes, flushes files and publishes `pages.jsonl` last. Its presence
+is the completion boundary. Handled failures clean invocation-owned files; unrelated contents are
+retained with an incomplete-path note. An interrupted/crashed conversion requires a fresh path;
+there is no overwrite/resume mode. Concurrent contenders cannot replace the winner. Source paths
+are safe relative paths without symlink components. Original files remain unchanged.
+
+Direct invocation (after independent converter review and structural-smoke release):
+
+```python
+from pathlib import Path
+from active_ocr.integrations.public_dataset import convert_read2016
+from active_ocr.integrations.simulation import LocalOracle
+from active_ocr.models import SimulationConfig, SourcePolicy
+from active_ocr.pipeline import Pipeline
+
+policy = SourcePolicy.READ2016
+manifest = convert_read2016(
+    Path(".local/assets/read2016-1.2.0/Train-And-Val-ICFHR-2016.tgz"),
+    Path(".local/assets/read2016-1.2.0/extracted"),
+    Path(".local/prepared/read2016-v1"),
+    source_policy=policy,
+)
+pipeline = Pipeline.for_simulation(Path(".local/verification/read2016-v1"))
+snapshot = LocalOracle.freeze(manifest, pipeline.store, source_policy=policy)
+LocalOracle(snapshot)  # structural integrity only; no model work
+# A later authorized simulation must set SimulationConfig(source_policy=policy).
+```
+
+Freeze/reload/pre-commit recheck the manifest, provenance, all originals, literal XML-to-row mapping,
+source/frozen metadata and actual stored image bytes. Missing original files prevent resume.
+Config/snapshot/page policies must agree even on completed runs. Existing fixture JSON defaults to
+strict policy and retains historical compare-and-swap compatibility. JSON exports carry policy and
+provenance in config/dataset; CSV adds `source_policy`, `document_grouping` and `engineering_only`.
+A fixture using this source remains fixture evidence. CLI start keeps strict policy and cannot
+automatically admit READ; no CLI or model-execution feature is added here.
+
+Author C1–C7 checks are in `tests/test_public_dataset.py` and the existing simulation/independent
+contract tests. Run `python -m pytest tests/test_public_dataset.py tests/test_simulation.py`, the full
+suite from a clean committed checkout, and `ruff check .`. Synthetic400-page fixtures exercise
+publication/integrity without relaxing the public pinned-archive API. Read-only source diagnostics
+matched350/50 pages,8367/1043 lines,four empty strings and two missing baselines. Full actual prepared
+dataset conversion/freeze (C8) has **not** been executed by this implementation; it follows independent
+review and release. No real model, GPU, cloud, OCR quality or active-learning result is established.

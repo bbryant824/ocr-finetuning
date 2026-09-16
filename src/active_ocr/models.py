@@ -14,6 +14,9 @@ class Model(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+SHA256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
 class Split(StrEnum):
     TRAIN = "train"
     VALIDATION = "validation"
@@ -158,11 +161,36 @@ class SourceRegion(Model):
     illegible: bool = False
 
 
+class SourcePolicy(StrEnum):
+    KNOWN_DOCUMENT = "known-document-v1"
+    READ2016 = "read2016-official-unknown-engineering-v1"
+
+
+class SourceArtifact(Model):
+    uri: str = Field(min_length=1)
+    sha256: SHA256
+
+
+def validate_source_policy(document_id: str | None, split: Split, policy: SourcePolicy) -> None:
+    if policy is SourcePolicy.KNOWN_DOCUMENT:
+        if not document_id:
+            raise ValueError("known-document policy requires a document ID")
+    elif document_id is not None or split is Split.TEST:
+        raise ValueError("READ engineering policy requires null documents and excludes TEST")
+
+
 class SimulationPage(Page):
     """Frozen image metadata; no labels are exposed to model prediction."""
 
+    document_id: Annotated[str, Field(min_length=1)] | None
+    source_policy: SourcePolicy = SourcePolicy.KNOWN_DOCUMENT
     image_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     source_image: str
+
+    @model_validator(mode="after")
+    def validate_policy(self) -> SimulationPage:
+        validate_source_policy(self.document_id, self.split, self.source_policy)
+        return self
 
 
 class RevealedExample(Model):
@@ -177,9 +205,18 @@ class DatasetSnapshot(Model):
     manifest_sha256: str
     ground_truth_sha256: str
     pages: tuple[SimulationPage, ...]
+    source_policy: SourcePolicy = SourcePolicy.KNOWN_DOCUMENT
+    source_provenance: SourceArtifact | None = None
+
+    @model_validator(mode="after")
+    def validate_policy(self) -> DatasetSnapshot:
+        if any(page.source_policy is not self.source_policy for page in self.pages):
+            raise ValueError("snapshot/page source policy mismatch")
+        if (self.source_policy is SourcePolicy.READ2016) != (self.source_provenance is not None):
+            raise ValueError("source provenance must be present exactly for READ policy")
+        return self
 
 
-SHA256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 CommitSHA = Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
 CheckpointReference = Annotated[str, Field(pattern=r"^checkpoint:sha256:[0-9a-f]{64}$")]
 
@@ -245,6 +282,7 @@ class ExecutionTelemetry(Model):
 
 
 class SimulationConfig(Model):
+    source_policy: SourcePolicy = SourcePolicy.KNOWN_DOCUMENT
     strategy: Strategy = Strategy.RANDOM
     batch_size: int = Field(default=2, gt=0)
     page_budget: int = Field(default=6, ge=0)
@@ -306,6 +344,8 @@ class SimulationRun(Model):
 
     @model_validator(mode="after")
     def validate_kind(self) -> SimulationRun:
+        if self.config.source_policy is not self.dataset.source_policy:
+            raise ValueError("config/snapshot source policy mismatch")
         if self.kind is RunKind.FIXTURE:
             if self.config.real is not None or self.config.backend != "deterministic-fixture-v1":
                 raise ValueError("fixture kind requires the fixture backend and no real recipe")
