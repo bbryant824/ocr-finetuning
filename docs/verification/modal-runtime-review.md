@@ -1,6 +1,54 @@
 # Independent Modal integration review
 
-## Phase B continuation — FAIL: CPU build selects twelve tests but requires eleven
+## Final verdict — PASS for complete offline integration
+
+Reviewed implementation: `ca3c60c3eb03b51ef442b80e53dade60673e30f2`.
+Control: `bfe2789b31cbd6206aa0cb87fd30680869c3b52c`.
+Both original regressions pass unchanged. The selector now collects exactly the intended
+11 ML cases; collecting them does not execute or validate their ML behavior.
+The historical findings and earlier coverage below remain part of this review.
+
+| Final verification | Result |
+| --- | --- |
+| Full clean exact candidate, staged header-only input, `python -m pytest --tb=short -rs` | **710 passed, 11 explicitly unverified ML skips in 49.26s** |
+| Complete independent suite, external test file against a separate clean exact candidate with explicit source imports | **130 passed in 4.72s**; checkout remained clean |
+| Ruff, test formatting, diff whitespace | Passed |
+| Lock/pyproject comparison with preceding review | Byte-identical; no dependency changes or redundant resolution |
+| Actual Modal SDK1.5.5 `prepare_image` construction, actual offline frozen lock export and pinned small processor files | **18 exact individual file copies**, hash-required requirements, CPU-only build-step declaration, output-only build-evidence mount, source inclusion disabled; no build or provider call |
+
+The remaining acceptance checks are now complete:
+
+- Bootstrap checks reject changed code, lock, processor/test bytes, mismatched export,
+  dirty tracked state and wrong source revision before image construction. The independent
+  negative tests use explicit Git/export fakes; the separate actual SDK construction uses
+  a clean exact checkout, real offline export and all eight pinned small processor files.
+- Receipt retrieval checks succeed only after the fake eager build produces its identity.
+  Missing/noncanonical receipts, corrupt report bytes, wrong source and reported skips fail
+  without an automatic rebuild. These are provider fakes, not actual CPU build evidence.
+- Input upload planning includes exactly the declared model/image files and excludes extra
+  label files. Changed image/model bytes or a model-file symlink reject before any fake batch.
+- Real CLI admission uses an **unmocked** clean Git/source and installed-dependency identity.
+  Create, local preflight, zero-label baseline, fit, resume, status and export pass with only
+  the provider transport replaced. Wrong dependency identity and a tracked source edit reject
+  before submission; the temporary edit is restored and the checkout finishes clean.
+
+Together with the earlier byte-complete fit/round recovery, worker, isolation, concurrency,
+redaction and deadline checks, no blocking offline integration defect remains. Only the assigned
+independent test and review files changed. No author helpers or assertions were substituted.
+The actual SDK construction used a network-denying audit hook; an initial scratch inspection
+of a private Volume-wrapper attribute was corrected to inspect the forwarded mount options.
+This was an inspection-script issue, not a product failure.
+
+**Scope limit:** this PASS does not verify actual Linux CPU test execution, PEFT/model compatibility,
+4B training or fresh-process GPU probes, provider mounts/cancellation/terminal status, or billing.
+The eleven actual ML checks remain UNVERIFIED, and no model installation/loading, image build,
+provider upload/deployment/resource mutation, cloud job or spend occurred. Synthetic OCR outputs
+and revealed-page counts establish neither OCR quality nor reduced human annotation time.
+Manager acceptance and later execution releases remain separate decisions.
+
+---
+
+## Historical phase B continuation — FAIL: CPU build selects twelve tests but requires eleven
 
 Reviewed implementation: `79fe2c3859fefca501bf4c3efc13d3d23710905d`.
 Control: `077bc890bfef618cc565226f9b8e441619c17ef5`.
