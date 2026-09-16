@@ -1,13 +1,14 @@
 # Plan — real OCR with simulated annotation on Modal
 
-Owner: Planning. Version: **0.3**, 2026-09-16. Status: **Converter successor for review; candidate 1A completed**.
+Owner: Planning. Version: **0.3**, 2026-09-16. Status: **Converter specification accepted; candidate 1A completed**.
 Manager reviewed v0.2 at `d659c48f38639e54e19ac6aceff1b5adf853355a`
 and accepts its roadmap and bounded local candidate 1A under the user's engineering authorization.
 Candidate 1A at `dee5e1a5ecbbc326921e0f4019792c8f7e5deab2` passed independent Testing;
 Manager accepted and integrated it with review evidence `2db380a497ca641d8e1df0cda773074e0d306040`.
 See the [exact review and limitations](../docs/verification/local-contract-review.md). Engineering-only
-READ source use is now user-approved; the concrete converter specification below awaits Manager
-acceptance/release. Later implementation, methodology and execution retain their stated gates.
+READ source use is now user-approved; Manager accepted the exact converter specification at
+`653fe7dff2018de1e35c91d616c24ed848681a16` and releases candidate 1B for implementation/review. Later implementation, methodology and
+execution retain their stated gates.
 Phase-A v0.1 remains in Git history. Real model execution is still unavailable.
 
 Inspected control for v0.3: `83c026dc6acb4575553fe234a90350435f835ffd`, including accepted
@@ -279,7 +280,8 @@ Qwen quality, training, CUDA, checkpoints-on-disk, Modal auth or cancellation PA
 
 ### Candidate 1B — READ2016 converter and engineering-only source policy
 
-**New v0.3 proposal for Manager review.** On 2026-09-16 the user admitted the official
+**Accepted v0.3 specification; implementation and independent review pending.** On 2026-09-16
+the user admitted the official
 READ2016 1.2.0 TRAIN/VALIDATION partitions for engineering verification with document grouping
 explicitly unknown. Original labels/membership stay unchanged; final test is excluded. This
 resolves source-use permission, not converter correctness or scientific independence. Candidate
@@ -441,7 +443,7 @@ These are disk estimates from the 499,592,094-byte source, not measured converte
 
 #### Exact ownership and independent acceptance
 
-Development alone owns this proposed implementation scope; Manager must release the exact version.
+Development alone owns this bounded implementation scope, released by Manager after exact v0.3 review.
 
 | Files | Allowed changes |
 | --- | --- |
@@ -703,4 +705,6 @@ remove later source/method/hardware gates. No production code or job was changed
   proposes only the concrete 1B schema/policy, literal PAGE mapping, direct conversion invocation,
   provenance/mutation boundaries and C1–C8 independent checks; corrects the earlier region-index
   contiguity assumption using the two observed gapped pages. Records the approved USD30 total /
-  USD5 first reviewed smoke without releasing cloud work. Awaiting exact converter-plan acceptance.
+  USD5 first reviewed smoke without releasing cloud work. Manager accepted exact specification
+  `653fe7dff2018de1e35c91d616c24ed848681a16`; converter implementation and independent C1–C8
+  evidence remain pending.
