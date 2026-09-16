@@ -540,14 +540,19 @@ of `pyproject.toml`/lock after Platform agrees pins. Freeze shared request schem
 concurrently edit shared files. Model/metric logic stays outside the Modal entrypoint.
 
 One synchronous adapter wraps `load_base/fit/predict` with one sequential GPU Function dispatcher
-and one Volume. Strict `RemotePage` is id, document reference if available, original dimensions,
+and two Volumes: one input bundle mounted read-only and one output subtree mounted writable.
+Strict `RemotePage` is id, document reference if available, original dimensions,
 image_sha256 and safe image key—no `source_image`, host paths or `regions`. Fit arguments contain
 only cumulative selected TRAIN examples; predict arguments contain no targets. The uploaded
 code/image allowlist must exclude oracle source, original GT/archive, SQLite DB, local memory,
 test images and labelled caches. Do not upload artifact_root or repository wholesale. Store only
-images, pinned model assets, trained checkpoints and derived outputs on the Volume. No selected
-text dataset/targets in persistent trainer caches/logs; trained weights may retain learned text.
-Use read-only image/base subpaths and disjoint writable outputs; verify actual mounts at smoke.
+images and pinned model assets in the input Volume; trained checkpoints and derived outputs
+belong in the output Volume. No selected text dataset/targets in persistent trainer caches/logs;
+trained weights may retain learned text. Mount only the assigned bundle/run subdirectories,
+using provider read-only input enforcement; verify actual mounts at smoke. The two-Volume
+correction is required because SDK 1.5.5 rejects one Volume ID at multiple mount paths,
+confirmed by installed-source inspection and an offline duplicate-ID probe. See the accepted
+[Modal preflight](../docs/modal-preflight.md); no additional worker, queue or service is added.
 
 The common request carries schema, operation, run/round/purpose, ordered image ID+hash list,
 exact input checkpoint/base and recipe identities; fit also carries selected-only target digest.
@@ -708,3 +713,11 @@ remove later source/method/hardware gates. No production code or job was changed
   USD5 first reviewed smoke without releasing cloud work. Manager accepted exact specification
   `653fe7dff2018de1e35c91d616c24ed848681a16`; converter implementation and independent C1–C8
   evidence remain pending.
+
+- 2026-09-16 runtime amendment: Manager accepted Platform preflight
+  `c2dbd4452bad4c89194e0a10b16b88be2b3a6cdf` and independently reproduced the pinned
+  SDK's duplicate-Volume mount rejection. Candidate 3 therefore uses two Volumes with one
+  sequential dispatcher. This preserves read-only input enforcement and the same total-byte
+  storage estimate; source/methodology, converter scope and user budget are unchanged.
+  Candidate dependency pins and USD2.894150 gross smoke estimate remain preflight proposals
+  until exact code/build/runtime verification. No resource or paid execution is released here.
