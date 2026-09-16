@@ -615,3 +615,264 @@ def test_checkpoint_interruption_never_becomes_complete(worker, tmp_path, monkey
     assert (directory / "adapter_model.safetensors").is_file()
     with pytest.raises((OSError, ValueError)):
         worker._checkpoint(reference, "run", 1)
+
+
+@pytest.mark.parametrize("point", ["load", "generate", "observe"])
+@pytest.mark.parametrize("filename", ["manifest.json", "adapter_model.safetensors"])
+def test_phase2_prediction_drift_stops_publication(worker, tmp_path, monkeypatch, point, filename):
+    p = make_page(worker, split=Split.VALIDATION)
+    reference, directory = adapter_record(worker, tmp_path)
+    changed = directory / filename
+    events = generation_spy(
+        worker,
+        monkeypatch,
+        during_generate=(lambda: changed.write_bytes(b"drift")) if point == "generate" else None,
+    )
+    if point == "load":
+        load = worker._load
+
+        def changed_load(path):
+            model = load(path)
+            changed.write_bytes(b"drift")
+            model.generate = lambda **kwargs: pytest.fail("forward after checkpoint drift")
+            return model
+
+        monkeypatch.setattr(worker, "_load", changed_load)
+    if point == "observe":
+        observe = worker._observe
+
+        def changed_observe(start):
+            observe(start)
+            changed.write_bytes(b"drift")
+
+        monkeypatch.setattr(worker, "_observe", changed_observe)
+    with pytest.raises(ValueError, match="checkpoint.*changed"):
+        worker.predict(
+            (p,),
+            experiment_id="run",
+            round_number=1,
+            model_id=reference,
+            purpose=PredictionPurpose.VALIDATION,
+        )
+    assert not (worker.output_root / "receipts").exists()
+    assert ("load", directory) in events
+
+
+@pytest.mark.parametrize("mode", ["unchanged", "replace_restore", "change_after_tensor_hash"])
+def test_phase2_actual_loader_uses_retained_tensor_identity(worker, tmp_path, monkeypatch, mode):
+    # Actual _bind_adapter/_load and file guards; packages and tensor values are explicit spies.
+    _, directory = adapter_record(worker, tmp_path)
+    weights = directory / "adapter_model.safetensors"
+    original = weights.read_bytes()
+    model = SimpleNamespace(
+        parameters=lambda: (SimpleNamespace(device="cuda:0", dtype="bf16"),),
+        requires_grad_=lambda flag: None,
+        named_modules=lambda: (
+            (
+                name,
+                SimpleNamespace(
+                    weight=SimpleNamespace(shape=(4096 if name.endswith("q_proj") else 1024, 2560))
+                ),
+            )
+            for name in q.TARGETS
+        ),
+    )
+    reads = []
+
+    def validate(path):
+        reads.append(path)
+        return {"parameter": sha((path / "adapter_model.safetensors").read_bytes())}
+
+    monkeypatch.setattr(q, "check_adapter", validate)
+    files = tuple(
+        q.FileEntry(**item)
+        for item in q.inventory(directory, ("adapter_config.json", "adapter_model.safetensors"))
+    )
+    worker._bind_adapter(directory, files)
+    expected = dict(worker._adapter_identity[2])
+
+    def base_loader(path, **kwargs):
+        assert path == worker.model_root
+        assert kwargs["local_files_only"] and not kwargs["trust_remote_code"]
+        assert kwargs["device_map"] == {"": "cuda:0"}
+        return model
+
+    def adapter_loader(base, path, **kwargs):
+        assert base is model and path == directory
+        assert kwargs["is_trainable"] is False and kwargs["local_files_only"]
+        if mode == "replace_restore":
+            weights.write_bytes(b"different finite tensor stand-in")
+        model.state = {"parameter": weights.read_bytes()}
+        weights.write_bytes(original)
+        return model
+
+    def tensor_digest(value):
+        if mode == "change_after_tensor_hash":
+            weights.write_bytes(b"drift after loaded tensor capture")
+        return sha(value)
+
+    monkeypatch.setattr(q, "tensor_hash", tensor_digest)
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(
+            cuda=SimpleNamespace(is_available=lambda: True, is_bf16_supported=lambda **k: True),
+            backends=SimpleNamespace(
+                cuda=SimpleNamespace(matmul=SimpleNamespace()), cudnn=SimpleNamespace()
+            ),
+            bfloat16="bf16",
+            device=lambda value: value,
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "transformers",
+        SimpleNamespace(
+            Qwen3VLForConditionalGeneration=SimpleNamespace(from_pretrained=base_loader)
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "peft",
+        SimpleNamespace(
+            PeftModel=SimpleNamespace(from_pretrained=adapter_loader),
+            get_peft_model_state_dict=lambda m: m.state,
+        ),
+    )
+    if mode == "unchanged":
+        assert worker._load(directory) is model
+        # A real base load clears the earlier adapter binding instead of warm-starting it.
+        monkeypatch.setattr(worker, "_drop", lambda: setattr(worker, "_model", None))
+        assert worker._load() is model and worker._adapter_identity is None
+    else:
+        with pytest.raises(
+            ValueError, match="loaded adapter values differ|checkpoint bytes changed"
+        ):
+            worker._load(directory)
+        assert worker._model is None
+        assert worker._adapter_identity[2] == expected
+    assert reads == [directory]  # Load must not replace the frozen tensor expectation.
+
+
+def test_phase2_failed_binding_cannot_reuse_previous_identity(worker, tmp_path, monkeypatch):
+    _, directory = adapter_record(worker, tmp_path)
+    weights = directory / "adapter_model.safetensors"
+    files = tuple(
+        q.FileEntry(**item)
+        for item in q.inventory(directory, ("adapter_config.json", "adapter_model.safetensors"))
+    )
+    monkeypatch.setattr(q, "check_adapter", lambda path: {"parameter": sha(weights.read_bytes())})
+    worker._bind_adapter(directory, files)
+
+    def changing_validator(path):
+        weights.write_bytes(b"changed during tensor verification")
+        return {"parameter": sha(weights.read_bytes())}
+
+    monkeypatch.setattr(q, "check_adapter", changing_validator)
+    with pytest.raises(ValueError, match="checkpoint bytes changed"):
+        worker._bind_adapter(directory, files)
+    assert worker._adapter_identity is None
+
+
+@pytest.mark.parametrize("stage", ["raw_decode", "content_decode"])
+def test_phase2_tokenizer_recursion_still_fails_operation(stage):
+    class BrokenTokenizer(CharacterTokenizer):
+        def decode(self, ids, **kwargs):
+            if stage == "raw_decode" or 151645 not in ids:
+                raise RecursionError("tokenizer operation failure")
+            return super().decode(ids, **kwargs)
+
+    with pytest.raises(RecursionError, match="tokenizer operation failure"):
+        q.decode_result(tokens('{"regions":[]}'), BrokenTokenizer(), 101, 1237)
+
+
+@pytest.mark.parametrize("drift", [None, "after_reload", "receipt"])
+def test_phase2_fit_retains_staged_inventory_until_publication(worker, monkeypatch, drift):
+    # Exercise actual fit/save/bind/publish control flow, not training or tensor numerics.
+    p = make_page(worker, size=(320, 480))
+    example = RevealedExample(page=p, regions=())
+    saved = []
+    model = SimpleNamespace(state={"parameter": b"initial"})
+    processing = dict(
+        height=480,
+        width=320,
+        grid=[1, 30, 20],
+        prompt_tokens=200,
+        target_tokens=4,
+        target_exceeds_decode_budget=False,
+    )
+
+    def save(stage, **kwargs):
+        saved.append(stage)
+        (stage / "adapter_config.json").write_text("{}")
+        (stage / "adapter_model.safetensors").write_bytes(model.state["parameter"])
+
+    model.save_pretrained = save
+
+    def load(stage=None):
+        if stage is None:
+            return model
+        assert worker._adapter_identity[0] == stage
+        q.verify_adapter_files(stage, worker._adapter_identity[1])
+        return SimpleNamespace(
+            state={"parameter": (stage / "adapter_model.safetensors").read_bytes()}
+        )
+
+    def train(*args):
+        model.state = {"parameter": b"trained"}
+        return dict(
+            updates=3, epoch_orders=[[p.id]] * 3, losses=[1.0] * 3, gradient_norms=[0.25] * 3
+        )
+
+    def compare(before, after):
+        assert before == after
+        if drift == "after_reload":
+            (saved[0] / "adapter_model.safetensors").write_bytes(b"drift after reload")
+        return 0.0
+
+    def receipt(data):
+        if drift == "receipt":
+            (saved[0] / "adapter_model.safetensors").write_bytes(b"drift during receipt")
+        return "synthetic-receipt"
+
+    monkeypatch.setattr(worker, "_verify_runtime", lambda: None)
+    monkeypatch.setattr(worker, "_processor_ready", lambda: SimpleNamespace(tokenizer=object()))
+    monkeypatch.setattr(worker, "_drop", lambda: setattr(worker, "_model", None))
+    monkeypatch.setattr(worker, "_load", load)
+    monkeypatch.setattr(
+        worker, "_observe", lambda start: setattr(worker, "telemetry", ExecutionTelemetry())
+    )
+    monkeypatch.setattr(worker, "_receipt", receipt)
+    monkeypatch.setattr(q, "reset_seed", lambda seed: None)
+    monkeypatch.setattr(q, "encode_page", lambda *args: ({}, processing))
+    monkeypatch.setattr(q, "check_trainables", lambda m: [])
+    monkeypatch.setattr(q, "frozen_hashes", lambda m: {"frozen": "unchanged"})
+    monkeypatch.setattr(q, "tensor_hash", sha)
+    monkeypatch.setattr(q, "train_epochs", train)
+    monkeypatch.setattr(
+        q,
+        "check_adapter",
+        lambda stage: {"parameter": sha((stage / "adapter_model.safetensors").read_bytes())},
+    )
+    monkeypatch.setattr(q, "reload_probe", lambda m, *args, **kwargs: dict(m.state))
+    monkeypatch.setattr(q, "compare_probes", compare)
+    monkeypatch.setitem(
+        sys.modules,
+        "peft",
+        SimpleNamespace(
+            get_peft_model=lambda base, *args, **kwargs: base,
+            get_peft_model_state_dict=lambda m: m.state,
+        ),
+    )
+    monkeypatch.setattr(q, "lora_config", lambda: object())
+    if drift is None:
+        reference = worker.fit((example,), seed=824, experiment_id="run", round_number=1)
+        directory = worker.output_root / "checkpoints" / reference.rsplit(":", 1)[1]
+        checkpoint = json.loads((directory / "manifest.json").read_text())
+        assert checkpoint["files"] == [entry.model_dump() for entry in worker._adapter_identity[1]]
+        assert checkpoint["selected"] == [[p.id, p.image_sha256]]
+    else:
+        with pytest.raises(ValueError, match="checkpoint bytes changed|staged adapter changed"):
+            worker.fit((example,), seed=824, experiment_id="run", round_number=1)
+        assert not list(worker.output_root.glob("checkpoints/*/manifest.json"))
+    assert not saved[0].exists()  # Private staging cleaned, no completed corrupt checkpoint.

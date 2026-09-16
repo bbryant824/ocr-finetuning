@@ -1,16 +1,95 @@
 # Independent Qwen runtime review
 
-Verdict: **FAIL for the offline candidate**
+Current verdict: **PASS for the reviewed offline scope** at corrected candidate
+`31bb47224c03b0db8f7f9705028e29e1d13e2c0e`.
+Control: `58c34c9e9b8460e9b19af0a23d5c8af1f78789aa`; the accepted specification and production
+in that control are unchanged from the earlier review. Both original failures below are resolved.
+Actual Linux processor/tiny-model checks and 4B/CUDA execution remain **unverified** and separately
+gated. This is not model-runtime, OCR-quality or experiment acceptance.
+
+## Phase 2 correction and independent evidence
+
+Reviewed the complete correction to model code, author tests and runtime documentation. The
+original 26 independent tests and phase 1 review were unchanged by Development. All 26 now pass
+without changing assertions or using xfail. This review adds 15 affected-scope cases to the same
+independent test file; no production, author-test or dependency changes were made by Testing.
+
+The correction retains the verified adapter file inventory and tensor hashes across image
+preparation and loading. `_load` compares the loaded state with that retained identity, rather
+than deriving a replacement expectation from current disk contents. Prediction checks the
+requested manifest/files before and after loading, before each generation, and after the final
+runtime/image/telemetry checks before publishing its receipt. Fit retains its staged inventory
+through reload and publication. A failed binding clears the previous identity; loading base
+clears the adapter binding. The added helper reuses existing inventory validation and introduces
+no new service or general identity framework.
+
+The JSON correction is deliberately local: only a recursion-depth exception from `strict_json`
+inside `parse_regions` becomes the existing invalid-output path. Tokenizer recursion, including
+failure during the second content decode, remains an operation error. Raw generated text and
+EOS termination remain available for the invalid page record.
+
+| Check at the corrected candidate | Independent result |
+| --- | --- |
+| Full clean candidate `pytest --tb=short -rs` with staged header-only input | **467 passed, 11 unverified skips in 40.99s** |
+| Expanded independent suite against a separate clean exact source checkout | **41 passed in 0.47s** |
+| Ruff, correction/review whitespace and ownership checks | Passed |
+
+The full regression ran before any new review edits. The separate execution checkout remained
+clean. Environment versions are unchanged from phase 1. Dependency pins/lock are byte-identical
+to the previously checked candidate, so no redundant lock resolution or installation was needed.
+
+The new independent cases cover:
+
+- Adapter-file and manifest drift during loading, generation and final observation; no prediction
+  receipt is published, and load-time drift prevents forward work.
+- The actual `_bind_adapter` and `_load` methods with explicit package/tensor spies: unchanged
+  loading succeeds, then base loading clears the binding; replacement loaded into memory is
+  rejected even when original disk bytes are restored; drift after tensor capture also rejects.
+  The tensor validator is called only when binding, not to replace expected hashes during load.
+- Mutation during binding clears retained identity rather than leaving a stale successful one.
+- The actual `fit` control flow with training/reload spies and real staging/inventory/publication:
+  unchanged bytes publish a checkpoint whose files equal the retained inventory; drift after
+  reload or during receipt creation cannot publish a completed checkpoint. Private staging is
+  cleaned in all three cases.
+- Tokenizer recursion during either raw or content decoding still propagates. The unchanged
+  nested-JSON regression now returns `INVALID_OUTPUT`, empty regions and raw evidence.
+
+These spies test ordering and integrity, not actual tensor decoding, optimization, loaded-model
+numerics or CUDA. The optional actual-adapter test was inspected: it now writes a different
+finite, correctly shaped safetensors payload and expects inventory rejection before CUDA, but
+remains one of the 11 unexecuted ML cases. The staged-build and 4B/CUDA gates described below
+remain required. Synchronous checks do not provide a filesystem write lock against a malicious
+concurrent writer; the planned single dispatcher and input/output ownership still apply.
+
+No blocking defect remains in this affected offline scope. Manager retains acceptance,
+integration and subsequent release authority. No ML install/load, dataset experiment, build,
+cloud action or spend occurred during either review phase.
+
+To reproduce all 41 independent checks, keep the review file outside the clean source checkout:
+
+```sh
+review_tests="$PWD/tests/test_qwen_independent.py"
+review_dir=$(mktemp -d)
+git clone --quiet --no-local --no-checkout . "$review_dir/source"
+git -C "$review_dir/source" checkout --quiet --detach 31bb47224c03b0db8f7f9705028e29e1d13e2c0e
+PYTHONPATH="$review_dir/source/src" python -m pytest \
+  -c "$review_dir/source/pyproject.toml" -o pythonpath= --import-mode=importlib \
+  "$review_tests" --tb=short
+```
+
+## Preserved phase 1 review
+
+Historical phase 1 verdict: **FAIL for the offline candidate**
 `c4d9e09770f1c31c75a6078898dd342da63f5469`, including implementation commit
 `17e8167084ae5b437e32c3ab071a01a98b109bb6`.
 Control/accepted specification: `d8ee28cf6ebc02cbe6fe949a96ffb3c0c100f3e9` and
 [candidate 2, Q1–Q9](../../plans/PLAN-003-real-ocr-modal.md#candidate-2--concrete-qwen-runtime-training-and-checkpoints).
 
-Two independent regressions remain. No production or author-test changes were made. The
+At that candidate, two independent regressions remained. No production or author-test changes were made. The
 existing passing suite does not override these findings. Linux processor/tiny-model execution
 and the later 4B/CUDA checks remain **unverified**, not failed or passed by this offline review.
 
-## Findings
+## Historical findings (corrected in phase 2)
 
 ### P2: checkpoint bytes are not bound across preparation and loading
 
@@ -59,7 +138,7 @@ Development should classify bounded parser-depth failure as invalid generated ou
 retaining raw evidence. Do not turn unrelated infrastructure failures into blank successful
 pages. Relevant candidate code: `qwen.py` `decode_result` (394–402).
 
-## Executed evidence
+## Historical phase 1 executed evidence
 
 Python 3.11.14, pytest 9.1.1, Pydantic 2.13.5, Pillow 12.3.0, Ruff 0.16.6. Source imports were
 explicitly from the reviewed checkout. No ML installation, model loading, build, cloud call,
@@ -119,7 +198,7 @@ not another abstraction layer. Original source labels/splits and prior converter
 unchanged. No document-independence, OCR quality, training adequacy or active-learning result
 is established.
 
-## Reproduce the independent suite
+## Reproduce the historical failures
 
 Keep the review test file outside the clean candidate checkout and use the existing development
 environment. This command needs no real dataset, model assets or optional ML packages:
@@ -131,9 +210,9 @@ git clone --quiet --no-local --no-checkout . "$review_dir/source"
 git -C "$review_dir/source" checkout --quiet --detach c4d9e09770f1c31c75a6078898dd342da63f5469
 PYTHONPATH="$review_dir/source/src" python -m pytest \
   -c "$review_dir/source/pyproject.toml" -o pythonpath= --import-mode=importlib \
-  "$review_tests" --tb=short
+  "$review_tests" -k "not phase2" --tb=short
 ```
 
-Expected at this candidate: **24 passes, 2 failures** named above. Development owns corrections;
-Testing will review a separately released corrected SHA. Manager retains acceptance and all
-later CPU-build/CUDA releases.
+Expected for the original 26 tests at that candidate: **24 passes, 2 failures** named above.
+The phase 2 tests are excluded because they exercise the later correction. These failed results
+remain historical evidence; the corrected candidate verdict and remaining gates appear above.
