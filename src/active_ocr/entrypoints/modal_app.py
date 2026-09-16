@@ -313,7 +313,7 @@ def cpu_build_gate(build_spec: dict, build_spec_sha256: str, output_volume_id: s
                 "pytest",
                 str(root / "tests/test_qwen.py"),
                 "-k",
-                "actual and not staged_headers",
+                "test_actual_ and not staged_headers",
                 "--junitxml=" + str(junit),
                 "--basetemp=" + str(Path(temporary) / "tests"),
                 "-q",

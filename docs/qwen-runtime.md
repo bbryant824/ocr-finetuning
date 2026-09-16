@@ -211,7 +211,7 @@ After the reviewed Linux build is released, install from the frozen GPU/dev lock
 
 ```sh
 QWEN_PROCESSOR_DIR=/reviewed/processor-assets \
-  python -m pytest tests/test_qwen.py -k 'actual and not staged_headers' -rs
+  python -m pytest tests/test_qwen.py -k 'test_actual_ and not staged_headers' -rs
 ```
 
 The small code allowlist for those synthetic tests is `active_ocr/__init__.py`,

@@ -65,7 +65,7 @@ workload to diagnose a failed first smoke.
    memory32768MiB, timeout900s and `include_source=False`. Its only Volume mount
    is the output Volume `/builds/<build-spec-sha>` at `/build-evidence`.
    The SDK CPU/memory settings are soft requests; the estimate is not a bill cap.
-4. The CPU gate runs exactly `tests/test_qwen.py -k 'actual and not staged_headers'`
+4. The CPU gate runs exactly `tests/test_qwen.py -k 'test_actual_ and not staged_headers'`
    with the pinned small processor directory, disabled plugin auto-discovery,
    suppressed raw stdout/stderr and a temporary pytest directory. Require eleven
    distinct passes, zero skips/failures and a successful process exit. A subprocess

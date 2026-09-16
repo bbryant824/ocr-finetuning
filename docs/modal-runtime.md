@@ -86,7 +86,7 @@ separately released before any command makes a provider call. No new run-ID API 
    Use `include_source=False` because the reviewed code is already copied. The CPU build step
    has no GPU, cpu2, memory32768MiB and timeout900s. This is a soft-resource/build allowance,
    not a provider dollar cap. No4Bweights or real dataset images/labels enter the build.
-4. That step runs `tests/test_qwen.py -k 'actual and not staged_headers'` with the pinned small
+4. That step runs `tests/test_qwen.py -k 'test_actual_ and not staged_headers'` with the pinned small
    processor assets. Require the exact11selected tests,11passes,0skips,0failures; a pytest exit0
    with skips fails the gate. Export a hashed report and `BuildReceipt` through **only** output
    Volume `/builds/<build-spec-sha>` mounted at `/build-evidence`. Commit it and retain an
