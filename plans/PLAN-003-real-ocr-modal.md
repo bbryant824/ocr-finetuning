@@ -1,6 +1,6 @@
 # Plan — real OCR with simulated annotation on Modal
 
-Owner: Planning. Version: **0.3**, 2026-09-16. Status: **Converter specification accepted; candidate 1A completed**.
+Owner: Planning. Version: **0.4**, 2026-09-16. Status: **Qwen specification proposed; converter specification accepted; candidate 1A completed**.
 Manager reviewed v0.2 at `d659c48f38639e54e19ac6aceff1b5adf853355a`
 and accepts its roadmap and bounded local candidate 1A under the user's engineering authorization.
 Candidate 1A at `dee5e1a5ecbbc326921e0f4019792c8f7e5deab2` passed independent Testing;
@@ -11,9 +11,9 @@ READ source use is now user-approved; Manager accepted the exact converter speci
 execution retain their stated gates.
 Phase-A v0.1 remains in Git history. Real model execution is still unavailable.
 
-Inspected control for v0.3: `83c026dc6acb4575553fe234a90350435f835ffd`, including accepted
-local contracts at `dee5e1a5ecbbc326921e0f4019792c8f7e5deab2`. The v0.2 contract design
-below is retained as implementation history; the new scope is candidate 1B only.
+Inspected control for v0.4: `fad7cae5baf5d7e30ecf9a772152363ab9ca6902`, including accepted
+local contracts, converter specification and two-Volume runtime correction. Earlier scopes below
+are retained unchanged; the new proposal is candidate 2 only and awaits Manager acceptance.
 Scientific input: accepted [RES-002](../research/RES-002-real-ocr-pilot.md) at
 `8a173197fd4ef12f91da3fde0d0197bc4bda21b6`. Development, independent Testing and QA
 preparation informed this reconciliation; they are not verdicts on a real implementation.
@@ -476,60 +476,295 @@ actual structural smoke supplies source execution evidence. No further source-us
 question is needed within this admitted scope. Comparative independence, final test, model and
 provider execution remain separate gates. Publish no full normalized manifest or raw source GT.
 
-### Candidate 2 — Qwen load, train, output and checkpoints
+### Candidate 2 — concrete Qwen runtime, training and checkpoints
 
-Development exclusively owns `integrations/qwen.py`, narrowly needed model records/tests and
-agreed GPU lock/dependency edits. Preconditions: accepted full-page output/target and source
-mapping, inspected Qwen module names/tokenization, pinned compatible libraries and exact recipe.
-No Modal SDK/job/entrypoint or uncertainty implementation here. CPU/synthetic tests precede a
-separately authorized CUDA smoke; live evidence comes after candidate 3 supplies the transport.
+**v0.4 proposal for exact-version review.** Implement the model boundary after converter acceptance;
+this section does not release implementation or a paid run. Source admission, the two-Volume /
+one-dispatcher architecture and USD30 total / USD5 first reviewed smoke remain accepted. Keep
+candidate3 responsible for transport/journal/real CLI and enabling `RunKind.REAL` in Pipeline.
+The existing `QwenRunner` and loose `parse_output` are unused placeholders, not a second supported
+execution API. Replace their implementation surface with the one runtime below; no legacy job adapter.
 
-One future calibration proposal, following Research: LoRA **rank16, alpha32, dropout0**, frozen
-base/vision, explicit language-attention q/v projections, page batch1, accumulation4, **3 epochs**,
-AdamW lr1e-4, constant schedule, warmup0, weight decay0, clip norm1, no augmentation, bf16 only
-if the selected device supports it. Resolve exact full module names and verify frozen tensors;
-do not regex-match vision modules or invent a list before architecture inspection. Reset base,
-adapter, optimizer and scheduler each cumulative fit. Seed is the paired seed, never UUID/hash.
-Flush a partial accumulation group at each epoch end; normalize by its actual microbatch count
-so it is not underweighted. Expected updates are `epochs * ceil(revealed_pages / 4)` for this
-one-page-example/no-packing recipe. Record actual updates/tokens and test the chosen trainer's
-behavior; no silent truncation or fixed-step substitute to satisfy a deadline.
+#### Pins, owned files and API
 
-This recipe is calibration, not demonstrated adequate training. Use target/gradient mask tests:
-supervise ordered assistant text/geometry and intended termination, ignore prompt/image/pad;
-check causal alignment, nonzero supervised tokens, finite loss and finite gradients, intended
-trainable tensor changes, frozen tensors unchanged. LoRA components initially having zero
-individual gradients are not automatically a failure. Only selected source GT makes targets;
-validation and unselected boxes never make crops, prompts or tiling decisions.
+Use Linux x86-64, Python3.11 and the [accepted runtime pins](../docs/modal-preflight.md):
+`torch==2.14.0`, `torchvision==0.29.0`, `transformers==5.16.1`, `peft==0.20.0`,
+`accelerate==1.14.0`; retain the reviewed transitive lock including tokenizers0.23.2,
+safetensors0.8.0 and Pillow12.3.0. Development adds torchvision and pins the GPU optional group
+and Linux resolution in `pyproject.toml`/`uv.lock`. Modal1.5.5 stays candidate3; no local ML install
+is requested by this planning publication. Metadata/source compatibility is not a passed build.
+Use native PyTorch SDPA, no third-party FlashAttention, TRL/Trainer, quantization or extra framework.
 
-Raw schema proposal: strict `{"regions":[{"text":string,"bbox":[x1,y1,x2,y2]}]}`,
-ordered lines, coordinates real numbers within [0,1000], x2>x1/y2>y1. No model-generated IDs
-required; assign deterministic prediction-local IDs by list position, not source line IDs.
-Source illegibility flags remain unchanged in oracle/provenance; this initial model target
-supervises literal source text and geometry, not an invented illegibility marker/class. Convert
-predictions with `Region.illegible=False` under this schema so an empty string is preserved;
-predicting illegibility is a separately versioned task extension, not an implicit text rewrite.
-For original width W/height H, map x=x1*W/1000, y=y1*H/1000,
-w=(x2-x1)*W/1000, h=(y2-y1)*H/1000. Keep floats; no rounding/clamping/GT-based repair. Training
-serialization uses the inverse mapping of the declared polygon-envelope view. The prompt defines
-normalized coordinates relative to the **original uncropped page**. Aspect-preserving whole-page
-resize needs no content-coordinate offset; exclude cropping/tiling/padding in the first recipe
-unless an explicitly versioned inverse transform is tested. Audit processor internals rather
-than assume their coordinate interpretation. Stop for invalid geometry, block-as-line output or
-unreliable line detection; no invented whole-page boxes or hidden-GT line recognizer fallback.
+Development owns only `src/active_ocr/integrations/qwen.py`, `pyproject.toml`, `uv.lock`, new
+`tests/test_qwen.py` and new `docs/qwen-runtime.md`. Keep small private recipe/checkpoint records
+and helpers in qwen.py using the existing immutable Model base; no new general configuration
+system or shared-model edit is presently needed. Imports of torch/Transformers/PEFT are lazy;
+ordinary local fixture imports/tests must continue without the GPU group. Testing owns its own
+independent test/review files when assigned. No converter, Pipeline, CLI, Modal entrypoint, metric,
+selector or source changes in candidate2. Report a concrete scope exception if one becomes necessary.
 
-Decode with one beam, no sampling, no repetition/no-repeat-gram penalties. Initial resource-cap
-proposal remains long side1024, max_new_tokens2048, target text cap4096, with total multimodal
-sequence/image-token bounds resolved from the pinned processor before dispatch. These limits
-may be too small for READ pages; calibrate coverage then freeze, never silently discard/crop
-or truncate targets. Preserve raw outputs, finish reasons and invalid/refusal/truncation states.
+Proposed `QwenModel(input_root: Path, output_root: Path, real_config: RealOCRConfig,
+*, runtime_manifest: Path)` has `backend="qwen3-vl-v1"`, `kind=RunKind.REAL`, the existing
+reset-fit policy, recipe/identity metadata and optional ExecutionTelemetry. Constructor validates
+records/paths without loading weights. Methods match the current protocol:
 
-Model ID `checkpoint:sha256:<manifest_hash>` binds canonical manifest schema, pinned base/
-processor/recipe/code, selected-only target digest/ordered IDs, seed, training updates and all
-weight/config file hashes. Absolute machine paths and volatile telemetry are not manifest identity.
-Use immutable relative paths; incomplete/corrupt checkpoints never load. Fresh process/container
-must load the saved checkpoint, verify tensors and reproduce train-probe decoding/logits under
-a tolerance declared before running. This compares one saved model, not two independent fits.
+```python
+load_base(*, experiment_id: str) -> str
+fit(examples: tuple[RevealedExample, ...], *, seed: int,
+    experiment_id: str, round_number: int) -> str
+predict(pages: tuple[SimulationPage, ...], *, experiment_id: str,
+        round_number: int, model_id: str,
+        purpose: PredictionPurpose = PredictionPurpose.POOL) -> tuple[Prediction, ...]
+```
+
+Use `input_root/model` and verified `input_root/images`; write only under output_root. The later
+Modal adapter maps safe image keys to worker-local paths; Qwen consumes `image_uri`, original
+size/hash and ID, never `source_image`, oracle files or document/GT-derived hints. Reject escaping
+paths/symlinks, altered image bytes/dimensions, TEST input, malformed ownership, duplicate pages
+and missing assets before loading/forward work. Fit accepts only nonempty unique selected TRAIN
+examples at a positive round, cumulative as supplied; it does not call the oracle or select data.
+Baseline prediction is round0/VALIDATION/base checkpoint; acquired validation and optional pool
+requests are positive-round and match checkpoint ownership. Random smoke/pilot never call pool;
+all predictions have confidence/entropy=None. Empty prediction page tuples return empty after
+identity validation without generation. Keep runtime methods synchronous for one later dispatcher.
+
+**Worker identity is not local Git discovery.** The local coordinator retains its existing
+checkout-based `check_local_identity`; a copied installation without `.git` remains fail-closed.
+Run that future CLI from verified checkout source/editable setup. Workers intentionally receive
+no `.git` or whole repository. Candidate2 verifies the supplied reviewed runtime manifest's
+source SHA, explicit code-file hashes and installed Linux package fingerprint against frozen
+`ExpectedIdentity.code_bundle_sha256`/`remote_dependency_sha256`, plus recipe/model/processor
+identities, before load or generation. Candidate3's allowlisted build produces this manifest and
+binds deployment/build references; local code/dependency fingerprints are not compared to remote
+Linux packages. No new identity service, self-reported GPU-as-identity or prior successful GPU run
+is required. CPU build/import evidence can establish the expected package/code bundle first.
+
+#### Whole-page processor and bounded sequences
+
+Load only revision `ebb281ec70b05090aa6165b016eac8ec08e71b17` from checked local files, with
+`local_files_only=True`, `trust_remote_code=False` where supported, and offline Hub settings.
+Construct Qwen3VLProcessor explicitly from Qwen2VLImageProcessor.from_pretrained (the pinned
+TorchvisionBackend class), AutoTokenizer.from_pretrained(use_fast=True) and
+Qwen3VLVideoProcessor.from_pretrained, all from the local snapshot; supply the exact
+`chat_template.json` string. The video component is required by this processor constructor but
+video inputs are rejected. This avoids passing one ambiguous backend keyword through all three
+component loaders. Assert concrete image/processor classes, fast tokenizer and pinned template/
+settings; never accept an automatically substituted PIL processor. The mapping
+and resize implementation are inspected at Transformers5.16.1 commit
+`93c8b7b485963a10800c91f55304db6be211c2bd`:
+[auto mapping](https://github.com/huggingface/transformers/blob/93c8b7b485963a10800c91f55304db6be211c2bd/src/transformers/models/auto/image_processing_auto.py),
+[image processor](https://github.com/huggingface/transformers/blob/93c8b7b485963a10800c91f55304db6be211c2bd/src/transformers/models/qwen2_vl/image_processing_qwen2_vl.py).
+
+Freeze training/decode IDs `qwen3-vl-page-lora-v1` / `qwen3-vl-page-greedy-v1`, recipe
+`qwen3-vl-read-engineering-v1`. For original H,W, set per-page area ceiling
+`B=ceil(1024**2 * min(H,W)/max(H,W))`; require `B>=65536`. Pass
+`images_kwargs={"size":{"shortest_edge":65536,"longest_edge":B}}` to each processor call.
+These keys mean **pixel area**, not lengths. Use its pinned smart_resize: initially round each
+dimension to a multiple of32; if rounded area exceeds B, scale by `sqrt(H*W/B)` and floor each
+dimension to a multiple of32 (minimum32); if below65536, scale up to that area and ceil to32.
+Require the actual result to agree with this calculation, area bounds and longest side<=1024;
+otherwise fail. No crop/tiling/padding, external resize, EXIF transform or target-guided shape.
+This changes the former unspecified long-side proposal into one tested algorithm, not a new cap.
+
+Use CPU torchvision bicubic/antialias=True preprocessing, rescale1/255, mean/std=(0.5,0.5,0.5),
+patch16, temporal_patch2, merge2 from the pinned config. Input must already be admitted RGB with
+identity orientation. Spatial rounding slightly changes aspect ratio: coordinate mapping is
+`x_processed=x_original*W'/W`, `y_processed=y_original*H'/H`, with no offset. Targets and outputs
+remain normalized to the original full page, so inverse x*W/1000,y*H/1000 is unchanged.
+[Resize backend](https://github.com/huggingface/transformers/blob/93c8b7b485963a10800c91f55304db6be211c2bd/src/transformers/image_processing_backends.py).
+
+Assert `image_grid_thw=[1,H'/16,W'/16]`; expanded image placeholders count is
+`grid.prod()/4 = H'*W'/1024`. Temporal patches duplicate the still frame; they do not double this
+LLM token count. The [pinned processor](https://github.com/huggingface/transformers/blob/93c8b7b485963a10800c91f55304db6be211c2bd/src/transformers/models/qwen3_vl/processing_qwen3_vl.py)
+implements that expansion. Pure dimension arithmetic for the400 staged pages predicts1024-high
+outputs: width608/640/672/704 for4/30/206/160 pages respectively, hence608–704 image tokens.
+This is an ESTIMATE from source dimensions/source code, not executed processor or VRAM evidence.
+Preserve actual grid, prompt/target counts and transform dimensions in execution receipts.
+
+Hard limits: expanded prompt P<=2048, supervised target T (JSON plus terminal token)<=4096,
+full training sequence P+T<=6144; generation max_new_tokens=2048 and P+2048<=6144. Count **actual
+expanded tokenizer IDs**, including framing/image tokens, not characters. No target/image-token
+truncation, dropped pages, automatic lower resolution or selected-page substitution. Preflight
+all selected targets before first optimizer work; overflow stops the fit without a checkpoint.
+Prediction overflow is an operation error before generation. Coverage of these limits is
+unmeasured; T>2048 is disclosed as exceeding the generation budget, not silently shortened.
+A cap change needs a versioned reviewed recipe; no adequacy/quality claim follows a completed fit.
+
+#### Literal target, prompt and causal mask
+
+One user message contains the image then the following fixed text (no system/tools/vision IDs):
+
+> Transcribe every text line in reading order, including headings, page numbers and marginalia.
+> Return only JSON with exactly this shape: {"regions":[{"text":"...","bbox":[x1,y1,x2,y2]}]}.
+> Preserve spelling, punctuation, spacing and empty text. Give one box per line. Coordinates are
+> numbers from 0 to 1000 relative to the original full page, with x2>x1 and y2>y1. Do not explain.
+
+Freeze the prompt as one constant with LF joining these four lines. It contains no source text,
+line count, region order, boxes, filename or split. Selected training targets alone serialize the
+ordered SourceRegions: exact `text`, bbox `[1000*x/W,1000*y/H,1000*(x+w)/W,1000*(y+h)/H]`.
+Use fixed key order (regions, then text/bbox), compact JSON, `ensure_ascii=False`, `allow_nan=False`,
+finite binary64 values without coordinate rounding/clamping. Escape every literal `<` in the
+serialized JSON as `\u003c` so source strings resembling tokenizer control tokens remain ordinary
+JSON content; parsing recovers the exact text. This is reversible serialization, not GT rewriting.
+Do not supervise IDs, illegibility, source span annotations or region classes.
+
+The [staged chat template](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct/blob/ebb281ec70b05090aa6165b016eac8ec08e71b17/chat_template.json)
+has no `{% generation %}` block; do not request/trust an automatic
+assistant mask. Its generation prefix ends in `<|im_start|>assistant\n`; the complete assistant
+message appends JSON then `<|im_end|>\n`. Render the pinned template twice with
+`tokenize=False`: user-only/add_generation_prompt=True and user+assistant/False. Process each
+with the same image settings, `add_special_tokens=False`, `padding=False`, `truncation=False`,
+`return_tensors="pt"`. Assert the full input's first P IDs exactly equal the processed prompt,
+including expanded image placeholders; mismatches stop, never infer a mask by decoded lengths.
+Verify the remaining token span is exactly the serialized target followed by end ID151645 and
+the template's trailing newline. Remove only that trailing framing newline from training inputs;
+keep the end token. Labels are -100 at positions[0,P), copied input IDs at[P,P+T). No extra BOS,
+manual causal shift, prompt/image/pad loss or double EOS. Batch1 has no padding; tests verify any
+padding is attention-masked and labelled -100. Assert control tokens cannot occur inside the
+encoded JSON, and supervise at least the nonempty JSON/EOS span even for `regions=[]`.
+[Template processing](https://github.com/huggingface/transformers/blob/93c8b7b485963a10800c91f55304db6be211c2bd/src/transformers/processing_utils.py)
+documents the generation-block requirement; the [causal loss](https://github.com/huggingface/transformers/blob/93c8b7b485963a10800c91f55304db6be211c2bd/src/transformers/loss/loss_utils.py)
+shifts labels internally and computes FP32 cross-entropy ignoring -100.
+
+Generation explicitly overrides the staged sampling defaults: greedy, one beam/return sequence,
+no sampling, repetition_penalty1, no_repeat_ngram_size0, max_new_tokens2048, EOS151645,
+pad151643, no forced tokens/stop strings or length penalty tuning. Build a fresh GenerationConfig
+rather than inheriting top-k/top-p/temperature settings; do not retain training labels. Set eval,
+inference_mode and use_cache=True. Preserve `mm_token_type_ids` and image/grid tensors from the
+processor; let the pinned model calculate multimodal positions, never replace them with flat IDs.
+Slice returned token IDs after the exact input length; retain raw IDs/text and termination reason.
+Decode without cleanup or skipping unexpected special tokens; remove only the verified terminal
+EOS from the response. EOS absent at the limit means truncated even if partial JSON parses.
+
+Strict parser rejects duplicate/extra keys, markdown wrappers/trailing prose, NaN/Infinity,
+booleans/coerced coordinate strings, malformed UTF-8 strings and nonfinite/out-of-range or
+nonpositive boxes. Empty regions and empty text are valid; keep ordered entries, assign IDs
+`line-0001`, etc., map floats to original pixels and set Region.illegible=False. Never repair
+JSON, clamp geometry, split blocks using GT or fabricate full-page boxes. Malformed output is
+`invalid_output`, token-limit termination is `truncated`, both with empty structured regions and
+raw evidence. A plain model has no reliable refusal flag: do not guess one from words; preserve
+invalid raw text. `refusal` is used only if an explicit future supported termination signal exists.
+Exceptions such as OOM/deadline/identity failure fail the operation, not a fabricated blank page.
+
+#### Reset-fit and exact trainability
+
+Load `Qwen3VLForConditionalGeneration.from_pretrained` from the checked local snapshot with
+`dtype=torch.bfloat16`, `attn_implementation="sdpa"`, `device_map={"":"cuda:0"}`; no auto
+placement/offload. Verify
+BF16/device/library support; never run4B on the laptop/CPU or fall back. Within CUDA forward/
+generation, select only PyTorch's built-in `SDPBackend.FLASH_ATTENTION` with `sdpa_kernel` (not
+an external flash-attn package); unsupported kernels fail. Pin this backend choice in the recipe.
+Use BF16 autocast, FP32 trainable adapters/Adam state, no GradScaler, compile or distributed mode.
+Disable TF32; record driver/CUDA/device and attention implementation as observations/recipe checks.
+CPU tiny-model tests use FP32/math SDPA explicitly as test evidence, not a production fallback.
+[PyTorch2.14 SDPA control](https://github.com/pytorch/pytorch/blob/2b3ec34829036a65cd9d1398ea72a0167dc37470/torch/nn/attention/__init__.py).
+
+Expand exactly `model.language_model.layers.{i}.self_attn.{q_proj,v_proj}` for i=0..35 into72
+names; compare named_modules and tensor shapes before PEFT wrapping. Staged safetensor headers
+independently confirm36q weights(4096,2560) and36v weights(1024,2560). Configure PEFT LoraConfig:
+r16, alpha32, dropout0, bias="none", task_type="CAUSAL_LM", init_lora_weights=True,
+use_rslora=False, use_dora=False, modules_to_save=None, full explicit target list; default adapter
+only, autocast_adapter_dtype=True. Assert exactly144 trainable A/B tensors, all FP32, with
+`36*16*((2560+4096)+(2560+1024))=5,898,240` parameters. Everything else, including vision,
+mergers/DeepStack, embeddings/tied lm_head, norms and base language weights, is frozen. No suffix
+regex matching vision layers. [Pinned model](https://github.com/huggingface/transformers/blob/93c8b7b485963a10800c91f55304db6be211c2bd/src/transformers/models/qwen3_vl/modeling_qwen3_vl.py),
+[PEFT0.20 wrapping](https://github.com/huggingface/peft/blob/a5526d27a9d47d1e8264d5e1b1f96c0fdc79464e/src/peft/mapping_func.py),
+[LoRA initialization](https://github.com/huggingface/peft/blob/a5526d27a9d47d1e8264d5e1b1f96c0fdc79464e/src/peft/tuners/lora/layer.py).
+
+Every fit discards any cached/adapted model and creates a fresh pinned base, adapter and optimizer;
+release old tensors before loading another4B copy. Never resume from the previous round's adapter.
+Validate seed is unsigned32bit; reset Python/NumPy/Torch/CUDA RNG from that seed, independent of
+UUID, hashes, round number and prior calls. Begin each epoch from sorted selected page IDs and
+shuffle using a separate `random.Random(seed+epoch)` for epoch0..2; record order. Three epochs,
+pagebatch1, accumulation4, no packing/augmentation. Call gradient_checkpointing_enable with
+`gradient_checkpointing_kwargs={"use_reentrant":False}`; use_cache=False during training; test gradient flow with frozen inputs, without unfreezing embeddings.
+
+Use torch.optim.AdamW on only the asserted trainables: lr1e-4, betas(0.9,0.999), eps1e-8,
+weight_decay0, foreach=False, fused=False. Constant LR, no warmup/scheduler. Partition each epoch
+into groups of up to4 pages. Divide each page's mean supervised-token loss by the group's actual
+size, backward, then finite-gradient check, global clip norm1, optimizer.step and zero_grad.
+Thus pages are equally weighted within a group; this is not a global token-weighted batch loss.
+Flush the last partial group each epoch; updates=`3*ceil(N/4)` (N2=>3,N10=>9,N20=>15).
+Require finite loss/gradients and nonzero aggregate update; zero A gradients on the first step
+are expected from initially zero B. Compare chunked hashes of frozen parameters before/after fit;
+record trainable changes, update/supervised-token counts and finite diagnostics, not raw targets.
+No partial checkpoint on failed fit and no within-fit optimizer/RNG recovery in this release.
+
+#### Immutable checkpoint and fresh reload
+
+Maintain two canonical input manifests: base files(config, generation config, safetensors index,
+two shards) and processor files(config plus chat template, preprocessor/video-preprocessor,
+tokenizer config/JSON, vocab, merges). Sorted relative filenames/bytes/SHA-256 bind each manifest
+to repository/revision and schema1; verify against staged public provenance, then against actual
+files on load. These digests populate model/processor ExpectedIdentity. No on-demand downloads.
+
+`load_base` verifies/loads the actual base and publishes a base-kind reference manifest; it does
+not train. `fit` saves only adapter weights/config via safe serialization with
+`save_embedding_layers=False`. Normalize the saved config's base reference to the pinned repository/
+revision, not the machine path; reload always receives an explicitly loaded verified base, never
+AutoPeftModel or a Hub lookup. Publish only adapter_model.safetensors and adapter_config.json from
+the fresh PEFT staging output; exclude autogenerated cards/caches. Verify exact keys/shapes/dtypes,
+finite tensor values, hashes and strict config, then publish the manifest last in a new immutable
+directory. Repeated paths are reusable only if their complete manifests/bytes match; never overwrite.
+[PEFT save/load](https://github.com/huggingface/peft/blob/a5526d27a9d47d1e8264d5e1b1f96c0fdc79464e/src/peft/peft_model.py).
+
+Model ID remains `checkpoint:sha256:<canonical-manifest-hash>`. Manifest schema1 binds kind,
+base/processor identities, exact recipe/prompt/target format/limits and code/build/package hashes;
+adapter manifests additionally bind owner run/positive round, ordered selected image IDs/hashes,
+selected-target digest, seed, actual updates/tokens and adapter file inventory. Use canonical
+UTF-8 JSON (sorted keys, compact separators, no NaN); omit paths outside the artifact, IDs for
+provider attempts, timings, costs and raw targets. The manifest does not contain its own hash.
+Base reference may be shared; an adapter is owned by its recorded run/round. Check the whole
+manifest and referenced bytes before model load, then actual loaded adapter keys/values before
+forward. Reject missing/extra/corrupt files or recipe/base mismatch; never substitute base weights.
+Receipts hold telemetry and verification results separately; journal/call reuse is candidate3.
+
+Independent fresh-process reload test uses the same saved adapter, software/device/backend and
+the lexicographically first **selected TRAIN** page (no validation selection). Record one greedy
+probe before destruction and after fresh base+`PeftModel.from_pretrained(..., is_trainable=False,
+autocast_adapter_dtype=True)` load. Require exact adapter tensor equality and identical generated
+IDs, status and parsed regions. Also compare FP32-converted raw full-vocabulary next-token logits
+for the first min(8,generated_length) positions, evaluated on the same fixed pre-save generated
+prefix in both instances, with `rtol=1e-3, atol=1e-2`; require finite values and record maximum
+absolute difference. This is a predeclared acceptance threshold, not a proven hardware guarantee.
+If it fails, retain evidence and investigate; do not widen tolerance after seeing results or claim
+two separately trained runs must be bit-identical. eval/inference mode and dropout0 apply to both.
+The train probe and its outputs are engineering exposure, never unbiased evaluation.
+
+#### Independent acceptance and execution boundary
+
+| Check | Required evidence at exact candidate SHA |
+| --- | --- |
+| Q1 load/identity | Pure boundary tests reject wrong recipe/package/code/input/manifest before model calls. Local package import needs no ML group; worker succeeds without Git only with verified bundle metadata. Pinned Linux build/import must be reproduced separately; metadata compatibility alone does not pass. |
+| Q2 actual processor | On pinned tokenizer/torchvision/processor with synthetic images, verify template bytes, IDs151643/151645/151655, image expansion/grid, per-page area arithmetic/32rounding, transform inverse, prompt+full prefix equality and limits. Golden tall/wide/rounding cases; no4B load. |
+| Q3 mask/serialization | Actual tokenization of Unicode, whitespace, quotes/backslashes, empty lines, literal control-token-looking text and zero regions. Decode target JSON back to exact inputs; verify prompt/image/pad=-100, JSON+EOS supervised, trailing framing newline excluded and causal first/last positions by hand-counted CE. Overflow never truncates/drops. |
+| Q4 tiny CPU model | Build random tiny Qwen3VL configs using pinned classes (two language/vision layers, small hidden dimensions, compatible DeepStack/mRoPE/head sizes, vocabulary retaining pinned token IDs), use FP32/mathSDPA and synthetic64x64image. Actual forward/backward/PEFT injection, non-reentrant checkpointing and causal loss; explicit test-sized targets, no public4B/runtime fallback. Proves library boundary/gradients only. |
+| Q5 LoRA/reset | Verify all72 real names/shapes from headers and later loaded model; exact144tensors/5,898,240FP32trainables on4B. Tiny tests show fresh A/zero B, frozen weights unchanged, same seeded initial state after intervening fits, cumulative inputs only and correct3/9/15updates/partial-group scaling vs manual optimizer reference. |
+| Q6 decode/parse | Explicit generation config overrides publisher sampling; exact input slicing/EOS termination, cap-truncated valid-looking JSON, unexpected control tokens, duplicate keys, booleans/nonfinite/out-of-bounds geometry, empty valid output and invalid raw evidence. No GT-based repair, scores or heuristic refusal labels. |
+| Q7 checkpoint | Tiny-model safe save/fresh-process reload plus corrupt/missing/extra tensor/file/config/base/path cases fail closed; requesting base after an adapted prediction actually restores base; optimizer/labels/caches absent. IDs hash exact manifests; requested checkpoint is actually loaded. CPU equality/tolerance evidence is distinct from4B/CUDA acceptance. |
+| Q8 isolation | Spies prove only selected TRAIN targets enter serialization/fit; prompt/image preparation consumes no GT/order/boxes/counts/document hints. Prediction accepts only page metadata; output/raw references contain no hidden-source material. Invalid ownership/identity/image mutation publishes no result/checkpoint. |
+| Q9 future4B smoke | After model+transport review, verify actual CUDA/BF16/SDPA support, mask/token/grid coverage, finite loss/gradients, intended LoRA updates/frozen hashes,3updates on2selected pages, base/postfit2validation predictions, fresh reload probe/tolerance, timing/peakVRAM/cost. Failures stop within the accepted envelope; no OCR-quality or adequate-training verdict inferred. |
+
+Acceptance order is deliberately staged, not circular:
+
+1. Candidate2 publication: run pure helpers/boundary tests, header/shape checks, full existing
+   local regression and Ruff without installing ML locally. Independent Testing can pass **only
+   this offline scope** and inspect the actual-ML test code. Q2–Q4/Q7 actual processor/tiny-model
+   execution, the loaded4B part of Q5 and Q9 stay explicitly pending; skips are not PASS.
+   Manager may then release candidate3 implementation without waiting for a GPU or Linux build.
+2. First reviewed build: candidate3/Platform constructs the pinned Linux image and runs the
+   actual tokenizer/processor/tiny-model/fresh-process tests on CPU before any4B load or GPU call.
+   Use only allowlisted synthetic self-check code and pinned small processor assets; never
+   dataset XML/labels or full weights in the build. Account for this CPU build/check time inside
+   the already approved first USD5 envelope and USD30 gross total. If checks fail or exceed the
+   reviewed build allowance, stop; no automatic rebuild or CUDA submission. Independent Testing
+   reviews the CPU evidence before the GPU portion is released. No extra platform framework.
+3. Bounded GPU portion: after the code/transport review and CPU checks, Q9 acquires loaded4B
+   module/trainability, CUDA headroom, decoding coverage and reload-tolerance evidence within
+   the same reviewed smoke envelope. These are runtime checks, not prerequisite past successes.
+
+No model/build execution is claimed by this plan. Training adequacy, later uncertainty extraction
+and final-test methodology remain held; keep random and score=none.
 
 ### Candidate 3 — one Modal adapter, journal and CLI
 
@@ -721,3 +956,9 @@ remove later source/method/hardware gates. No production code or job was changed
   storage estimate; source/methodology, converter scope and user budget are unchanged.
   Candidate dependency pins and USD2.894150 gross smoke estimate remain preflight proposals
   until exact code/build/runtime verification. No resource or paid execution is released here.
+
+- v0.4: proposes the exact candidate2 Qwen API, pinned processor/area-grid limits, explicit
+  causal target/EOS mask,72language-only LoRA targets/reset-fit, checkpoint/reload threshold
+  and Q1–Q9 independent checks. Worker bundle identity is distinct from local Git discovery.
+  Accepted converter, two-Volume topology, source admission and budgets are unchanged.
+  No model load, dependency installation/build, production edit or paid execution in Planning.
