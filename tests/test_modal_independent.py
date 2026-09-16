@@ -909,3 +909,766 @@ def test_independent_frozen_image_mutation_blocks_resume(baseline_fixture):
     with pytest.raises(ValueError):
         pipeline.step_simulation(run.id, model)
     assert len(model.transport.calls) == 2
+
+
+@pytest.fixture(scope="session")
+def adapter_bytes():
+    """The specified 144 FP32 tensors, written with stdlib (never safetensors/torch)."""
+    import struct
+
+    header, chunks, hashes, offset = {}, [], {}, 0
+    for layer in range(36):
+        for projection, rows in [("q", 4096), ("v", 1024)]:
+            for part, shape in [("A", [16, 2560]), ("B", [rows, 16])]:
+                name = (
+                    f"base_model.model.model.language_model.layers.{layer}.self_attn."
+                    f"{projection}_proj.lora_{part}.weight"
+                )
+                raw = struct.pack("<f", (layer + 1) / 128) * (shape[0] * shape[1])
+                header[name] = dict(
+                    dtype="F32", shape=shape, data_offsets=[offset, offset + len(raw)]
+                )
+                hashes[name] = hashlib.sha256(
+                    encoded(dict(shape=shape, dtype="torch.float32")) + raw
+                ).hexdigest()
+                chunks.append(raw)
+                offset += len(raw)
+    raw_header = encoded(header)
+    return len(raw_header).to_bytes(8, "little") + raw_header + b"".join(chunks), hashes
+
+
+class FullByteTransport(ByteTransport):
+    """Successful byte protocol peer, not a trained model or measured build."""
+
+    def __init__(self, settings, adapter):
+        super().__init__(settings)
+        self.adapter, self.tensor_hashes = adapter
+        self.intercept = lambda invocation, response: response
+
+    def spawn(self, payload):
+        request = m.Invocation.model_validate(payload)
+        if isinstance(request.request, m.BaseRequest) or request.request.round_number == 0:
+            return super().spawn(payload)
+        self.calls.append(payload)
+        call_id = "fc-independent-" + str(len(self.calls))
+        response = self.make_result(request, call_id)
+        self.responses[call_id] = self.intercept(request, response)
+        return call_id
+
+    def make_result(self, invocation, call_id):
+        import random
+        import struct
+
+        request = invocation.request
+        worker = self.put(
+            "worker.json",
+            encoded(
+                q.WorkerManifest(
+                    schema_version=1,
+                    source_sha=self.settings.build.source_sha,
+                    files=self.settings.build.code_files,
+                    environment=self.settings.build.environment,
+                    build_spec_sha256=self.settings.build_spec.sha256,
+                    deployment_reference=self.settings.deployment_reference,
+                ).model_dump(mode="json")
+            ),
+        )
+        refs, predictions, reload = [worker], [], None
+        if isinstance(request, m.FitRequest):
+            ids = [e.page.id for e in request.examples]
+            orders = []
+            for epoch in range(3):
+                ordered = sorted(ids)
+                random.Random(request.seed + epoch).shuffle(ordered)
+                orders.append(ordered)
+            updates = 3 * ((len(ids) + 3) // 4)
+            # Synthetic config bytes are closure evidence only. Actual PEFT config
+            # compatibility remains in Qwen's separately gated ML checks.
+            config = encoded(dict(base_model_name_or_path=q.REPOSITORY, revision=q.REVISION))
+            payloads = {"adapter_config.json": config, "adapter_model.safetensors": self.adapter}
+            targets = []
+            for example in request.examples:
+                regions = []
+                for r in example.regions:
+                    b, p = r.box, example.page
+                    regions.append(
+                        dict(
+                            text=r.text,
+                            bbox=[
+                                1000 * b.x / p.width,
+                                1000 * b.y / p.height,
+                                1000 * (b.x + b.width) / p.width,
+                                1000 * (b.y + b.height) / p.height,
+                            ],
+                        )
+                    )
+                target = json.dumps(
+                    dict(regions=regions), ensure_ascii=False, separators=(",", ":")
+                ).replace("<", r"\u003c")
+                targets.append((example.page.id, target))
+            checkpoint = q.Checkpoint(
+                kind="adapter",
+                binding=q.QwenModel._binding(self.settings.context),
+                experiment_id=request.context.experiment_id,
+                round_number=request.round_number,
+                selected=[(e.page.id, e.page.image_sha256) for e in request.examples],
+                seed=request.seed,
+                target_sha256=digest(targets),
+                files=[
+                    dict(filename=k, bytes=len(v), sha256=hashlib.sha256(v).hexdigest())
+                    for k, v in payloads.items()
+                ],
+                training=dict(
+                    updates=updates,
+                    epoch_orders=orders,
+                    losses=[0.25] * (3 * len(ids)),
+                    gradient_norms=[0.5] * updates,
+                    supervised_tokens=3 * len(ids),
+                    changed_tensors=144,
+                    frozen_sha256="9" * 64,
+                    processing={
+                        i: dict(
+                            height=256,
+                            width=256,
+                            grid=[1, 16, 16],
+                            prompt_tokens=2,
+                            target_tokens=1,
+                            target_exceeds_decode_budget=False,
+                        )
+                        for i in ids
+                    },
+                ),
+            )
+            sha = digest(checkpoint.model_dump(mode="json"))
+            model_id = "checkpoint:sha256:" + sha
+            prefix = f"qwen/checkpoints/{sha}/"
+            refs += [
+                self.put(prefix + "manifest.json", encoded(checkpoint.model_dump(mode="json")))
+            ]
+            refs += [self.put(prefix + k, v) for k, v in payloads.items()]
+            selected = min((e.page for e in request.examples), key=lambda p: p.id)
+            probes = []
+            for stage, pid in [("before", 1701), ("after", 1702)]:
+                stem = f"probes/{sha}/{stage}"
+                logits = self.put("qwen/" + stem + ".f32le", struct.pack("<f", 0.5) * 151936)
+                metadata = m.ProbeMetadata(
+                    model_id=model_id,
+                    page_id=selected.id,
+                    image_sha256=selected.image_sha256,
+                    original_width=selected.width,
+                    original_height=selected.height,
+                    process_id=pid,
+                    generated_ids=[151645],
+                    status="invalid_output",
+                    regions=[],
+                    finish_reason="eos",
+                    adapter_tensors=self.tensor_hashes,
+                    logits=logits.model_copy(update={"key": stem + ".f32le"}),
+                    logits_shape=[1, 151936],
+                )
+                probe = self.put(
+                    "qwen/" + stem + ".json", encoded(metadata.model_dump(mode="json"))
+                )
+                refs += [logits, probe]
+                probes.append(probe)
+            reload = m.ReloadEvidence(
+                before=probes[0],
+                after=probes[1],
+                train_process_id=1701,
+                reload_process_id=1702,
+                max_absolute_difference=0,
+                exact_tensors_ids_status_regions=True,
+            )
+        else:
+            model_id = request.input_checkpoint
+            prefix = "qwen/checkpoints/" + model_id.rsplit(":", 1)[1] + "/"
+            refs += [self.put(k, v) for k, v in list(self.files.items()) if k.startswith(prefix)]
+            receipt = dict(
+                operation="predict",
+                experiment_id=request.context.experiment_id,
+                round_number=request.round_number,
+                purpose=request.purpose,
+                model_id=model_id,
+                pages=[
+                    dict(
+                        page_id=p.id,
+                        image_sha256=p.image_sha256,
+                        status="ok",
+                        finish_reason="eos",
+                        text='{"regions":[]}',
+                    )
+                    for p in request.pages
+                ],
+            )
+            raw = self.put("qwen/receipts/" + digest(receipt) + ".json", encoded(receipt))
+            refs.append(raw)
+            predictions = [
+                dict(
+                    experiment_id=request.context.experiment_id,
+                    round_number=request.round_number,
+                    purpose=request.purpose,
+                    model_id=model_id,
+                    page_id=p.id,
+                    regions=[],
+                    status="ok",
+                    finish_reason="eos",
+                    raw_output_artifact=raw.key,
+                )
+                for p in request.pages
+            ]
+        result = m.OperationResult(
+            operation_id=invocation.operation_id,
+            attempt_id=invocation.attempt_id,
+            execution_id=EXECUTION,
+            provider_call_id=call_id,
+            model_id=model_id,
+            predictions=predictions,
+            artifacts=refs,
+            worker_manifest=worker,
+            reload=reload,
+        )
+        return self.envelope(result)
+
+    def envelope(self, result):
+        completion = self.put(
+            f"operations/{result.operation_id}/attempts/{result.attempt_id}/"
+            f"executions/{result.execution_id}/complete.json",
+            encoded(result.model_dump(mode="json")),
+        )
+        return m.DispatchResponse(result=result, completion=completion)
+
+
+def test_corrected_expiry_preserves_safe_journal(tmp_path, settings, monkeypatch):
+    now = [1000]
+    model = local_model(tmp_path, settings, clock=lambda: now[0])
+    swap = model.store.compare_and_swap
+
+    def delayed(kind, key, expected, value):
+        swap(kind, key, expected, value)
+        if kind == "model-operation" and value.state == "SUBMITTING":
+            now[0] = 3400
+
+    monkeypatch.setattr(model.store, "compare_and_swap", delayed)
+    request = m.BaseRequest(context=settings.context)
+    with pytest.raises(TimeoutError):
+        model.execute(request)
+    record = model.store.load("model-operation", m.operation_id(request), m.ModelOperation)
+    assert record.state == "RESERVED" and record.provider_call_id is None
+    assert model.transport.calls == model.transport.cancelled == []
+    with pytest.raises(TimeoutError):
+        model.execute(request)
+    assert model.store.load("model-operation", record.operation_id, m.ModelOperation) == record
+    assert model.transport.calls == []
+
+
+def test_full_round_recovery_and_cumulative_reset_fit(
+    baseline_fixture, adapter_bytes, monkeypatch, tmp_path
+):
+    from active_ocr.models import RunKind
+    from active_ocr.pipeline import Pipeline
+
+    pipeline, manifest, config, settings = baseline_fixture
+    config = config.model_copy(update={"max_rounds": 2})
+    run = pipeline.create_simulation(manifest, config, kind=RunKind.REAL)
+    model = attach_baseline(pipeline, run, settings)
+    transport = FullByteTransport(model.settings, adapter_bytes)
+    model.transport = transport
+    pipeline.step_simulation(run.id, model)
+    swap = pipeline.store.compare_and_swap
+    lost = [False]
+
+    def lose_response(kind, key, expected, value):
+        swap(kind, key, expected, value)
+        if kind == "simulation" and len(value.rounds) == 1 and not lost[0]:
+            lost[0] = True
+            raise ConnectionError("committed round response was lost")
+
+    monkeypatch.setattr(pipeline.store, "compare_and_swap", lose_response)
+    with pytest.raises(ConnectionError):
+        pipeline.step_simulation(run.id, model)
+    assert len(pipeline.get_simulation(run.id).rounds) == 1
+    reopened = Pipeline.for_simulation(tmp_path / "run")
+    model = m.ModalModel(model.settings, reopened.store, transport, clock=lambda: 1001)
+    complete = reopened.run_simulation(run.id, model)
+    fits = [c["request"] for c in transport.calls if c["request"]["operation"] == "fit"]
+    assert [len(f["examples"]) for f in fits] == [1, 2]
+    assert fits[0]["input_checkpoint"] == fits[1]["input_checkpoint"]
+    assert fits[0]["examples"][0] == fits[1]["examples"][0]
+    assert len(complete.rounds) == 2 and complete.complete
+    assert [r.labelled_count for r in complete.rounds] == [1, 2]
+    assert all(c["request"]["purpose"] != "pool" for c in transport.calls)
+    assert len(transport.calls) == 6
+    assert reopened.step_simulation(run.id, model) == complete
+    assert len(transport.calls) == 6
+    reopened.export_simulation(run.id, tmp_path / "finished")
+    assert json.loads((tmp_path / "finished/results.json").read_text())["complete"] is True
+
+
+def test_completed_fit_reused_after_downstream_failure(
+    baseline_fixture, adapter_bytes, monkeypatch
+):
+    from active_ocr.models import RunKind
+
+    pipeline, manifest, config, settings = baseline_fixture
+    run = pipeline.create_simulation(manifest, config, kind=RunKind.REAL)
+    model = attach_baseline(pipeline, run, settings)
+    transport = FullByteTransport(model.settings, adapter_bytes)
+    model.transport = transport
+    pipeline.step_simulation(run.id, model)
+    original = transport.get
+    fail_once = [True]
+
+    def get(call_id, timeout):
+        response = transport.responses[call_id]
+        if (
+            response.result.predictions
+            and response.result.predictions[0].round_number == 1
+            and fail_once[0]
+        ):
+            fail_once[0] = False
+            raise ConnectionError("downstream response loss")
+        return original(call_id, timeout)
+
+    monkeypatch.setattr(transport, "get", get)
+    with pytest.raises(RuntimeError, match="outcome unresolved"):
+        pipeline.step_simulation(run.id, model)
+    assert pipeline.get_simulation(run.id).rounds == ()
+    assert len(transport.calls) == 4
+    pending = m.Invocation.model_validate(transport.calls[-1]).request
+    model.reconcile(pending)
+    complete = pipeline.step_simulation(run.id, model)
+    assert complete.complete and len(transport.calls) == 4
+    assert len([c for c in transport.calls if c["request"]["operation"] == "fit"]) == 1
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "last_logit",
+        "nonfinite_logit",
+        "nested_root",
+        "tensor_hash",
+        "missing_logits",
+        "extra_checkpoint_file",
+        "wrong_worker",
+        "foreign_attempt",
+    ],
+)
+def test_independent_fit_rejects_consistent_but_invalid_evidence(
+    tmp_path, settings, adapter_bytes, damage
+):
+    import struct
+
+    transport = FullByteTransport(settings, adapter_bytes)
+    model = local_model(tmp_path, settings, transport)
+    base = model.load_base(experiment_id=RUN)
+    request = fit(settings).model_copy(update={"input_checkpoint": base})
+
+    def damage_response(invocation, response):
+        result = response.result
+        refs = {a.key: a for a in result.artifacts}
+        reload = result.reload
+        if damage in {"last_logit", "nonfinite_logit"}:
+            key = reload.after.key.replace(".json", ".f32le")
+            raw = transport.files[key]
+            replacement = struct.pack("<f", 1.0 if damage == "last_logit" else float("nan"))
+            ref = transport.put(key, raw[:-4] + replacement)
+            refs[key] = ref
+            meta = json.loads(transport.files[reload.after.key])
+            meta["logits"].update(bytes=ref.bytes, sha256=ref.sha256)
+            refs[reload.after.key] = transport.put(reload.after.key, encoded(meta))
+            reload = reload.model_copy(update={"after": refs[reload.after.key]})
+        elif damage in {"nested_root", "tensor_hash"}:
+            for which in ["before", "after"]:
+                ref = getattr(reload, which)
+                meta = json.loads(transport.files[ref.key])
+                if damage == "nested_root":
+                    meta["logits"]["key"] = "qwen/" + meta["logits"]["key"]
+                else:
+                    meta["adapter_tensors"][next(iter(meta["adapter_tensors"]))] = "0" * 64
+                refs[ref.key] = transport.put(ref.key, encoded(meta))
+                reload = reload.model_copy(update={which: refs[ref.key]})
+        elif damage == "missing_logits":
+            del refs[reload.after.key.replace(".json", ".f32le")]
+        elif damage == "extra_checkpoint_file":
+            key = "qwen/checkpoints/" + result.model_id.rsplit(":", 1)[1] + "/unexpected.json"
+            refs[key] = transport.put(key, b"{}")
+        elif damage == "wrong_worker":
+            worker = json.loads(transport.files[result.worker_manifest.key])
+            worker["source_sha"] = "0" * 40
+            ref = transport.put(result.worker_manifest.key, encoded(worker))
+            refs[ref.key] = ref
+            result = result.model_copy(update={"worker_manifest": ref})
+        else:
+            result = result.model_copy(update={"attempt_id": "0" * 32})
+        return transport.envelope(
+            result.model_copy(update={"artifacts": tuple(refs.values()), "reload": reload})
+        )
+
+    transport.intercept = damage_response
+    with pytest.raises(ValueError):
+        model.execute(request)
+    record = model.store.load("model-operation", m.operation_id(request), m.ModelOperation)
+    assert record.state == "UNKNOWN" and record.response is None
+    assert len(transport.calls) == 2
+    with pytest.raises(RuntimeError, match="UNKNOWN"):
+        model.execute(request)
+    assert len(transport.calls) == 2
+
+
+def test_cancellation_keeps_call_and_deadline_unresolved(tmp_path, settings):
+    now = [1000]
+    model = local_model(tmp_path, settings, clock=lambda: now[0])
+    request = m.BaseRequest(context=settings.context)
+
+    def timeout(call_id, timeout):
+        now[0] = 3400
+        raise TimeoutError
+
+    model.transport.get = timeout
+    with pytest.raises(TimeoutError, match="terminal status unverified"):
+        model.execute(request)
+    record = model.store.load("model-operation", m.operation_id(request), m.ModelOperation)
+    assert record.state == "CANCEL_REQUESTED"
+    assert record.provider_call_id == model.transport.cancelled[0]
+    with pytest.raises(RuntimeError, match="CANCEL_REQUESTED"):
+        model.execute(request)
+    assert len(model.transport.calls) == 1
+    control = model.store.load("model-control", RUN, m.RunControl)
+    assert control.deadline_unix_seconds == 3400 and control.active_operation == record.operation_id
+
+
+@pytest.fixture
+def worker_fixture(settings, tmp_path, monkeypatch, adapter_bytes):
+    """Real dispatcher on temporary synthetic files; no asset/identity verifier disabled."""
+    from types import SimpleNamespace
+
+    from active_ocr.entrypoints import modal_app as a
+
+    inputs, outputs, code = [tmp_path / n for n in ("inputs", "outputs", "code")]
+    for root in (inputs, outputs, code):
+        root.mkdir()
+    assets, entries = {}, []
+    for key in settings.bundle.files:
+        name = key.filename
+        path = inputs / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        raw = ("synthetic file " + name).encode()
+        path.write_bytes(raw)
+        sha = hashlib.sha256(raw).hexdigest()
+        if name.startswith("model/"):
+            assets[name[6:]] = (len(raw), sha)
+            entries.append(dict(filename=name, bytes=len(raw), sha256=sha))
+        else:
+            # Images used by this file-only worker peer are declared bytes, not
+            # decoded pages. Actual page-header rejection is exercised separately.
+            path.unlink()
+            (inputs / "images" / sha).write_bytes(raw)
+            entries.append(dict(filename="images/" + sha, bytes=len(raw), sha256=sha))
+    monkeypatch.setattr(q, "ASSETS", assets)
+    monkeypatch.setattr(m, "ASSETS", assets)
+    bundle = m.InputBundle(files=sorted(entries, key=lambda e: e["filename"]))
+    files = []
+    for name in CODE_FILES:
+        raw = (Path(q.__file__).parents[2] / name).read_bytes()
+        path = code / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
+        files.append(dict(filename=name, bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest()))
+    spec_data = settings.build_spec.model_dump()
+    spec_data.update(
+        code_files=files, processor_manifest_sha256=digest(q.asset_manifest(q.PROCESSOR_FILES))
+    )
+    spec = m.BuildSpec.model_validate(spec_data)
+    build_data = settings.build.model_dump()
+    build_data.update(code_files=files, build_spec_sha256=spec.sha256)
+    build = m.BuildReceipt.model_validate(build_data)
+    data = settings.model_dump()
+    data.update(bundle=bundle.model_dump(), build_spec=spec.model_dump(), build=build.model_dump())
+    context = data["context"]
+    context["bundle_sha256"] = bundle.sha256
+    expected = context["real_config"]["expected_identity"]
+    expected.update(
+        model_manifest_sha256=digest(q.asset_manifest(q.BASE_FILES)),
+        processor_manifest_sha256=spec.processor_manifest_sha256,
+        code_bundle_sha256=build.code_bundle_sha256,
+        build_spec_sha256=spec.sha256,
+    )
+    runtime = m.RuntimeSettings.model_validate(data)
+    (code / "build-receipt.json").write_bytes(encoded(build.model_dump(mode="json")))
+    monkeypatch.setattr(q, "installed_packages", lambda: build.environment)
+    monkeypatch.setattr(a.time, "time", lambda: 1000)
+    transport = FullByteTransport(runtime, adapter_bytes)
+    calls, commits = [], []
+    deferred = {}
+
+    def child(payload, deadline):
+        calls.append(payload)
+        assert deadline == 1590
+        assert "torch" not in sys.modules
+        if payload["stage"] == "reload":
+            assert (
+                "request" not in payload
+                and "examples" not in payload
+                and "regions" not in payload["page"]
+            )
+            for key, raw in deferred.items():
+                (outputs / key).write_bytes(raw)
+            return dict(status="ok", process_id=1702, model_id=payload["model_id"])
+        request = m.REQUEST_ADAPTER.validate_python(payload["request"])
+        inv = invoke(request)
+        call_id = transport.spawn(inv.model_dump(mode="json"))
+        result = transport.responses[call_id].result
+        for key, raw in transport.files.items():
+            if not key.startswith("qwen/"):
+                continue
+            if isinstance(request, m.FitRequest) and "/after." in key:
+                deferred[key] = raw
+                continue
+            dest = outputs / key
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(raw)
+        return dict(
+            status="ok",
+            process_id=1701,
+            model_id=result.model_id,
+            predictions=[
+                p.model_copy(
+                    update={"raw_output_artifact": p.raw_output_artifact.removeprefix("qwen/")}
+                ).model_dump(mode="json")
+                for p in result.predictions
+            ],
+        )
+
+    def dispatch(request, **kw):
+        invocation = invoke(request)
+        return a.dispatch_operation(
+            runtime,
+            invocation.model_dump(mode="json"),
+            provider_call_id="fc-worker",
+            input_root=inputs,
+            output_root=outputs,
+            code_root=code,
+            child_runner=child,
+            commit=lambda: commits.append(True),
+            **kw,
+        )
+
+    return SimpleNamespace(
+        settings=runtime,
+        inputs=inputs,
+        outputs=outputs,
+        code=code,
+        calls=calls,
+        commits=commits,
+        dispatch=dispatch,
+        child=child,
+        transport=transport,
+    )
+
+
+def test_worker_dispatch_complete_fit_two_stages_and_reuse(worker_fixture):
+    w = worker_fixture
+    base = m.DispatchResponse.model_validate(w.dispatch(m.BaseRequest(context=w.settings.context)))
+    image = next(f for f in w.settings.bundle.files if f.filename.startswith("images/"))
+    request = m.FitRequest(
+        context=w.settings.context,
+        round_number=1,
+        input_checkpoint=base.result.model_id,
+        seed=7,
+        examples=[dict(page=page(letter="a"), regions=fit(w.settings).examples[0].regions)],
+    )
+    data = request.model_dump()
+    data["examples"][0]["page"].update(image_key=image.filename, image_sha256=image.sha256)
+    request = m.FitRequest.model_validate(data)
+    response = m.DispatchResponse.model_validate(w.dispatch(request))
+    assert [p["stage"] for p in w.calls] == ["operation", "operation", "reload"]
+    assert len(w.commits) == 6
+    assert response.result.reload.train_process_id != response.result.reload.reload_process_id
+    assert w.dispatch(request) == response.model_dump(mode="json")
+    assert len(w.calls) == 3
+    # Reuse must compare the immutable run clock, not merely the operation ID.
+    from active_ocr.entrypoints import modal_app as a
+
+    shifted = invoke(request).model_copy(
+        update={"first_submission_unix_seconds": 999, "deadline_unix_seconds": 3399}
+    )
+    with pytest.raises(a.WorkerError):
+        a.dispatch_operation(
+            w.settings,
+            shifted.model_dump(mode="json"),
+            provider_call_id="fc-worker",
+            input_root=w.inputs,
+            output_root=w.outputs,
+            code_root=w.code,
+            child_runner=w.child,
+            commit=lambda: None,
+        )
+    assert len(w.calls) == 3
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "extra_input",
+        "changed_input",
+        "code",
+        "build_receipt",
+        "symlink",
+        "partial",
+        "wrong_deadline",
+    ],
+)
+def test_worker_preconditions_never_start_child(worker_fixture, damage):
+    from active_ocr.entrypoints import modal_app as a
+
+    w = worker_fixture
+    request = m.BaseRequest(context=w.settings.context)
+    if damage == "extra_input":
+        (w.inputs / "labels.jsonl").write_text(SECRET)
+    elif damage == "changed_input":
+        path = next((w.inputs / "model").iterdir())
+        path.write_bytes(b"changed")
+    elif damage == "code":
+        (w.code / CODE_FILES[0]).write_text("# changed")
+    elif damage == "build_receipt":
+        (w.code / "build-receipt.json").write_text("{}")
+    elif damage == "symlink":
+        (w.inputs / "link").symlink_to(w.code)
+    elif damage == "partial":
+        root = w.outputs / "operations" / m.operation_id(request)
+        root.mkdir(parents=True)
+        (root / "partial").write_bytes(b"")
+    else:
+        (w.outputs / "run-control.json").write_bytes(
+            encoded(
+                dict(
+                    settings_sha256=digest(w.settings.model_dump(mode="json")),
+                    first_submission_unix_seconds=999,
+                    deadline_unix_seconds=3399,
+                )
+            )
+        )
+    with pytest.raises(a.WorkerError):
+        w.dispatch(request)
+    assert w.calls == []
+    assert not list(w.outputs.rglob("complete.json"))
+
+
+def test_worker_watchdog_reaps_real_local_child(monkeypatch):
+    import time
+
+    from active_ocr.entrypoints import modal_app as a
+
+    original = subprocess.Popen
+    children = []
+
+    def benign_child(args, **kwargs):
+        assert kwargs["start_new_session"] is True
+        child = original([sys.executable, "-c", "import time; time.sleep(20)"], **kwargs)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(a.subprocess, "Popen", benign_child)
+    try:
+        with pytest.raises(a.WorkerError, match="deadline"):
+            a.run_child({"test_only": True}, time.time() + 0.25)
+        assert len(children) == 1 and children[0].poll() is not None
+    finally:
+        for child in children:
+            if child.poll() is None:
+                child.kill()
+            child.communicate(timeout=5)
+
+
+@pytest.mark.parametrize("change", ["skip", "failure", "duplicate", "count", "exit", "success"])
+def test_cpu_report_zero_skip_gate(tmp_path, change):
+    from active_ocr.entrypoints import modal_app as a
+
+    names = [f"case_{i}" for i in range(11)]
+    if change == "duplicate":
+        names[-1] = names[0]
+    elif change == "count":
+        names.pop()
+    body = "<skipped/>" if change == "skip" else "<failure/>" if change == "failure" else ""
+    report = tmp_path / "report.xml"
+    report.write_text(
+        "<testsuite>"
+        + "".join(
+            f'<testcase classname="synthetic" name="{n}">{body if i == 0 else ""}</testcase>'
+            for i, n in enumerate(names)
+        )
+        + "</testsuite>"
+    )
+    if change == "success":
+        assert a._cpu_report(report, 0)["passed"] == 11
+    else:
+        with pytest.raises(a.WorkerError):
+            a._cpu_report(report, 1 if change == "exit" else 0)
+
+
+def test_seven_file_worker_import_isolation(tmp_path):
+    import shutil
+
+    for name in CODE_FILES:
+        dest = tmp_path / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(Path(q.__file__).parents[2] / name, dest)
+    program = """
+import sys, pathlib
+import active_ocr.entrypoints.modal_app as worker
+import active_ocr.integrations as integration
+assert pathlib.Path(worker.__file__).resolve().is_relative_to(pathlib.Path(sys.argv[1]).resolve())
+assert set(integration.__all__)=={'GPUClient','LabelStudioClient','SQLiteStore','load_image_pages'}
+assert not any(k.split('.')[0] in {'modal','torch','transformers','peft'} for k in sys.modules)
+legacy = ('storage', 'label_studio', 'gpu_client', 'local_data')
+assert not any('active_ocr.integrations.'+k in sys.modules for k in legacy)
+print('seven-file isolation verified')
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", program, str(tmp_path)],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "seven-file isolation verified"
+
+
+def test_cpu_build_selector_collects_exact_eleven_ml_cases():
+    """Run the worker's own selector in collection-only mode: no ML test executes."""
+    import inspect
+    import re
+
+    from active_ocr.entrypoints import modal_app as a
+
+    selector = re.search(r'"-k",\s*"([^"]+)"', inspect.getsource(a.cpu_build_gate)).group(1)
+    program = """
+import json, pytest, sys
+class Nodes:
+    def pytest_collection_finish(self,session):
+        print('COLLECTED='+json.dumps([item.nodeid for item in session.items]))
+args = ['tests/test_qwen.py','--collect-only','-q','-k',sys.argv[1]]
+raise SystemExit(pytest.main(args,plugins=[Nodes()]))
+"""
+    root = Path(q.__file__).parents[3]
+    result = subprocess.run(
+        [sys.executable, "-c", program, selector],
+        cwd=root,
+        env={**os.environ, "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    nodes = json.loads(
+        next(
+            line.removeprefix("COLLECTED=")
+            for line in result.stdout.splitlines()
+            if line.startswith("COLLECTED=")
+        )
+    )
+    assert len(nodes) == 11, nodes
+    assert all(node.split("::")[-1].startswith("test_actual_") for node in nodes)

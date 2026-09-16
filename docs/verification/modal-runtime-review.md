@@ -1,6 +1,94 @@
 # Independent Modal integration review
 
-## Phase B — FAIL: submission can cross the frozen deadline
+## Phase B continuation — FAIL: CPU build selects twelve tests but requires eleven
+
+Reviewed implementation: `79fe2c3859fefca501bf4c3efc13d3d23710905d`.
+Control: `077bc890bfef618cc565226f9b8e441619c17ef5`.
+The original deadline regression is now **PASS**, unchanged. The additional journal-delay
+case confirms expiry after the durable SUBMITTING write restores RESERVED with no provider
+call/cancellation and preserves the original deadline on another attempt. Earlier failures
+and the phase-A verdict remain below as historical evidence.
+
+**Blocking finding (P1, Platform ownership):** `cpu_build_gate` selects tests with
+`-k 'actual and not staged_headers'` (`modal_app.py:316`). Pytest matches substrings, so
+this selects the eleven intended actual-ML cases **plus**
+`test_worker_manifest_no_git_checks_actual_code_and_packages`: **12 cases**.
+`_cpu_report` (`modal_app.py:236`) rejects any count other than 11. Consequently, even a
+fully successful CPU test run cannot produce the required successful build receipt.
+The candidate's fake JUnit tests do not detect this selector/collection mismatch.
+
+Reproduce without running a model or building an image:
+
+```sh
+python -m pytest tests/test_qwen.py --collect-only -vv -k 'actual and not staged_headers'
+python -m pytest tests/test_modal_independent.py::test_cpu_build_selector_collects_exact_eleven_ml_cases -q
+```
+
+The independent regression reads the selector from the actual worker function and applies it
+in a fresh collection-only subprocess with plugin discovery disabled. It deliberately fails
+on `12 != 11`; no test is xfailed or skipped. Platform should narrow the selector to the
+intended ML cases and verify the real collection, keeping the reviewed eleven-case/zero-skip
+contract. Testing made no implementation, author-test, lock or dependency changes.
+
+### Continuation evidence
+
+| Check | Observed result |
+| --- | --- |
+| Full **clean exact candidate**, staged header-only path, `python -m pytest --tb=short -rs` | **681 passed, 11 explicitly unverified ML skips in 47.07s** |
+| All independent cases against a separate clean exact candidate checkout, external review-test file and explicit checkout source | **110 passed, 1 failed in 3.63s**; sole failure is CPU selection; execution checkout remained clean |
+| Ruff, review-test format, diff whitespace | Passed |
+| Lock and pyproject byte equality against previous review | Unchanged; no redundant lock resolution |
+| Installed Modal 1.5.5, actual `create_app` constructor with synthetic IDs/canonical settings and a network-denying Python audit hook | One registered dispatch Function; L40S, CPU `(2,2)`, memory `(32768,32768)`, exact RO/RW Volume subpaths, min0/max1/buffer0/retries0, timeout600/startup300, source inclusion disabled |
+| Runtime isolation / child watchdog | Exact seven-file copy imports without legacy integrations or Modal/ML; a real local benign Python child is terminated and reaped on timeout |
+
+The SDK experiment constructed objects only: no hydration, image build, deployment or provider
+call. The deferred settings-file image remains unhydrated, so no observed final image identity is
+claimed. Inspection used SDK1.5.5's deprecated `registered_functions`/`spec` inspection properties;
+these are review tooling, not production dependencies. An initial scratch assertion attempted to
+read the unhydrated image ID and was removed as invalid inspection, not a product failure.
+A local scratch settings path was resolved to remove the OS `/tmp` symlink before the successful
+construction; rejecting the unresolved symlink was expected containment behavior.
+
+Additional independent coverage now includes:
+
+- Complete synthetic fit evidence: independently written 144-tensor FP32 safetensor bytes,
+  before/after full-vocabulary binary logits and metadata, checkpoint/target/worker closure.
+  Distinct process IDs in synthetic metadata are declarations, not an actual 4B probe.
+- Two complete cumulative rounds through real Pipeline/ModalModel/SQLite, retaining the same
+  base checkpoint for reset-fit. Label counts 1 then 2, previous selected examples retained,
+  random/no-pool behavior, final export, idempotent completed-run resume. A committed round's
+  lost response is recovered through a reconstructed Pipeline and model.
+- Verified fit reuse after downstream result loss: the pending prediction is reconciled;
+  round completion performs no second fit or provider submission.
+- Hash-consistent invalid evidence rejects: wrong last vocabulary logit, NaN, double `qwen/`
+  nested prefix, incorrect actual tensor hash, missing nested logits, extra checkpoint file,
+  changed worker identity and foreign attempt. No failed result becomes COMPLETED or auto-retries.
+- Deadline cancellation retains the provider call and locked original deadline without
+  interpreting acknowledgement as terminal proof or permitting retry.
+- Actual worker dispatcher with synthetic input/model bytes and declared environment:
+  base completion, exactly two ordered fit stages, metadata-only reload payload, completion
+  reuse and shifted-clock rejection. Extra/changed/symlink inputs, changed code/build receipt,
+  partial operation and conflicting persisted run clock all reject before a child starts.
+- CPU report rejects skip/failure/duplicate/count/exit-code errors; the real collection regression
+  exposes the missing link between those report checks and the current worker selector.
+
+The synthetic fit peer's small adapter-config JSON verifies byte closure, **not** PEFT config
+compatibility. The full runtime remains unexecuted. Worker tests replace the asset inventory and
+package observation with explicitly synthetic ones; they execute the file/identity checks, but do
+not prove the staged real input bundle or installed Linux packages. No author helpers are imported.
+One test initially used the wrong export filename (`run.json`); it was corrected to the documented
+`results.json`, leaving all product assertions intact.
+
+**Remaining before final offline acceptance:** fix and independently retest the real CPU selection;
+finish build-image bootstrap construction/allowlist negative checks and CLI admission with an
+unmocked clean local identity. Later actual CPU/ML/GPU/provider behavior, cancellation terminal
+state and cost settlement remain separate execution gates regardless of offline results. No model
+install/load, build, deploy, upload, resource mutation, cloud job or spend occurred. Return this
+concrete blocker to Manager/Platform before any CPU-build release.
+
+---
+
+## Historical phase B — FAIL: submission can cross the frozen deadline
 
 Reviewed implementation: `169eb39d359759a9f4f903e720622c968865f0c8`.
 Control: `077bc890bfef618cc565226f9b8e441619c17ef5`.
