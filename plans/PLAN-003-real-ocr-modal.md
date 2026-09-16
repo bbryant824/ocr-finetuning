@@ -1,16 +1,18 @@
 # Plan — real OCR with simulated annotation on Modal
 
-Owner: Planning. Version: **0.2**, 2026-09-14. Status: **Roadmap accepted; candidate 1A completed**.
-Manager reviewed the exact successor at `d659c48f38639e54e19ac6aceff1b5adf853355a`
+Owner: Planning. Version: **0.3**, 2026-09-16. Status: **Converter successor for review; candidate 1A completed**.
+Manager reviewed v0.2 at `d659c48f38639e54e19ac6aceff1b5adf853355a`
 and accepts its roadmap and bounded local candidate 1A under the user's engineering authorization.
 Candidate 1A at `dee5e1a5ecbbc326921e0f4019792c8f7e5deab2` passed independent Testing;
 Manager accepted and integrated it with review evidence `2db380a497ca641d8e1df0cda773074e0d306040`.
-See the [exact review and limitations](../docs/verification/local-contract-review.md). Converter admission,
-later candidates, experimental methodology and paid execution retain the gates below.
+See the [exact review and limitations](../docs/verification/local-contract-review.md). Engineering-only
+READ source use is now user-approved; the concrete converter specification below awaits Manager
+acceptance/release. Later implementation, methodology and execution retain their stated gates.
 Phase-A v0.1 remains in Git history. Real model execution is still unavailable.
 
-Inspected control: `8b4e418dc4c5e4ae0287de0b76f13a94e29f5645`; application remains the
-simulation implementation `2d24c6493ce8051e9a6ae95d9d30fd5f7b8e55d7`.
+Inspected control for v0.3: `83c026dc6acb4575553fe234a90350435f835ffd`, including accepted
+local contracts at `dee5e1a5ecbbc326921e0f4019792c8f7e5deab2`. The v0.2 contract design
+below is retained as implementation history; the new scope is candidate 1B only.
 Scientific input: accepted [RES-002](../research/RES-002-real-ocr-pilot.md) at
 `8a173197fd4ef12f91da3fde0d0197bc4bda21b6`. Development, independent Testing and QA
 preparation informed this reconciliation; they are not verdicts on a real implementation.
@@ -45,20 +47,15 @@ A null/worse result is admissible. Revealed pages are simulated annotation budge
 
 ### Inspected implementation
 
-`integrations/simulation.py` already freezes source/images, exposes only cumulative TRAIN
-examples to `fit`, and supplies validation truth only to `ValidationEvaluator`. `pipeline.py`
-selects a deterministic random first batch, reset-fits, optionally predicts the pool, evaluates
-validation and commits a whole round with `SQLiteStore.compare_and_swap`. `models.py` lacks
-real config/baseline/purpose/failure records; `Prediction.round_number >= 1`, while
-`SimulationRound.number` currently has **no positive constraint**. Zero budget completes at
-creation, before evaluation. Runtime identity is recorded once, not checked on resume.
-`evaluation.py` has per-string CER/IoU/AUC but lacks edit-count aggregation and WER. The CLI
-reconstructs FixtureModel; Qwen and legacy GPU jobs remain placeholders. The current oracle's
-source artifact sits beside image artifacts, so uploading the artifact root leaks full GT.
-
-Inspected source/config/tests and [simulation guide](../docs/simulation.md), plus the exact
-Development/Testing readiness findings. Historical 63-test/Ruff evidence covers the fixture
-candidate only. This planning turn ran no application tests or cloud workloads.
+Candidate 1A is implemented and independently passed: separate baseline, positive acquired rounds,
+prediction purpose/failure checks, expected-identity guards and page-text counts. The review above
+records its exact scope and limitations; integrated main has 237 passing tests per Manager evidence.
+`SourcePage` still inherits required `Page.document_id`; `_read_source` rejects cross-split document
+IDs/image hashes; freeze/reload hashes manifests/images but has no source admission policy or XML
+provenance. Legacy `local_data.py` hashes known documents to splits and must remain unchanged.
+Qwen/Modal execution and the READ converter remain missing. Planning inspected current models,
+oracle, coordinator, importer, tests/config and actual source. This plan-only turn ran no application
+suite, conversion or model/cloud workload.
 
 ### READ2016 asset evidence and the grouping boundary
 
@@ -85,29 +82,18 @@ the separately retained standard license text is not a license file from the pin
 | Observed property | Consequence |
 | --- | --- |
 | 350 TRAIN / 50 VALIDATION images/pages; 8,367 / 1,043 lines | Preserve official partitions and all source records; no implicit 70/10/20 split. |
-| PAGE namespace `2013-07-15`; complete indexed region and line reading order recorded by Platform | Use `RegionRefIndexed` plus line `custom` reading-order indices, validate uniqueness/coverage/contiguity; XML sequence agrees but is not the semantic rule. |
+| PAGE namespace `2013-07-15`; complete indexed region and line reading order recorded by Platform | Use `RegionRefIndexed` plus line `custom` reading-order indices, validate uniqueness/coverage; region index gaps are preserved, line indices are contiguous. XML sequence is not the semantic rule. |
 | Every line has exactly one `TextEquiv` and one `Unicode` (Planning XML check) | Select that Unicode verbatim for this source version; reject future ambiguous alternatives instead of choosing by confidence. |
 | Four empty Unicode lines: one TRAIN, three VALIDATION | Preserve empty strings. They are annotated empty lines, not missing annotations or blank pages. |
 | Two TRAIN lines lack `Baseline`; coordinates and reading-order metadata exist | A polygon-envelope view need not fabricate baselines. Missing structure type is a separate metadata issue, not a reason to drop text. |
 | No geometry issues or cross-split exact image duplicates/filename overlap in audit | Useful checks only; near-duplicate and source-document independence are not proved. |
 | Both `doc.xml` exports have `docId=-1`, title `page`, split-local `pageNr` | These are placeholders. Filename sequence, page number and one-ID-per-page are not document provenance. |
 
-**Current disposition:** keep this source in a group-unknown engineering staging area, outside
-comparative runs. Slice 1 does not ingest it or change `Page.document_id`/oracle leakage checks.
-Before conversion/execution, Manager must obtain an explicit limited engineering-only decision
-or source-evidenced grouping. An engineering exception would preserve official splits and record
-`grouping=unknown`/no independence claim in an explicitly reviewed representation; this document
-does not implement or authorize a bypass. Do not insert synthetic per-page document IDs, reuse
-`-1` and waive the error, or silently repartition. If a safe representation is not agreed, keep
-using synthetic contract fixtures. Comparative document-independent claims require evidence or
-an explicitly revised research design, and final-test changes require separate approval.
-
-Converter gates remaining: accepted grouping representation, source illegibility/structure
-mapping, polygon view and image orientation. Retain original XML/polygons/checksums and explicit
-source-to-page mapping. Read ordered line polygons as enclosing axis-aligned rectangles only as
-a declared lossy view; keep diplomatic spelling/flags/blank text. Recheck unusual/marginal lines.
-Reject invalid transforms, ambiguous TIFF frames, missing/duplicate images, traversal and mutated
-bytes. No PAGE converter, ground-truth editing or real-source snapshot is released by slice 1.
+**Current disposition (v0.3):** the user has explicitly admitted these official partitions
+with grouping unknown for engineering verification only. Candidate 1B below specifies nullable
+simulation document IDs plus a narrow frozen policy; no placeholder IDs, silent leakage-check
+waiver or final-test use. This successor resolves the prior source-representation decision for
+review without changing original XML/images/split membership or claiming document independence.
 
 ## Approved first implementation scope — candidate 1A: local contracts only
 
@@ -291,14 +277,202 @@ Qwen quality, training, CUDA, checkpoints-on-disk, Modal auth or cancellation PA
 
 ## Later candidates and stage-specific gates
 
-### Candidate 1B — the gated READ converter
+### Candidate 1B — READ2016 converter and engineering-only source policy
 
-Development would own new `integrations/public_dataset.py`, parser fixtures and explicit mapping
-docs only after source semantics/group-unknown representation are accepted. Use standard XML
-parsing and existing source records where honest; no configurable importer framework. Platform
-owns asset checksums/staging, not core model/store files. Near-duplicate review and grouping
-remain mandatory for independence claims. Preserve final-test exclusion. Synthetic 1A release
-must not be conditional on 1B completion; real execution is conditional on a reviewed converter.
+**New v0.3 proposal for Manager review.** On 2026-09-16 the user admitted the official
+READ2016 1.2.0 TRAIN/VALIDATION partitions for engineering verification with document grouping
+explicitly unknown. Original labels/membership stay unchanged; final test is excluded. This
+resolves source-use permission, not converter correctness or scientific independence. Candidate
+1A is completed; candidates 2/3 remain unimplemented. No recipe, evaluator or score change here.
+
+#### Narrow schema and frozen policy
+
+Introduce `SourcePolicy` with exactly `known-document-v1` (default) and
+`read2016-official-unknown-engineering-v1`. The latter binds READ2016 1.2.0, the archive SHA-256
+above, official train/validation membership, `grouping=unknown`, `engineering_only=true`, no test,
+and the mapping below. It is not `allow_unknown=True` or a generic split-check bypass.
+
+Keep **`Page.document_id` required and non-null**: legacy `local_data.load_image_pages` and its
+document-hash split remain untouched. Override only `SourcePage` and `SimulationPage` with
+`document_id: str | None`, still required, nonempty when a string. Add `source_policy` with the
+strict default to these two classes, `DatasetSnapshot` and `SimulationConfig`. Under the default,
+require a known nonempty document ID and keep cross-split document checks. Under the READ policy,
+require **null on every page**, reject TEST and any mixed policy/known-ID row, and do not insert
+`-1`, a filename, a page ID or a split name as a document identity. This intentionally supports
+one admitted all-unknown corpus, not arbitrary mixed corpora. Defaults keep historical JSON
+readable; omission of the document field remains an error, never implicit admission.
+
+Add one plain `SourceArtifact` record (`uri: str`, `sha256: SHA256`) for the converter's
+`provenance.json`. `SourcePage.source_provenance` and `DatasetSnapshot.source_provenance` are
+optional with default `None`; require them for READ and forbid them under the strict policy in
+this slice. Every READ row references the same relative `provenance.json` and hash. The snapshot
+retains that reference relative to `source_manifest`. It is label-bearing local provenance and
+must **not** be copied onto `SimulationPage`, fit examples or prediction requests. Freeze must
+explicitly omit `regions` and `source_provenance` when projecting pages; do not let the existing
+`model_dump` copy all new source fields indiscriminately. Raw XML/polygons stay oracle-side.
+
+The provenance file uses a fixed schema, not arbitrary metadata: schema/mapping version1,
+source policy, dataset record/version/archive hash, converter code SHA, the limitations above,
+sorted regular-file inventory (relative URI, bytes, SHA-256), and ordered page-to-image/XML
+mapping with split and observed counts. It contains no transcript copies; original XML already
+preserves them. Inventory covers all 804 copied regular source files, including both `doc.xml`
+exports. No absolute paths, runtime IDs or timestamps in deterministic output bytes. The
+normalized manifest hashes this file; the file does not hash the manifest (avoid a hash cycle).
+
+Extend `_read_source(data, directory, *, source_policy=known-document-v1)` and
+`LocalOracle.freeze(manifest, store, *, source_policy=known-document-v1)`. Explicit caller policy,
+all row policies, provenance policy and snapshot policy must agree; never infer admission from
+nullable fields. READ source/provenance URIs must be safe relative paths beneath the dataset
+directory, with no traversal, absolute path or symlink component; keep legacy path behavior
+unchanged. Keep the known-document and image-content maps separate: only the admitted
+unknown document check is inapplicable, never the image check. Existing cross-split duplicate
+image rejection stays strict; READ additionally rejects duplicate image hashes anywhere and
+requires exact row coverage against its provenance page map. Reject wrong source/version/archive
+identity, missing/changed provenance or raw files and any TEST member. This is integrity against
+accidental changes, not protection against a malicious adapter rewriting all local evidence.
+
+`Pipeline.create_simulation` passes `config.source_policy` to freeze. `SimulationRun` validates
+config/snapshot/page policy equality; `LocalOracle.__init__` reloads with the frozen policy,
+rechecks provenance/inventory and compares source/frozen page metadata (ID, document ID, split,
+size, image hash and policy), not just the current set-of-IDs check. Retain existing manifest,
+frozen-image and pre-commit source validation. Check policy again on resume, including complete
+runs; no runtime option can loosen it. Preserve `exclude_unset=True` historical CAS compatibility.
+JSON exports carry policy and provenance in existing config/dataset objects; CSV adds
+`source_policy`, `document_grouping` and `engineering_only` columns, with `known`/false for strict
+and `unknown`/true for READ. Run kind still independently distinguishes fixture/contract/real.
+A synthetic model run on READ is still fixture evidence. Conversion does not enable real execution.
+
+#### Observed source → normalized fields
+
+Planning inspected all 400 actual PAGE XMLs and JPEG headers, line attributes and marginal/missing
+metadata examples. Counts below are structural observations, not a semantic transcription audit.
+A direct check corrects v0.2's overly strict region-contiguity assumption: TRAIN Seite0111 has
+indices 0,2,3,4,5,6,7 and Seite0184 has 0,1,3,4; all regions are referenced exactly once and
+custom indices agree. Sorting these explicit indices is unambiguous; never renumber or invent
+missing regions. All per-region line indices are contiguous. The 400-page/9,410-line check also
+confirmed unique line IDs per page, single plain Unicode elements and positive bounded envelopes.
+
+| Source field / observed condition | Fixed mapping and refusal rule |
+| --- | --- |
+| `PublicData/Training` 350 pages / `Validation` 50; 8,367 / 1,043 lines | Map only to TRAIN/VALIDATION, preserve membership; no random split or filtering. Stable page ID `read2016-v1.2.0:<train-or-validation>:<XML-stem>` identifies a page, never a document. Emit TRAIN then VALIDATION, each sorted by exact stem. |
+| PAGE namespace `2013-07-15`; one Page per XML | Require this namespace/shape and exact XML-stem/image-basename pairing. Resolve JPG only in the same split's `Images`, never via omitted symlinks or arbitrary `imageFilename` paths. |
+| `ReadingOrder/OrderedGroup/RegionRefIndexed` and region `custom readingOrder` | Require one flat indexed group, unique nonnegative integer indices and references covering all TextRegions; require matching region custom indices. Gaps are allowed and preserved (observed on two pages). Order by explicit indices, not XML order or box position. |
+| All 9,410 lines have per-region `custom readingOrder` | Require exactly one integer index per line, unique complete contiguous indices from zero within its region; concatenate regions then lines. Preserve original line ID, require uniqueness across each page. Reordered XML nodes with unchanged indices preserve ordered line targets; raw XML/provenance hashes correctly change. |
+| One line-level `TextEquiv/Unicode` per line; four empty strings | Read that Unicode literally after standard XML character/entity decoding; an existing empty element means `""`. Missing/multiple Unicode/TextEquiv, nested markup or ambiguity is an error. Never use duplicated region-level TextEquiv text, strip whitespace, expand abbreviations, normalize Unicode or append markers. Raw XML bytes preserve XML newline/entity syntax. |
+| Line Coords polygons have 4–118 vertices | Preserve original points in copied XML; use envelope `x=min(xs), y=min(ys), width=max(xs)-min(xs), height=max(ys)-min(ys)` in pixel coordinates, no +1/rounding/clamping. Require finite integer pairs, at least three distinct vertices, positive envelope and bounds `0<=x<=W`, `0<=y<=H`. This is a declared lossy box view, not a new source annotation. |
+| Two TRAIN lines lack Baseline; two different lines lack custom structure | Keep all four affected lines and their text/Coords; baseline and structure are not required to make a line target. Do not infer missing types from parent/position or fabricate baselines. Reject absent line Coords. |
+| Paragraph/page-number/heading/marginalia regions; 499 marginalia regions overall | Include every line, including marginalia, numbers, headings, empty strings and struck-through text. Region polygons, PrintSpace and region text are provenance only; never turn them into extra line targets or prediction crops. |
+| `unclear`20, `abbrev`1715, `textStyle`224 and `sic`2 custom span blocks; six standalone TextStyle elements | Preserve full custom/XML, including expansions/style/span offsets. These are not whole-line illegibility flags. No explicit whole-line illegibility was found: emit `SourceRegion.illegible=False` meaning “not explicitly flagged,” not certified legibility. Do not interpret partial unclear spans, missing Baseline or empty text as true. Unknown line-flag semantics require review, not a guessed true/false mapping. |
+| All 400 images: JPEG, RGB, single frame, no EXIF orientation; PAGE sizes agree; no rotation attributes observed | Preserve bytes and raw orientation; no `exif_transpose`, rotation, crop, deskew or resize. Require JPEG/RGB/single frame, full decode, PAGE dimensions, absent/identity EXIF orientation and absent/zero declared rotation. Reject any nonidentity transform or unsupported mode instead of silently repairing it. |
+
+Only reading-order indices are interpreted from `custom`; retain known opaque structure/style/
+unclear/sic/abbrev blocks unchanged in XML. Reject duplicate/malformed reading-order blocks,
+unsupported structural nodes/order schemes or newly encountered annotation block names pending
+mapping review. Do not classify semantic legibility from text content. Existing source-derived
+literal text feeds the unchanged `page-text-nfc-v1` evaluation copy; converter text remains literal.
+
+#### Callable conversion and output integrity
+
+Proposed public function in new `integrations/public_dataset.py`:
+
+```python
+convert_read2016(archive: Path, extracted: Path, output: Path, *,
+                 source_policy: SourcePolicy) -> Path  # returns output/pages.jsonl
+```
+
+Only the exact READ policy is accepted. Use existing Pillow/Pydantic and standard-library
+XML/tar/hash/filesystem code; no new dependency, network fetch or importer framework. Verify the
+archive's pinned bytes/SHA-256 and stream its regular-member hashes, then compare the staged
+`extracted/PublicData` bytes against that inventory. Reject unsafe/duplicate member names, hard
+links, special files, extra/missing regular files, TEST content and symlinked staged paths.
+The archive's 400 known relative image symlinks are deliberately omitted only when their
+normalized targets are the matching regular JPG in the same split, matching prior staging.
+Never extract/follow those links. Ignore normal directory entries. Enforce 804 regular files,
+350/50 image/XML pairs and the pinned archive identity at the public entry point; parser unit
+fixtures exercise lower-level helpers without adding a production bypass or alternative archive.
+Reject XML DTD/entity declarations; use no network or external entity resolution.
+
+Reserve the destination with exclusive `mkdir(exist_ok=False)`; reject an existing directory
+(including an empty one), file or symlink. Build in an invocation-owned temporary sibling; copy
+all 804 regular files byte-for-byte under `source/PublicData`, parse **those copied bytes**, and
+build inventory/provenance plus a pending manifest referencing
+`source/PublicData/<split>/Images/...`. All output-relative paths stay inside that fresh dataset.
+Hash copied bytes against the verified archive, fully decode each image once, check counts/order/
+geometry and re-read the pending manifest/provenance with the explicit policy before publication.
+Move completed source/provenance into the reserved directory, then atomically publish
+`pages.jsonl` **last**. Its presence is the dataset completion boundary; an empty/pending output
+directory is never consumable. A crash before that boundary requires a fresh output path; no
+resume/overwrite mode. Report the owned incomplete path rather than deleting unrelated content.
+On handled failure clean only this invocation's files; concurrent creation loses at exclusive
+mkdir and cannot touch the winner. No directory rename may replace an existing destination.
+Revalidate copied bytes before publication and bytes saved by oracle freeze against their frozen
+hashes to catch mutation between validation and copying. Original files are never modified or
+hard-linked. Output is reproducible for identical source/mapping/code SHA regardless of output
+directory or enumeration order. Flush completed output before publishing its manifest; no claim
+of recovery from filesystem/hardware failure beyond the existing local persistence guarantees.
+
+One documented direct invocation is sufficient; **no CLI change in this slice**:
+
+```python
+from pathlib import Path
+from active_ocr.integrations.public_dataset import convert_read2016
+from active_ocr.integrations.simulation import LocalOracle
+from active_ocr.pipeline import Pipeline
+
+policy = "read2016-official-unknown-engineering-v1"
+manifest = convert_read2016(
+    Path(".local/assets/read2016-1.2.0/Train-And-Val-ICFHR-2016.tgz"),
+    Path(".local/assets/read2016-1.2.0/extracted"),
+    Path(".local/prepared/read2016-v1"), source_policy=policy,
+)
+pipeline = Pipeline.for_simulation(Path(".local/verification/read2016-v1"))
+snapshot = LocalOracle.freeze(manifest, pipeline.store, source_policy=policy)
+LocalOracle(snapshot)  # reload integrity check; no model or training call
+```
+
+An API-created simulation must additionally set `SimulationConfig(source_policy=policy)`;
+existing CLI start supplies the strict default and therefore refuses this source. This is
+intentional until an explicit source-policy CLI is separately released; do not auto-enable it.
+Actual conversion structural smoke follows reviewed code and Manager release, with no GPU or
+model dependency. It prepares all 400 pages but does not run a learning experiment or expose
+labels to a model. Budget estimate: under 0.6 GB converted output plus under 0.6 GB image/source
+snapshot, sequential image decoding, no cloud spend; require 2 GiB available scratch headroom.
+These are disk estimates from the 499,592,094-byte source, not measured converter runtime/RAM.
+
+#### Exact ownership and independent acceptance
+
+Development alone owns this proposed implementation scope; Manager must release the exact version.
+
+| Files | Allowed changes |
+| --- | --- |
+| `src/active_ocr/models.py` | SourcePolicy/SourceArtifact, simulation-only nullable document field, config/snapshot/page consistency and provenance reference. Keep Page/legacy validation strict. |
+| `src/active_ocr/integrations/simulation.py` | SourcePage fields; explicit policy-aware `_read_source`, freeze/reload and provenance verification/projection. Preserve selected-TRAIN and validation-only oracle boundaries. |
+| New `src/active_ocr/integrations/public_dataset.py` | Single pinned READ converter, fixed source mapping, safe deterministic output; directly callable, no generic registry. |
+| `src/active_ocr/pipeline.py` | Pass/compare source policy at creation/resume/pre-commit; add export disclosure columns only. No model/evaluator/selection redesign. |
+| New `tests/test_public_dataset.py`; `tests/test_simulation.py` | Synthetic source/parser/integrity/compatibility and API propagation coverage below. Existing independent tests remain untouched. |
+| `docs/simulation.md` | Direct invocation, output/provenance policy, limitations, compatibility and observed structural smoke reproduction once executed. |
+
+No legacy importer, entrypoints/CLI, storage implementation, Qwen, Modal, selector, evaluator,
+config defaults outside these records, dependencies/lock, source labels or split edits. Testing
+owns a separate `tests/test_read2016_independent.py` and small review record when assigned.
+
+| Check | Required independent evidence at exact implementation SHA |
+| --- | --- |
+| C1 strict compatibility | Actual historical fixture JSON resumes/exports with strict defaults; Page and legacy import reject null/missing document IDs. Known documents crossing splits and identical cross-split images still reject. All existing 1A regressions pass. |
+| C2 admission | Null documents without explicit READ caller/config/row/snapshot policy reject. Mixed policy/known-ID rows, fake `-1`, TEST, wrong source/version/hash or inconsistent provenance coverage reject. READ duplicate image content rejects even within one split. |
+| C3 lossless text/order | Synthetic shuffled XML nodes retain explicit index order. Reject duplicate/missing/unknown references or gapped line indices; accept preserved gapped region indices with complete coverage. Preserve exact Unicode, whitespace, blank lines, abbreviations and struck-through/unclear span text; all provenance XML bytes match input. No extra region-level targets. |
+| C4 geometry/orientation | Hand-computed nonrectangular/marginal polygon envelope; preserve missing Baseline/structure; reject nonfinite/degenerate/out-of-bounds/missing Coords, mismatched dimensions, bad JPEG, nonidentity orientation/rotation, unsupported mode and ambiguous text. No hidden rotation or +1. |
+| C5 provenance/mutation | Tamper with manifest, policy, provenance, source XML/doc.xml, original/frozen image or copied dimensions: fail freeze/resume/pre-commit before model/budget publication. Test mutations during freeze as well as after; match bytes actually persisted. Different output roots produce identical manifest/provenance bytes for the same clean code SHA. |
+| C6 filesystem/atomicity | Archive/member/path traversal, staged symlink, duplicate/missing/extra member, target collision (including empty dir/symlink), I/O interruption and concurrent publication never overwrite source/destination or publish partial output. Test DTD/entity refusal without external access. |
+| C7 isolation/export | Spy fit sees selected TRAIN SourceRegions only; predict pages contain no provenance/XML/polygon/text/region count. Validation truth reaches only evaluator; reveal validation rejects. Fresh-process snapshot/run reload and JSON preserve null document IDs; JSON/CSV retain policy and engineering limitation; fixture kind is never relabelled real. |
+| C8 actual structural smoke | After reviewed code release, independently compare all 350/50 rows and 8,367/1,043 lines to copied original XML order/literal text/envelopes and image hashes; all four empty lines and two missing baselines retained, all804 originals hash-identical, no TEST. Freeze/reopen full dataset under explicit policy. Record command, clean SHA, archive/provenance/manifest/ground-truth hashes and counts locally; public evidence contains counts/hashes only. No OCR quality claim. |
+
+Run focused author/independent cases, full suite and configured Ruff at the final candidate;
+there is no configured type checker. Reject implementation on any compatibility/leakage/integrity
+failure. Technical acceptance requires independent Testing and Manager acceptance; the subsequent
+actual structural smoke supplies source execution evidence. No further source-use permission
+question is needed within this admitted scope. Comparative independence, final test, model and
+provider execution remain separate gates. Publish no full normalized manifest or raw source GT.
 
 ### Candidate 2 — Qwen load, train, output and checkpoints
 
@@ -398,7 +572,7 @@ not cloud behavior. Application retries0 does not stop infrastructure crash resc
 ([retries](https://modal.com/docs/guide/retries)); per-attempt timeout excludes scheduling and
 restarts on retry ([timeouts](https://modal.com/docs/guide/timeouts)). Bound total attempt/startup
 time and absolute deadline; verify cancellation/terminal state before any subsequent attempt.
-Unknown auth, deployment, storage/cancel behavior gates cloud work, never candidate-1A tests.
+Account readiness, deployment and storage/cancel behavior gate cloud work, never candidate-1A tests.
 
 Explicit real CLI creation/resume must reconstruct the frozen recipe and adapter, fail on missing
 SDK/auth/checkpoint, and never fall back to fixture. Before submission compare actual immutable
@@ -416,7 +590,7 @@ hashes must be frozen after source admission; no synthetic document grouping to 
 | Stage | Fixed proposed workload | Meaning / gate |
 | --- | --- | --- |
 | Offline 1A | Synthetic known-group pages and doubles only; no actual READ or cloud | Proves L1–L9 contracts. |
-| Minimal real smoke | Seed824; 2 TRAIN pages, batch2/budget2/1 fit; 2 fixed validation pages; 3-epoch recipe (3 optimizer updates); base and postfit validation (4 page predictions), plus one selected-train probe before/after reload (2 predictions) | Proves real fit/geometry/checkpoint/transport if successful; label exposure recorded. Group-unknown use needs explicit engineering-only admission first. |
+| Minimal real smoke | Seed824; 2 TRAIN pages, batch2/budget2/1 fit; 2 fixed validation pages; 3-epoch recipe (3 optimizer updates); base and postfit validation (4 page predictions), plus one selected-train probe before/after reload (2 predictions) | Proves real fit/geometry/checkpoint/transport if successful; label exposure recorded. Engineering-only admission is granted; reviewed conversion and smoke release remain required. |
 | Random engineering pilot | Seed824; official TRAIN pool, batch10/budget20/2 rounds; first 10 fixed validation pages for diagnostics, then all50 for base/round exploratory tables | 2 fits with9/15 updates under the3-epoch recipe; 150 full-validation predictions, plus diagnostic repeats if required. No pool scores. Tests stable pipeline, not adequate training or independent-document quality. |
 | Later adequately calibrated comparison | Only after grouping/design resolution, stable training and score acceptance: random/least-confidence/entropy, seeds824/825/826, batch20/budget60/3 rounds, same frozen approved pool and all50 validation pages | 27 fits, 1800 base+round validation page predictions. With350 train pages and terminal pool scoring retained: two scored methods *3 seeds *(330+310+290)=5580 pool predictions. Requote if pool changes. No execution default until these gates pass. |
 
@@ -474,9 +648,11 @@ calibrated probabilities of page correctness. These are later scientific gates o
 
 Platform's pricing proposal uses one L40S, 2 physical CPU cores and32GiB RAM, approximately
 USD2.301264/hour at its 2026-09-14 [official pricing](https://modal.com/pricing) observation.
-USD5 smoke /USD20 pilot were unapproved provisional ceilings for earlier workloads, **not quotes
-for this revised table**. User ceiling/authentication and measured VRAM/time remain required for
-paid release. Do not assume credits, actual availability or model fit from installed SDK/weight size.
+On 2026-09-16 the user approved a **USD30 gross total** for setup verification/initial pilot,
+with the first reviewed smoke at most **USD5**, before credits. This supersedes provisional
+USD5/USD20 ceilings; it is not a new quote or permission to run unreviewed code. Exact account,
+resource/deadline/accounting checks and measured VRAM/time still gate execution/scaling.
+Do not assume credits, actual availability or model fit from installed SDK/weight size.
 Two-byte4B weights alone are approximately8GB decimal, before activations/KV/optimizer/workspace.
 
 For the revised smoke, propose at most40 minutes total billed startup+GPU execution, 10-minute
@@ -499,7 +675,7 @@ exports never overwrite prior results.
 | Readiness verdict | Required evidence; who decides |
 | --- | --- |
 | Slice1A technical acceptance | Exact code SHA, L1–L9, full regression+Ruff and independent Testing review; Manager accepts warnings. No real-model PASS. |
-| Converter admission | Actual source mapping/grouping representation decision, original hashes/order/blank/polygon checks and parser tests. Unknown groups constrain engineering use; no fabricated identities. |
+| Converter acceptance | User engineering-only admission is granted; exact v0.3 mapping/policy, C1–C7 code review and C8 structural smoke still need verification. Unknown groups constrain use; no fabricated identities. |
 | Candidate2/3 preflight acceptance | Exact code/recipe, supervised-mask/reset/checkpoint tests, purpose-bound journal failure matrix, upload/mount allowlists, identity checks and independent review. Fakes cannot prove hardware/provider behavior. |
 | Paid smoke release | Accepted source/recipe/code, account/access, precise resource/cost/deadline envelope and user spend authorization. Runtime-only evidence is acquired during smoke, not required as a past success to authorize first smoke. |
 | Real engineering acceptance | Finite loss/gradients and intended update on CUDA, unchanged frozen weights, full-page geometry evidence, fresh checkpoint reload equivalence with declared tolerance, known-call/receipt recovery and separate-process CLI resume, accounting and independent Testing review. No efficacy threshold. |
@@ -522,3 +698,9 @@ remove later source/method/hardware gates. No production code or job was changed
   `d659c48f38639e54e19ac6aceff1b5adf853355a`; all later gates remain as stated above.
   Corrected local candidate `dee5e1a5ecbbc326921e0f4019792c8f7e5deab2` is now independently
   passed and integrated; source conversion, actual model execution and cloud releases remain pending.
+
+- v0.3: records completed 1A and user admission of the official READ split with unknown groups;
+  proposes only the concrete 1B schema/policy, literal PAGE mapping, direct conversion invocation,
+  provenance/mutation boundaries and C1–C8 independent checks; corrects the earlier region-index
+  contiguity assumption using the two observed gapped pages. Records the approved USD30 total /
+  USD5 first reviewed smoke without releasing cloud work. Awaiting exact converter-plan acceptance.
