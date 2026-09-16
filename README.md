@@ -5,7 +5,8 @@ of human annotation needed to adapt OCR models to historical and low-resource do
 
 The intended current path is a **local active-learning simulation**: existing source true labels
 simulate annotation, and a deterministic fixture model exercises the complete loop without services.
-Real datasets, OCR models and GPU adapters come later.
+The pinned READ2016 data preparation path is independently verified. Real OCR execution and the
+Modal connection are the next integration milestone.
 
 ## Quick start: no-service simulation
 
@@ -33,6 +34,12 @@ by a caller-defined evaluator. Final-test labels never enter training or selecti
 The local simulation freezes input membership, source labels/checksums and config; uses the existing
 random/least-confidence/entropy selectors; enforces split/run/prediction ownership; and commits each
 round atomically in a dedicated SQLite database. Failed rounds can be retried from committed state.
+
+The READ2016 1.2.0 converter preserves the official 350 training / 50 validation pages and all
+9,410 literal source lines. Independent checks cover conversion, source checksums, full freezing
+and reopening in a fresh process. Document grouping remains unknown, so this dataset is admitted
+for engineering verification only. See the [converter review](docs/verification/read2016-converter-review.md)
+and [real-pipeline plan](plans/PLAN-003-real-ocr-modal.md) for evidence and remaining gates.
 
 The earlier optional Label Studio/remote-worker flow is retained below for compatibility. Qwen
 loading, fine-tuning, inference and GPU job execution remain placeholders, and are not required

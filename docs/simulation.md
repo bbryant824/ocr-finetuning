@@ -337,9 +337,8 @@ Author C1–C7 checks are in `tests/test_public_dataset.py` and the existing sim
 contract tests. Run `python -m pytest tests/test_public_dataset.py tests/test_simulation.py`, the full
 suite from a clean committed checkout, and `ruff check .`. Synthetic400-page fixtures exercise
 publication/integrity without relaxing the public pinned-archive API. Read-only source diagnostics
-matched350/50 pages,8367/1043 lines,four empty strings and two missing baselines. Full actual prepared
-dataset conversion/freeze (C8) has **not** been executed by this implementation; it follows independent
-review and release. No real model, GPU, cloud, OCR quality or active-learning result is established.
+matched350/50 pages,8367/1043 lines,four empty strings and two missing baselines. Independent actual-data conversion/freeze/reopen (C8) has since passed, as recorded below.
+No real model, GPU, cloud, OCR quality or active-learning result is established.
 
 The pinned READ converter passed independent C1–C8 verification at
 `8db583326e55b307df487d57d4c03be1d6e12689`:350train/50validation pages,9410literal lines,
