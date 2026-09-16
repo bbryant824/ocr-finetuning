@@ -822,11 +822,11 @@ def reload_probe(
         status, regions, _, reason = decode_result(ids, tokenizer, *original_size)
         # Fixed generated prefix, full vocabulary, never sampling scores/warpers.
         probe = dict(inputs)
-        reference_ids = ids if fixed_ids is None else fixed_ids
-        continuation = inputs["input_ids"].new_tensor(
-            [reference_ids[: min(8, len(reference_ids)) - 1]]
-        )
-        probe["input_ids"] = torch.cat((inputs["input_ids"], continuation), dim=1)
+        if fixed_ids is None:
+            probe["input_ids"] = output[:, : prefix + min(8, len(ids)) - 1]
+        else:
+            continuation = inputs["input_ids"].new_tensor([fixed_ids[: min(8, len(fixed_ids)) - 1]])
+            probe["input_ids"] = torch.cat((inputs["input_ids"], continuation), dim=1)
         added = probe["input_ids"].shape[1] - prefix
         for key, fill in (("attention_mask", 1), ("mm_token_type_ids", 0)):
             probe[key] = torch.cat((inputs[key], inputs[key].new_full((1, added), fill)), dim=1)
@@ -1365,7 +1365,6 @@ class QwenModel:
                         probe_inputs,
                         processor.tokenizer,
                         original_size=images[probe_id].size,
-                        fixed_ids=before_probe["ids"],
                     )
                     difference = compare_probes(before_probe, after_probe)
                 self._verify_runtime()

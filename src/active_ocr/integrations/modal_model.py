@@ -1030,9 +1030,10 @@ class ModalModel:
         root = self.store.artifact_root / "model-evidence"
         root.mkdir(parents=True, exist_ok=True)
         target = safe_path(root, ref.sha256)
-        if target.exists():
-            if target.stat().st_size != ref.bytes or file_hash(target) != ref.sha256:
-                raise ValueError("local model evidence corrupted")
+        if target.exists() and (
+            target.stat().st_size != ref.bytes or file_hash(target) != ref.sha256
+        ):
+            raise ValueError("local model evidence corrupted")
         sha, size = hashlib.sha256(), 0
         with tempfile.NamedTemporaryFile(dir=root, delete=False) as stream:
             temporary = Path(stream.name)
