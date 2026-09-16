@@ -40,6 +40,7 @@ from active_ocr.models import (
     SimulationConfig,
     SimulationRound,
     SimulationRun,
+    SourcePolicy,
     Split,
     Stage,
     Strategy,
@@ -399,7 +400,7 @@ class Pipeline:
             raise ValueError("real/contract-test kind requires an explicit real recipe")
         if config.real is not None:
             check_local_identity(config.real.expected_identity)
-        snapshot = LocalOracle.freeze(manifest, self.store)
+        snapshot = LocalOracle.freeze(manifest, self.store, source_policy=config.source_policy)
         if config.real is not None and not any(p.split is Split.VALIDATION for p in snapshot.pages):
             raise ValueError("real contracts require nonempty validation pages")
         LocalOracle(snapshot)
@@ -717,6 +718,9 @@ class Pipeline:
                 "record_type",
                 "purpose",
                 "validation_statuses",
+                "source_policy",
+                "document_grouping",
+                "engineering_only",
                 *metric_columns,
             ]
         )
@@ -757,6 +761,9 @@ class Pipeline:
                     if is_baseline
                     else (PredictionPurpose.VALIDATION if record.validation_predictions else ""),
                     json.dumps({p.page_id: p.status for p in record.validation_predictions}),
+                    run.config.source_policy,
+                    "unknown" if run.config.source_policy is SourcePolicy.READ2016 else "known",
+                    "true" if run.config.source_policy is SourcePolicy.READ2016 else "false",
                     *(metrics.get(key, "") for key in metric_columns),
                 ]
             )
