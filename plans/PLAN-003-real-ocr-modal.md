@@ -478,7 +478,7 @@ provider execution remain separate gates. Publish no full normalized manifest or
 
 ### Candidate 2 — concrete Qwen runtime, training and checkpoints
 
-**v0.4 proposal for exact-version review.** Implement the model boundary after converter acceptance;
+**v0.4 specification accepted by Manager at publication `320790d69970348386ac180c524f5f568e035159`.** Implement the model boundary after converter acceptance;
 this section does not release implementation or a paid run. Source admission, the two-Volume /
 one-dispatcher architecture and USD30 total / USD5 first reviewed smoke remain accepted. Keep
 candidate3 responsible for transport/journal/real CLI and enabling `RunKind.REAL` in Pipeline.
@@ -962,3 +962,7 @@ remove later source/method/hardware gates. No production code or job was changed
   and Q1–Q9 independent checks. Worker bundle identity is distinct from local Git discovery.
   Accepted converter, two-Volume topology, source admission and budgets are unchanged.
   No model load, dependency installation/build, production edit or paid execution in Planning.
+
+Manager reviewed the exact v0.4 publication and accepted its bounded candidate2 contract and
+staged offline/build/GPU acceptance order. This accepts a specification, not model execution
+or a cloud release; the stated independent review and runtime gates remain in force.
