@@ -794,7 +794,7 @@ def cuda_context():
     return stack
 
 
-def reload_probe(model, inputs: dict, tokenizer) -> dict:
+def reload_probe(model, inputs: dict, tokenizer, *, original_size: tuple[int, int]) -> dict:
     """Selected TRAIN engineering probe. Never an unbiased evaluation result."""
     import torch
     from peft import get_peft_model_state_dict
@@ -806,7 +806,7 @@ def reload_probe(model, inputs: dict, tokenizer) -> dict:
         if not torch.equal(output[:, :prefix], inputs["input_ids"]):
             raise RuntimeError("reload probe prompt prefix changed")
         ids = output[0, prefix:].tolist()
-        status, regions, _, reason = decode_result(ids, tokenizer, 1000, 1000)
+        status, regions, _, reason = decode_result(ids, tokenizer, *original_size)
         # Fixed generated prefix, full vocabulary, never sampling scores/warpers.
         probe = dict(inputs)
         probe["input_ids"] = output[:, : prefix + min(8, len(ids)) - 1]
@@ -1288,11 +1288,15 @@ class QwenModel:
                     k: v.to("cuda:0")
                     for k, v in encode_page(processor, images[probe_id])[0].items()
                 }
-                before_probe = reload_probe(model, probe_inputs, processor.tokenizer)
+                before_probe = reload_probe(
+                    model, probe_inputs, processor.tokenizer, original_size=images[probe_id].size
+                )
                 del model, parameters, batches
                 self._drop()
                 reloaded = self._load(stage)
-                after_probe = reload_probe(reloaded, probe_inputs, processor.tokenizer)
+                after_probe = reload_probe(
+                    reloaded, probe_inputs, processor.tokenizer, original_size=images[probe_id].size
+                )
                 difference = compare_probes(before_probe, after_probe)
                 self._verify_runtime()
                 self._images(pages, Split.TRAIN)

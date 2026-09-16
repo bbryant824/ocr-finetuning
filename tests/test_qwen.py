@@ -617,7 +617,7 @@ def tiny_reload_child(root: Path):
     )
     processor = q.load_processor(Path(os.environ["QWEN_PROCESSOR_DIR"]))
     inputs = torch.load(root / "inputs.pt", weights_only=True)
-    result = q.reload_probe(model, inputs, processor.tokenizer)
+    result = q.reload_probe(model, inputs, processor.tokenizer, original_size=(64, 64))
     torch.save(result, root / "after.pt")
 
 
@@ -677,7 +677,7 @@ def test_actual_tiny_forward_reset_frozen_and_fresh_process(processor, tmp_path)
     original_context, original_generation = q.cuda_context, q.generation_config
     tiny_probe_setup()
     try:
-        before = q.reload_probe(model, inputs, processor.tokenizer)
+        before = q.reload_probe(model, inputs, processor.tokenizer, original_size=(64, 64))
         del model, parameters, state, updated
         code = (
             "import runpy; from pathlib import Path; "
