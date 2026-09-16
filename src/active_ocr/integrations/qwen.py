@@ -16,8 +16,10 @@ import platform
 import random
 import re
 import subprocess
+import sys
 import tempfile
 import time
+from array import array
 from contextlib import suppress
 from importlib.metadata import distributions
 from pathlib import Path
@@ -736,7 +738,7 @@ def verify_checkpoint_files(directory: Path, checkpoint: Checkpoint, data: bytes
     verify_adapter_files(directory, checkpoint.files)
 
 
-def train_epochs(model, batches: dict[str, dict], seed: int, parameters: list, context):
+def train_epochs(model, batches: dict[str, dict], seed: int, parameters: list, context, guard=None):
     """Page means, including the actual final accumulation-group denominator."""
     import torch
 
@@ -759,6 +761,8 @@ def train_epochs(model, batches: dict[str, dict], seed: int, parameters: list, c
         orders.append([page for group in groups for page in group])
         for group in groups:
             for page in group:
+                if guard is not None:
+                    guard()
                 with context():
                     loss = model(**batches[page], use_cache=False).loss
                     if not torch.isfinite(loss).item():
@@ -801,7 +805,9 @@ def cuda_context():
     return stack
 
 
-def reload_probe(model, inputs: dict, tokenizer, *, original_size: tuple[int, int]) -> dict:
+def reload_probe(
+    model, inputs: dict, tokenizer, *, original_size: tuple[int, int], fixed_ids=None
+) -> dict:
     """Selected TRAIN engineering probe. Never an unbiased evaluation result."""
     import torch
     from peft import get_peft_model_state_dict
@@ -816,7 +822,11 @@ def reload_probe(model, inputs: dict, tokenizer, *, original_size: tuple[int, in
         status, regions, _, reason = decode_result(ids, tokenizer, *original_size)
         # Fixed generated prefix, full vocabulary, never sampling scores/warpers.
         probe = dict(inputs)
-        probe["input_ids"] = output[:, : prefix + min(8, len(ids)) - 1]
+        reference_ids = ids if fixed_ids is None else fixed_ids
+        continuation = inputs["input_ids"].new_tensor(
+            [reference_ids[: min(8, len(reference_ids)) - 1]]
+        )
+        probe["input_ids"] = torch.cat((inputs["input_ids"], continuation), dim=1)
         added = probe["input_ids"].shape[1] - prefix
         for key, fill in (("attention_mask", 1), ("mm_token_type_ids", 0)):
             probe[key] = torch.cat((inputs[key], inputs[key].new_full((1, added), fill)), dim=1)
@@ -862,7 +872,15 @@ class QwenModel:
         real_config: RealOCRConfig,
         *,
         runtime_manifest: Path,
+        deadline_unix_seconds: float | None = None,
     ):
+        if deadline_unix_seconds is not None and (
+            type(deadline_unix_seconds) not in (int, float)
+            or not math.isfinite(deadline_unix_seconds)
+            or deadline_unix_seconds <= 0
+        ):
+            raise ValueError("invalid absolute deadline")
+        self.deadline_unix_seconds = deadline_unix_seconds
         self.real_config = real_config
         self.identity = real_config.expected_identity
         self.input_root = safe_path(input_root, input_root.absolute())
@@ -882,6 +900,10 @@ class QwenModel:
         self.telemetry = None
         self._check_recipe()
         WorkerManifest.model_validate(strict_json(self.runtime_manifest.read_bytes()))
+
+    def _deadline(self):
+        if self.deadline_unix_seconds is not None and time.time() >= self.deadline_unix_seconds:
+            raise TimeoutError("absolute run deadline reached")
 
     def _check_recipe(self):
         cfg = self.real_config
@@ -1038,6 +1060,7 @@ class QwenModel:
         self._adapter_identity = (adapter, files, tensors)
 
     def _load(self, adapter: Path | None = None):
+        self._deadline()
         import torch
         from peft import PeftModel, get_peft_model_state_dict
         from transformers import Qwen3VLForConditionalGeneration
@@ -1170,6 +1193,7 @@ class QwenModel:
         model.eval()
         results, evidence = [], []
         for page, (batch, receipt) in zip(pages, prepared, strict=True):
+            self._deadline()
             inputs = {k: v.to("cuda:0") for k, v in batch.items()}
             verify_checkpoint_files(directory, checkpoint, manifest_bytes)
             with torch.inference_mode(), cuda_context():
@@ -1264,7 +1288,11 @@ class QwenModel:
         seed: int,
         experiment_id: str,
         round_number: int,
+        external_reload: bool = False,
     ) -> str:
+        if type(external_reload) is not bool:
+            raise ValueError("external_reload must be boolean")
+        self._deadline()
         started = time.monotonic()
         self._ownership(experiment_id, round_number)
         if round_number < 1 or type(seed) is not int or not 0 <= seed < 2**32 or not examples:
@@ -1292,7 +1320,7 @@ class QwenModel:
             for key, (batch, _) in prepared.items()
         }
         try:
-            training = train_epochs(model, batches, seed, parameters, cuda_context)
+            training = train_epochs(model, batches, seed, parameters, cuda_context, self._deadline)
             final = {k: tensor_hash(v) for k, v in get_peft_model_state_dict(model).items()}
             if initial == final or frozen_hashes(model) != before_frozen:
                 raise RuntimeError("adapter unchanged or frozen base changed")
@@ -1322,16 +1350,24 @@ class QwenModel:
                     k: v.to("cuda:0")
                     for k, v in encode_page(processor, images[probe_id])[0].items()
                 }
+                self._deadline()
                 before_probe = reload_probe(
                     model, probe_inputs, processor.tokenizer, original_size=images[probe_id].size
                 )
                 del model, parameters, batches
                 self._drop()
-                reloaded = self._load(stage)
-                after_probe = reload_probe(
-                    reloaded, probe_inputs, processor.tokenizer, original_size=images[probe_id].size
-                )
-                difference = compare_probes(before_probe, after_probe)
+                difference = None
+                if not external_reload:
+                    reloaded = self._load(stage)
+                    self._deadline()
+                    after_probe = reload_probe(
+                        reloaded,
+                        probe_inputs,
+                        processor.tokenizer,
+                        original_size=images[probe_id].size,
+                        fixed_ids=before_probe["ids"],
+                    )
+                    difference = compare_probes(before_probe, after_probe)
                 self._verify_runtime()
                 self._images(pages, Split.TRAIN)
                 checkpoint = Checkpoint(
@@ -1355,12 +1391,153 @@ class QwenModel:
                         "model_id": model_id,
                         "probe_page": probe_id,
                         "telemetry": self.telemetry.model_dump(mode="json"),
-                        "reload": "fresh-model-same-process",
+                        "reload": "pending-fresh-process"
+                        if external_reload
+                        else "fresh-model-same-process",
                         "max_logit_difference": difference,
                         "probe": {k: v for k, v in before_probe.items() if k != "logits"},
                     }
                 )
-                return publish_checkpoint(self.output_root, checkpoint, stage)
+                result = publish_checkpoint(self.output_root, checkpoint, stage)
+                if external_reload:
+                    probe_page = next(p for p in pages if p.id == probe_id)
+                    self._write_probe(result, probe_page, before_probe, "before")
+                return result
         except BaseException:
             self._drop()
             raise
+
+    def _write_probe(self, model_id, page, probe, name):
+        """Nested logits keys are relative to this Qwen output root, never the run root."""
+        rows = min(8, len(probe["ids"]))
+        if tuple(probe["logits"].shape) != (rows, 151936):
+            raise ValueError("probe logits shape mismatch")
+        values = array("f", probe["logits"].reshape(-1).tolist())
+        if any(not math.isfinite(v) for v in values):
+            raise ValueError("nonfinite probe logits")
+        if sys.byteorder != "little":
+            values.byteswap()
+        key = "probes/" + model_id.rsplit(":", 1)[1] + "/" + name
+        data = values.tobytes()
+        metadata = dict(
+            schema_version=1,
+            model_id=model_id,
+            page_id=page.id,
+            image_sha256=page.image_sha256,
+            original_width=page.width,
+            original_height=page.height,
+            process_id=os.getpid(),
+            generated_ids=probe["ids"],
+            status=probe["status"],
+            regions=probe["regions"],
+            finish_reason=probe["finish_reason"],
+            adapter_tensors=probe["tensors"],
+            logits=dict(
+                key=key + ".f32le", bytes=len(data), sha256=hashlib.sha256(data).hexdigest()
+            ),
+            logits_shape=[rows, 151936],
+        )
+        for suffix, content in ((".f32le", data), (".json", canonical(metadata))):
+            path = safe_path(self.output_root, key + suffix)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("xb") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+        return metadata
+
+    def verify_reload(
+        self,
+        page: SimulationPage,
+        *,
+        experiment_id: str,
+        round_number: int,
+        model_id: str,
+        before_metadata: Path,
+        before_metadata_sha256: str,
+        before_logits: Path,
+        before_logits_sha256: str,
+    ) -> dict:
+        """One probe in a fresh interpreter; targets are neither accepted nor reconstructed."""
+        self._deadline()
+        self._ownership(experiment_id, round_number)
+        self._verify_runtime()
+        checkpoint, directory = self._checkpoint(model_id, experiment_id, round_number)
+        if checkpoint.kind != "adapter" or (page.id, page.image_sha256) not in checkpoint.selected:
+            raise ValueError("reload probe requires a selected training page")
+        if page.id != min(p[0] for p in checkpoint.selected):
+            raise ValueError("reload probe requires lexicographically first selected page")
+        images = self._images((page,), Split.TRAIN)
+        key = "probes/" + model_id.rsplit(":", 1)[1] + "/before"
+        for path, suffix, expected in (
+            (before_metadata, ".json", before_metadata_sha256),
+            (before_logits, ".f32le", before_logits_sha256),
+        ):
+            if safe_path(self.output_root, path.absolute()) != safe_path(
+                self.output_root, key + suffix
+            ):
+                raise ValueError("unexpected probe evidence path")
+            if file_hash(path) != expected:
+                raise ValueError("probe evidence digest mismatch")
+        raw = before_metadata.read_bytes()
+        before = strict_json(raw)
+        ids = before["generated_ids"]
+        rows = min(8, len(ids))
+        if (
+            raw != canonical(before)
+            or before["schema_version"] != 1
+            or before["model_id"] != model_id
+            or before["page_id"] != page.id
+            or before["image_sha256"] != page.image_sha256
+            or (before["original_width"], before["original_height"]) != (page.width, page.height)
+            or type(before["process_id"]) is not int
+            or before["process_id"] <= 0
+            or before["process_id"] == os.getpid()
+            or not 1 <= len(ids) <= 2048
+            or any(type(i) is not int or i < 0 for i in ids)
+            or before["logits_shape"] != [rows, 151936]
+            or before["logits"]
+            != dict(key=key + ".f32le", bytes=rows * 151936 * 4, sha256=before_logits_sha256)
+            or before_logits.stat().st_size != rows * 151936 * 4
+            or set(before["adapter_tensors"]) != set(adapter_shapes())
+        ):
+            raise ValueError("probe metadata identity/shape mismatch")
+        values = array("f")
+        values.frombytes(before_logits.read_bytes())
+        if sys.byteorder != "little":
+            values.byteswap()
+        if any(not math.isfinite(v) for v in values):
+            raise ValueError("nonfinite before logits")
+        import torch
+
+        processor = self._processor_ready()
+        inputs = {k: v.to("cuda:0") for k, v in encode_page(processor, images[page.id])[0].items()}
+        model = self._load(directory)
+        self._deadline()
+        after = reload_probe(
+            model, inputs, processor.tokenizer, original_size=images[page.id].size, fixed_ids=ids
+        )
+        # Retain the failed after diagnostic as well; only successful comparison returns.
+        self._write_probe(model_id, page, after, "after")
+        difference = compare_probes(
+            dict(
+                ids=ids,
+                status=before["status"],
+                regions=before["regions"],
+                finish_reason=before["finish_reason"],
+                tensors=before["adapter_tensors"],
+                logits=torch.tensor(values).reshape(rows, 151936),
+            ),
+            after,
+        )
+        self._verify_runtime()
+        self._images((page,), Split.TRAIN)
+        verify_checkpoint_files(
+            directory, checkpoint, canonical(checkpoint.model_dump(mode="json"))
+        )
+        self._deadline()
+        return dict(
+            max_absolute_difference=difference,
+            train_process_id=before["process_id"],
+            reload_process_id=os.getpid(),
+        )

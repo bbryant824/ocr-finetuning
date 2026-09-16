@@ -1,15 +1,14 @@
-# Modal shared API checkpoint
+# Modal runtime and recovery
 
-This publication freezes a candidate shared interface, not completed transport or permission
-to build or execute. The production coordinator, CLI, SQLite operation state machine and
-Platform entrypoint are still to be implemented after Manager review. Existing real Pipeline
-execution remains unavailable. `integrations/modal_model.py` imports no Modal/ML libraries and
-currently contains only records, canonical semantic IDs and structural validation.
+The candidate implementation connects the existing Pipeline/SQLite to one synchronous Modal
+adapter. Its wire API was frozen before the disjoint worker implementation. Development owns
+`integrations/modal_model.py`, local coordination/CLI/config/dependencies and Qwen; Platform owns
+`entrypoints/modal_app.py`, its tests and deployment instructions. Incompatible shared API changes
+require an acknowledged review. Imports remain free of Modal/ML execution.
 
-Development owns that module, coordinator/journal/CLI/config changes and the dependency lock.
-Platform owns `entrypoints/modal_app.py`, its tests and deployment instructions. Both use this
-exact API after the checkpoint is accepted; incompatible changes return through Manager.
-The Qwen amendment below is **requested, not implemented or approved by this document**.
+This is offline implementation evidence, not permission to build or execute. Actual Linux CPU
+checks, deployment identities/mounts, 4B CUDA training/probes, provider recovery and costs remain
+separate review/execution gates. See [deployment](modal-deployment.md) for the bootstrap helpers.
 
 ## Shared call
 
@@ -17,7 +16,7 @@ One deployed synchronous Function named `dispatch` takes a JSON-compatible dicti
 returns a JSON-compatible dictionary:
 
 ```python
-# Platform boundary; implementation follows this checkpoint.
+# Platform boundary; one operation per synchronous dispatcher call.
 invocation = Invocation.model_validate(payload)
 settings.check_invocation(invocation)
 # Check immutable inputs, deadline/control, completion reuse; dispatch one operation.
@@ -216,20 +215,18 @@ confirmation, budget checks and Manager release; first smoke stops at the first 
 [FunctionCall wait/cancel](https://modal.com/docs/sdk/py/latest/FunctionCall) documents the
 client wait and cancellation methods; their operational success remains an execution gate.
 
-## Q9 fresh-process amendment requested at this checkpoint
+## Fresh-process reload contract
 
-Current `Qwen.fit` performs two probes in one process and omits full logits from its receipt.
-That does not meet fresh-process4B acceptance. Do not run its two probes and silently add a
-third. Proposed narrow amendment: only `qwen.py`, its author tests and Qwen runtime docs, after
-Manager's explicit scope release, with ordinary `fit` behavior unchanged by default.
+The approved narrow Qwen amendment preserves the default same-process behavior and adds an
+opt-in remote path. One fit and two probes remain the workload; no extra diagnostic RPC exists.
 
-1. Add `fit(..., external_reload: bool = False) -> str`. In the opt-in remote path, do the
+1. `fit(..., external_reload: bool = False) -> str`. In the opt-in remote path, do the
    existing fit once and **one** pre-save greedy probe on the lexicographically first selected
    TRAIN page. Validate/save its adapter, preserve before-probe IDs/status/regions/all144tensor
    hashes and full FP32 logits, and publish its immutable checkpoint as a *pending operation
    artifact*. Skip the current same-process after probe in this mode. It is not a completed
    transport fit until the next step succeeds. Other calls retain the accepted same-process path.
-2. Add a model-specific diagnostic with this proposed signature:
+2. The model-specific diagnostic has this signature:
    `verify_reload(page: SimulationPage, *, experiment_id: str, round_number: int, model_id: str,
    before_metadata: Path, before_metadata_sha256: str, before_logits: Path,
    before_logits_sha256: str) -> dict`. Both paths must remain under this Qwen output root;
@@ -239,12 +236,11 @@ Manager's explicit scope release, with ordinary `fit` behavior unchanged by defa
    IDs/status/regions and the fixed before-prefix full-vocabulary logits at the same
    rtol1e-3/atol1e-2. It writes after evidence or fails without a completion receipt. Before/after
    metadata carry actual process IDs; no targets are needed by this second stage.
-3. Thread an optional absolute `deadline_unix_seconds` into `QwenModel` construction, preserving
+3. The optional absolute `deadline_unix_seconds` into `QwenModel` construction, preserving
    the current no-deadline default for existing local checks. Check it before loading, each
    training page and each prediction/probe generation; expiration is an operation failure.
    The parent also terminates a child that is inside a long-running CUDA call at the deadline.
-   Current Qwen has no such per-batch guard, so this is explicitly part of the requested narrow
-   amendment, not a capability claimed by these wire records. It changes neither RNG nor recipe.
+   The guard changes neither RNG nor recipe; a long CUDA call still needs the parent watchdog.
 4. Platform runs these as two sequential fresh Python interpreters **inside the same existing
    GPU Function invocation**, with the parent never loading CUDA/model state. Same GPU/container,
    software/image and backend; no extra Modal Function, service, fit or paid probe. Pass fit input
@@ -253,7 +249,7 @@ Manager's explicit scope release, with ordinary `fit` behavior unchanged by defa
    owns absolute deadline enforcement, child termination and output-Volume commit. Fresh child
    process exit precedes the second child; actual distinct PIDs are recorded conservatively.
 
-Proposed derived files are under `qwen/probes/<checkpoint-sha>/before.{json,f32le}` and
+Derived files are under `qwen/probes/<checkpoint-sha>/before.{json,f32le}` and
 `after.{json,f32le}`. `ProbeMetadata` binds model/page/image/original dimensions/process,
 IDs/status/regions/tensor hashes and the binary logit reference. Logits are contiguous finite
 FP32 little-endian, shape `[min(8, generated_length),151936]`, no pickle and no top-k reduction.
@@ -264,7 +260,7 @@ handling, without installing Torch locally. Per element require
 `torch.allclose(before, after)` reference convention); retain maximum absolute difference and fail on
 nonfinite values/shape drift. `ReloadEvidence` records references to both metadata files,
 actual different process IDs, fixed tolerances and exact-match verdict. Structural fields are
-not proof by themselves; the future coordinator must verify all referenced bytes and values.
+not proof by themselves; the coordinator verifies all referenced bytes and values.
 
 This substitutes the already accepted two probes with one before/one fresh-process after;
 count stays two, fit stays one. Parent/child startup time is charged inside the same envelope.
@@ -272,18 +268,89 @@ Whether it fits the budget and600second attempt limit is still unmeasured. A par
 checkpoint after a probe failure stays quarantined/uncommitted; do not call it fit completion,
 retry the fit automatically, or reinterpret the later run as an unbiased evaluation.
 
-The RPC has no separate paid diagnostic operation. A successful `FitRequest` result requires
-`ReloadEvidence`; until the amendment and Platform implementation are reviewed together, real
-fit completion is unavailable. This checkpoint requests that precise amendment and accounting
-interpretation from Manager; it does not edit Qwen or self-release the change.
+The RPC has no separate paid diagnostic operation. A successful fit requires verified
+`ReloadEvidence`; a published checkpoint alone cannot complete a local model operation.
+`verify_reload` returns `max_absolute_difference`, `train_process_id`, `reload_process_id`.
+Its nested `ProbeMetadata.logits.key` is strictly Qwen-root-relative (`probes/<sha>/before.f32le`
+or `after.f32le`). Outer operation references are run-root-relative (`qwen/probes/...`).
+Consumer checks translate this fixed prefix once and reject mismatched/doubled namespaces.
 
-## What remains after interface review
+## Local CLI and recovery
 
-Development: optional frozen validation subset through create/resume/evaluation/export; strict
-remote page/request construction; optional Modal1.5.5 client pin/lock; journal/CAS/receipt reads;
-real CLI preflight/create/run/resume/status/export/reconcile; future approved Qwen amendment.
-Platform: build/CPU receipt, mounts, runtime manifest and dispatcher/child/cancellation implementation.
-Testing: combined fake-transport/fault/fixture regression, then separately reviewed CPU and GPU gates.
-No local ML installation, model/data experiment, build, deployment, upload or paid execution has
-occurred here. The11existing actual-ML tests remain unverified; the first shared API tests prove
-record boundaries and semantic identity only. This checkpoint stops before those implementations.
+Install the coordinator with the optional `modal` extra from the reviewed lock, independently of
+`gpu`. Run commands from the clean, exact execution checkout with explicit source imports.
+The configuration and runtime files are inputs from the reviewed bootstrap, never guessed IDs:
+
+```sh
+PYTHONPATH=src python -m active_ocr.entrypoints.cli real create \
+  /prepared/pages.jsonl /runs/smoke /reviewed/simulation-config.json
+# Save canonical RuntimeSettings using the returned run UUID and the actual CPU build receipt.
+# Save DeploymentObservation {settings_sha256, function_id, app_id} after approved deployment.
+PYTHONPATH=src python -m active_ocr.entrypoints.cli real preflight \
+  /runs/smoke RUN_UUID /reviewed/runtime-settings.json
+PYTHONPATH=src python -m active_ocr.entrypoints.cli real preflight \
+  /runs/smoke RUN_UUID /reviewed/runtime-settings.json \
+  --deployment /reviewed/deployment.json --provider
+PYTHONPATH=src python -m active_ocr.entrypoints.cli real run \
+  /runs/smoke RUN_UUID /reviewed/runtime-settings.json /reviewed/deployment.json --one-round
+PYTHONPATH=src python -m active_ocr.entrypoints.cli real resume \
+  /runs/smoke RUN_UUID /reviewed/runtime-settings.json /reviewed/deployment.json
+PYTHONPATH=src python -m active_ocr.entrypoints.cli real status /runs/smoke RUN_UUID
+PYTHONPATH=src python -m active_ocr.entrypoints.cli real export /runs/smoke RUN_UUID /new/export
+```
+
+Local preflight checks source integrity, exact clean local identity, validation membership and
+runtime/run/bundle agreement; it does not import Modal. `--provider` hydrates existing resources
+and compares Function and Volume IDs without creating them. The App ID is retained deployment
+provenance; the client rechecks the stable Function ID, not an invented SDK universal App-status
+API. Deployment/resource/image verification and CPU acceptance precede this CLI's run gate.
+`real run/resume` can submit work and therefore requires the separate execution release.
+
+`model-control` in the existing SQLite table freezes settings digest and first-submission wall
+clock/deadline. `model-operation` stores semantic requests with fit target digests, submission UUID,
+state, observed call ID and verified response. Selected target payloads are never journaled.
+A CAS reservation and SUBMITTING transition precede spawn; a known call ID is saved before wait.
+Only verified COMPLETED records are reusable. A per-run active-operation field prevents another
+operation starting while a previous submission is unresolved. Completed fits remain reusable
+through a failed prediction, evaluation or round CAS; successful round-response loss resumes
+from the committed snapshot. No extra model call or round is inferred from missing responses.
+
+After submission ambiguity, inspect provider evidence and explicitly attach its observed call:
+
+```sh
+PYTHONPATH=src python -m active_ocr.entrypoints.cli real reconcile \
+  /runs/smoke RUN_UUID /reviewed/runtime-settings.json /reviewed/deployment.json OP_SHA \
+  --call-id OBSERVED_FUNCTION_CALL_ID
+```
+
+Reconciliation polls that call once (`timeout=0`) or accepts a saved `DispatchResponse` file with
+`--completion`; all ownership, canonical bytes, artifact hashes, checkpoint and probe checks still
+apply. A fit request is reconstructed only from its journaled selected page IDs and verified local
+oracle, then its semantic digest must match. Producer operation/attempt/call IDs are never rewritten.
+`--cancel` persists CANCEL_REQUESTED before requesting `terminate_containers=True`. Neither the
+acknowledgement nor an absent response is terminal proof. Deadline expiry follows the same path;
+no CLI option extends the deadline or blindly retries. Failed/cancelled/unknown work retains the run
+lock until verified completion or a reviewed operator/provider decision. This candidate has no
+in-place retry command: a failure stops the first smoke, and any later attempt needs terminal,
+budget and release review. Provider/container/account reconciliation remains an operator gate.
+
+`input_upload_files` produces a verified explicit allowlist of frozen images and pinned model
+files. `upload_input_bundle` uploads only those paths under a new bundle hash with overwrite
+disabled; it is an explicit provider action for a later authorized bootstrap. No directory import,
+XML/oracle/ground-truth dataset upload, host path in an RPC or selected-target file is used.
+Runtime source and CPU test/processor allowlists remain separate.
+
+JSON exports retain the existing run schema and add a separate `validation.json` membership/count
+record; CSV includes `validation_page_ids` and `validation_page_count`. The optional config subset
+is nonempty/unique and must contain frozen validation pages at create/resume. Omission retains all
+validation pages. The exact ordered subset reaches both prediction and the isolated evaluator.
+
+## Offline verification and limits
+
+Author tests use actual SQLite/CAS/filesystem state and synthetic provider/adapter bytes. They
+exercise ambiguous submission, concurrent reservation, known-call reattach, terminal failure,
+cancellation ambiguity, absolute deadline preservation, corrupt/foreign receipts, full FP32 probe
+comparison, adapter tensor-byte closure, fit reuse after downstream failure, real Pipeline round
+commit recovery, image-only upload plans, CLI and validation subsets. Fake transport is not proof
+of Modal recovery, mounts, measured spend, GPU behavior or OCR quality. The 11 gated actual-ML
+checks remain unverified until the separately reviewed Linux build runs without skips.
