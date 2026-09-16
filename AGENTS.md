@@ -9,8 +9,8 @@ selected training pages. Ground truth contains the source's line boxes and trans
 The practical objective is a small, reproducible, understandable pipeline with fair comparisons.
 
 The local fixture loop, synthetic real-adapter contracts and pinned READ2016 converter are delivered.
-The full engineering dataset passed independent conversion/freeze/reopen checks. Next, connect
-the pinned OCR model to training/inference on Modal, with independent checks before bounded experiments.
+The full engineering dataset passed independent conversion/freeze/reopen checks. The Qwen/Modal
+pipeline passed offline review; actual Linux CPU verification and a bounded GPU smoke are next.
 Keep simple interchangeable dataset/model interfaces; a labeling frontend is not required.
 Keep implementations minimal, straightforward and correct; do not add speculative infrastructure.
 The oracle must not expose unrevealed or held-out labels to fitting or acquisition. Revealed-page
@@ -19,8 +19,8 @@ outputs verify plumbing only and never establish OCR quality or active-learning 
 
 The pinned `Qwen/Qwen3-VL-4B-Instruct` runtime now implements loading, prediction, reset LoRA
 fine-tuning and immutable checkpoints. Its independent offline review passed; actual Linux
-processor/tiny-model checks and 4B/CUDA execution remain unverified. Modal transport and real-run
-CLI integration are next. This is not a model result or approved final experimental methodology.
+processor/tiny-model checks and 4B/CUDA execution remain unverified. Modal transport, operation
+recovery and the real-run CLI passed independent offline integration review. This is not a model result.
 
 ## Architecture summary
 
@@ -36,7 +36,8 @@ Contract-test runs add a separate zero-label baseline, prediction purpose/failur
 page-text error counts with independently undefined CER/WER rates. Converter review and actual400-page
 structural evidence are in docs/verification/read2016-converter-review.md. Qwen implementation and
 offline review are documented in docs/qwen-runtime.md and docs/verification/qwen-runtime-review.md.
-Real Pipeline execution remains unavailable until the transport/CLI integration is reviewed.
+Modal dispatch, operation recovery and real CLI are implemented; see docs/verification/modal-runtime-review.md.
+Actual CPU/GPU execution must validate the reviewed runtime before experiments.
 
 Simulation flow: frozen source → select train pages → reveal selected labels → fit cumulative
 examples → predict remaining pool → optional isolated validation → commit round → next batch.
