@@ -1,4 +1,97 @@
-# Independent Modal API review
+# Independent Modal integration review
+
+## Phase B — FAIL: submission can cross the frozen deadline
+
+Reviewed implementation: `169eb39d359759a9f4f903e720622c968865f0c8`.
+Control: `077bc890bfef618cc565226f9b8e441619c17ef5`.
+The phase-A result below remains historical and unchanged in scope.
+
+**Blocking finding (P2):** `ModalModel.execute` checks the absolute deadline before
+`transport.preflight()`, but does not check again before `spawn`. Preflight performs
+provider lookups/hydration and can consume the remaining time. The independent regression
+starts with the persisted deadline 3400, enters preflight at 3399, and returns at 3401.
+The candidate still submits once, then requests cancellation in `_wait`. The request keeps
+its original deadline; the bug is admission after expiry, not deadline extension.
+
+The worker's own deadline check should prevent subsequent model work, but it cannot undo
+provider submission/startup, and cancellation acknowledgement is not terminal evidence.
+This violates the documented no-submission-after-deadline boundary. Recheck the current
+clock after preflight, immediately before submission, and preserve a safe non-submitted
+journal state on expiry. Development owns the correction; this review changes no production
+code or author tests.
+
+Reproduce using only SQLite, synthetic metadata and a fake transport:
+
+```sh
+python -m pytest tests/test_modal_independent.py::test_independent_preflight_expiry_must_not_spawn -q
+```
+
+The regression is deliberately **failing**, with no xfail, skip or weakened assertion.
+Its assertion is that the fake transport received zero submissions; observed count is one.
+This FAIL checkpoint does not claim complete independent integration acceptance.
+
+### Executed evidence
+
+Python 3.11.14, pytest 9.1.1, Ruff 0.16.6; reviewed checkout source used throughout.
+
+| Check | Observed result |
+| --- | --- |
+| Full clean exact candidate, `QWEN_HEADER_DIR=<staged-model> python -m pytest --tb=short -rs` | **664 passed, 11 skipped in 48.21s**; all skips explicitly unverified processor/tiny-ML checks |
+| Independent suite after adding 13 phase-B cases, `python -m pytest tests/test_modal_independent.py --tb=short` | **81 passed, 1 failed in 4.07s**; sole failure is the deadline regression |
+| `ruff check .`, review-test format check, `git diff --check` | Passed |
+| `uv lock --check --offline --cache-dir <temporary-cache>` | Passed, 96 packages; initial sandbox invocation hit a macOS uv system-configuration panic, outside-sandbox offline retry succeeded |
+| Lock comparison against control using stdlib TOML parsing | All 77 existing name/version pairs retained; 19 added, including exact Modal 1.5.5 |
+| Installed Modal 1.5.5 source/signature inspection | Local read-only inspection confirms construction parameters, mount options, eager image build and built-in polling `TimeoutError`; no provider call |
+
+The clean regression preceded review edits. Added tests use independent stdlib byte hashing
+and JSON serialization, actual SQLite connections and filesystem evidence, and no author
+helper imports. The base/prediction fake supplies byte-complete synthetic artifacts; its
+Qwen binding uses the production pure binding method. Declared build/package/provider records
+are synthetic, not measured execution identities. The Pipeline fixture replaces only the local
+machine identity observation, so these tests do not establish clean-source identity admission.
+
+### Independently exercised phase-B boundaries
+
+- Base completion verifies bytes and survives reconstruction with a second SQLite connection,
+  even after deadline expiry, without another submission. Remote byte corruption then rejects.
+- Lost spawn acknowledgement and lost result read preserve UNKNOWN. Ordinary resume does not
+  submit again; explicit observed-call reconciliation verifies completion and reuses it.
+- Two actual SQLite connections compete for the same reserved operation while one is paused
+  inside preflight. Only one submits; the losing compare-and-swap cannot overwrite completion.
+- Actual `Pipeline` plus exact `ModalModel` commits the zero-label baseline. An explicit subset
+  uses only that validation page; omission uses both validation pages. Prediction wire payloads
+  contain no fixture transcriptions, and validation export membership/count matches.
+- Unknown, TRAIN, TEST, duplicate and empty validation subsets reject during real creation.
+  A changed run configuration or mutated frozen image blocks resume before further submission.
+- The next step sends exactly one selected TRAIN page and its literal transcription. The fake
+  deliberately cannot complete fit: no acquisition round commits, and the durable operation
+  journal contains no transcription. This checks the selection/submission boundary, not a
+  successful fit or OCR quality.
+
+### Inspected implementation and outstanding acceptance
+
+Read the complete new transport/coordinator and worker entrypoint, real CLI, relevant Pipeline,
+validation and Qwen changes, deployment documentation and relevant author tests. The implementation
+uses one dispatcher, exact seven-file runtime inventory, distinct input/output Volume subpaths,
+read-only inputs, one L40S with CPU/memory request-and-limit pairs, zero retries and zero warm/buffer
+containers. Source inclusion is disabled; image preparation copies individual allowlisted files.
+CPU build selection requires 11 distinct successful cases and zero skips. Fit uses sequential
+operation/reload children, with metadata-only reload input and shared absolute deadline.
+Worker result publication checks byte closure before immutable completion and Volume commit.
+These are code observations, not provider mount, cancellation or GPU evidence.
+
+**Outstanding before a phase-B PASS:** correct and independently retest the deadline finding;
+finish independent successful fit/full-round byte closure and recovery after downstream failure
+or lost round response; complete adversarial worker/bootstrap and actual SDK construction checks,
+and remaining phase-A consumer-limit coverage. Existing author tests for these areas passed in
+the full candidate run, but have not been substituted for those independent acceptance checks.
+No retry, terminal cancellation, cost settlement, CPU build, full model load, deployment, upload,
+resource mutation, GPU job or spend was executed or approved by this review. Actual ML checks and
+later provider execution remain separate gates. This evidence supports no OCR/active-learning claim.
+
+---
+
+## Phase A — Independent Modal API review
 
 Verdict: **PASS for phase A: shared records and documented contracts only**, at
 `bf0c1d46dd662e38a136f8119cf37ddb9907e994`.
