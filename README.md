@@ -41,9 +41,13 @@ and reopening in a fresh process. Document grouping remains unknown, so this dat
 for engineering verification only. See the [converter review](docs/verification/read2016-converter-review.md)
 and [real-pipeline plan](plans/PLAN-003-real-ocr-modal.md) for evidence and remaining gates.
 
-The earlier optional Label Studio/remote-worker flow is retained below for compatibility. Qwen
-loading, fine-tuning, inference and GPU job execution remain placeholders, and are not required
-for the simulation. No real-model experiment or selection-quality result is claimed.
+The pinned Qwen runtime implements model loading, reset LoRA fitting, strict OCR output parsing
+and immutable checkpoints. It passed [independent offline review](docs/verification/qwen-runtime-review.md);
+actual Linux processor/tiny-model checks and 4B/CUDA execution remain unverified. The Modal adapter,
+operation recovery and real-run CLI are the next integration step. See the [runtime guide](docs/qwen-runtime.md).
+
+The earlier optional Label Studio/remote-worker flow is retained below for compatibility. Its
+GPU job endpoints remain placeholders. No real-model experiment or selection-quality result is claimed.
 
 ## Structure
 
@@ -56,6 +60,7 @@ src/active_ocr/
 ├── config.py             # Small validated YAML configuration
 ├── integrations/
 │   ├── simulation.py     # True-label oracle, fixture model and synthetic input generator
+│   ├── public_dataset.py # Pinned READ2016 conversion and provenance checks
 │   ├── local_data.py     # Imports a manifest and stages images for Label Studio
 │   ├── storage.py        # SQLite state and local artifacts
 │   ├── label_studio.py   # Label Studio API and payload conversion
@@ -153,8 +158,8 @@ uv sync --no-editable --extra gpu
 uv run active-ocr-gpu
 ```
 
-Its health endpoint works now. Model job endpoints remain explicit placeholders until Qwen
-fine-tuning and inference are implemented.
+Its health endpoint works now. Model job endpoints remain explicit placeholders; the new Qwen
+runtime is intended for the separately reviewed Modal path.
 
 ## Runtime files
 

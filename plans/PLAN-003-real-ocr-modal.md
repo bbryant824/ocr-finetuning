@@ -1,6 +1,6 @@
 # Plan — real OCR with simulated annotation on Modal
 
-Owner: Planning. Version: **0.4**, 2026-09-16. Status: **Local contracts and converter completed; Qwen specification accepted**.
+Owner: Planning. Version: **0.4**, 2026-09-16. Status: **Local contracts, converter and Qwen offline implementation accepted; Modal integration next**.
 Manager reviewed v0.2 at `d659c48f38639e54e19ac6aceff1b5adf853355a`
 and accepts its roadmap and bounded local candidate 1A under the user's engineering authorization.
 Candidate 1A at `dee5e1a5ecbbc326921e0f4019792c8f7e5deab2` passed independent Testing;
@@ -17,7 +17,11 @@ Phase-A v0.1 remains in Git history. Real model execution is still unavailable.
 Inspected control for v0.4: `fad7cae5baf5d7e30ecf9a772152363ab9ca6902`, including accepted
 local contracts, converter specification and two-Volume runtime correction. Earlier scopes below
 were retained; Manager accepted candidate2 publication `320790d69970348386ac180c524f5f568e035159`
-and its staged offline/build/GPU acceptance. Implementation and runtime proof remain pending.
+and its staged offline/build/GPU acceptance. Corrected candidate2 implementation
+`31bb47224c03b0db8f7f9705028e29e1d13e2c0e` is now accepted for offline scope with independent
+evidence `a0140204d199a5a08b15958ee6552f1b2702aa48`; the original failed review and corrections
+remain in the [review record](../docs/verification/qwen-runtime-review.md). Actual Linux CPU and
+4B/CUDA proof remain pending. This releases candidate3 implementation, not a cloud run.
 Scientific input: accepted [RES-002](../research/RES-002-real-ocr-pilot.md) at
 `8a173197fd4ef12f91da3fde0d0197bc4bda21b6`. Development, independent Testing and QA
 preparation informed this reconciliation; they are not verdicts on a real implementation.

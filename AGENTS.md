@@ -17,9 +17,10 @@ The oracle must not expose unrevealed or held-out labels to fitting or acquisiti
 counts represent simulated annotation budgets, not measured human annotation time. Fixture model
 outputs verify plumbing only and never establish OCR quality or active-learning improvement.
 
-The configured model is `Qwen/Qwen3-VL-4B-Instruct`, but model loading, prediction, fine-tuning
-and GPU execution remain placeholders. Dataset/model recommendations and proposed experiment
-contracts are evidence to review, not completed model integration or approved final methodology.
+The pinned `Qwen/Qwen3-VL-4B-Instruct` runtime now implements loading, prediction, reset LoRA
+fine-tuning and immutable checkpoints. Its independent offline review passed; actual Linux
+processor/tiny-model checks and 4B/CUDA execution remain unverified. Modal transport and real-run
+CLI integration are next. This is not a model result or approved final experimental methodology.
 
 ## Architecture summary
 
@@ -33,7 +34,9 @@ code, dependencies and versioned adapters. Explicit contract-test runs check fro
 dependency and declared adapter identities; these declarations do not verify actual model weights.
 Contract-test runs add a separate zero-label baseline, prediction purpose/failure validation and
 page-text error counts with independently undefined CER/WER rates. Converter review and actual400-page
-structural evidence are in docs/verification/read2016-converter-review.md. Real model execution remains unavailable.
+structural evidence are in docs/verification/read2016-converter-review.md. Qwen implementation and
+offline review are documented in docs/qwen-runtime.md and docs/verification/qwen-runtime-review.md.
+Real Pipeline execution remains unavailable until the transport/CLI integration is reviewed.
 
 Simulation flow: frozen source → select train pages → reveal selected labels → fit cumulative
 examples → predict remaining pool → optional isolated validation → commit round → next batch.
@@ -42,9 +45,10 @@ For contract-test runs, a baseline-only step precedes acquisition. Independent r
 local implementation is recorded in docs/verification/local-contract-review.md; it is not GPU evidence.
 
 Optional older code remains: JSONL/CSV image import with document-hash splits, Label Studio
-payload/client, GPU HTTP client, polling controller, metrics and health endpoint. Qwen and GPU job
-execution remain placeholders. Their remote image resolver is missing and they are not needed by
-simulation. Runtime state stays ignored; simulation uses its own configured database/artifacts.
+payload/client, GPU HTTP client, polling controller, metrics and health endpoint. Legacy GPU job
+endpoints remain placeholders. Their remote image resolver is missing and they are not needed by
+simulation or the new Qwen boundary. Runtime state stays ignored; simulation uses its own
+configured database/artifacts.
 The configured Qwen model is not a limitation of the new model interface. Current priorities live
 in shared local `.agent-local/PROJECT.md`.
 
