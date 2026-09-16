@@ -13,7 +13,6 @@ import os
 import platform
 import re
 import signal
-import struct
 import subprocess
 import sys
 import tempfile
@@ -513,13 +512,9 @@ def _checkpoint(
     sha = model_id.rsplit(":", 1)[1]
     key = f"qwen/checkpoints/{sha}/manifest.json"
     checkpoint = _json(root, key, q.Checkpoint)
-    if (
-        _ref(root, key).sha256 != sha
-        or checkpoint.binding.get("recipe") != request.context.real_config.model_dump(mode="json")
-        or checkpoint.binding.get("base") != q.asset_manifest(q.BASE_FILES)
-        or checkpoint.binding.get("processor") != q.asset_manifest(q.PROCESSOR_FILES)
-        or checkpoint.binding.get("prompt") != q.PROMPT
-    ):
+    # This pure helper reads only real_config; no model instance/state is created.
+    expected_binding = q.QwenModel._binding(request.context)
+    if _ref(root, key).sha256 != sha or checkpoint.binding != expected_binding:
         raise WorkerError("identity")
     directory = q.safe_path(root, f"qwen/checkpoints/{sha}")
     q.verify_checkpoint_files(
@@ -579,50 +574,6 @@ def _probe(
     return metadata, _ref(root, key), outer
 
 
-def _adapter_hashes(root: Path, model_id: str) -> dict[str, str]:
-    """Check probe tensor hashes against checkpoint bytes without importing Torch."""
-    sha = model_id.rsplit(":", 1)[1]
-    path = q.safe_path(root, f"qwen/checkpoints/{sha}/adapter_model.safetensors")
-    with path.open("rb") as stream:
-        header_size = struct.unpack("<Q", stream.read(8))[0]
-        if not 0 < header_size <= 1024 * 1024:
-            raise WorkerError("identity")
-        header = q.strict_json(stream.read(header_size))
-        header.pop("__metadata__", None)
-        shapes = q.adapter_shapes()
-        if set(header) != set(shapes):
-            raise WorkerError("identity")
-        result, offset = {}, 0
-        for name, record in sorted(header.items(), key=lambda pair: pair[1]["data_offsets"][0]):
-            start, end = record["data_offsets"]
-            shape = shapes[name]
-            if (
-                record["dtype"] != "F32"
-                or record["shape"] != list(shape)
-                or type(start) is not int
-                or type(end) is not int
-                or start != offset
-                or end - start != math.prod(shape) * 4
-            ):
-                raise WorkerError("identity")
-            raw = stream.read(end - start)
-            if len(raw) != end - start:
-                raise WorkerError("identity")
-            values = array.array("f")
-            values.frombytes(raw)
-            if sys.byteorder != "little":
-                values.byteswap()
-            if any(not math.isfinite(v) for v in values):
-                raise WorkerError("model")
-            result[name] = hashlib.sha256(
-                q.canonical({"shape": list(shape), "dtype": "torch.float32"}) + raw
-            ).hexdigest()
-            offset = end
-        if stream.read(1):
-            raise WorkerError("identity")
-    return result
-
-
 def _reload(
     root: Path, model_id: str, page: m.RemotePage, pids=None
 ) -> tuple[m.ReloadEvidence, list[m.ArtifactRef]]:
@@ -630,8 +581,11 @@ def _reload(
     after, after_ref, after_logits = _probe(root, model_id, "after", page)
     if pids is not None and (before.process_id, after.process_id) != tuple(pids):
         raise WorkerError("identity")
-    if before.adapter_tensors != _adapter_hashes(root, model_id):
-        raise WorkerError("identity")
+    sha = model_id.rsplit(":", 1)[1]
+    m._verify_adapter_tensors(
+        q.safe_path(root, f"qwen/checkpoints/{sha}/adapter_model.safetensors"),
+        before.adapter_tensors,
+    )
     if before.model_dump(exclude={"process_id", "logits"}) != after.model_dump(
         exclude={"process_id", "logits"}
     ):
