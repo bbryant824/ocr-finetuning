@@ -523,8 +523,9 @@ size/hash and ID, never `source_image`, oracle files or document/GT-derived hint
 paths/symlinks, altered image bytes/dimensions, TEST input, malformed ownership, duplicate pages
 and missing assets before loading/forward work. Fit accepts only nonempty unique selected TRAIN
 examples at a positive round, cumulative as supplied; it does not call the oracle or select data.
-Baseline prediction is round0/VALIDATION/base checkpoint; acquired validation and optional pool
-requests are positive-round and match checkpoint ownership. Random smoke/pilot never call pool;
+Baseline prediction is round0/BASELINE_VALIDATION/base checkpoint, using the existing
+PredictionPurpose.BASELINE_VALIDATION enum. Acquired VALIDATION and optional POOL requests
+are positive-round and match checkpoint ownership; never collapse the two validation purposes. Random smoke/pilot never call pool;
 all predictions have confidence/entropy=None. Empty prediction page tuples return empty after
 identity validation without generation. Keep runtime methods synchronous for one later dispatcher.
 
@@ -769,7 +770,14 @@ and final-test methodology remain held; keep random and score=none.
 ### Candidate 3 — one Modal adapter, journal and CLI
 
 Development owns new `integrations/modal_model.py`, operation records, only justified SQLite
-transaction support, real CLI construction/preflight/reconcile, exports and tests. Platform alone
+transaction support, real CLI construction/preflight/reconcile, exports and tests. Candidate3 also
+adds a minimal optional frozen validation-page ID subset to SimulationConfig and passes that
+exact subset to prediction and LocalOracle evaluation. Omitted means the full official validation
+set; an explicit subset must be nonempty, unique and entirely VALIDATION, checked at creation
+and resume. The smoke records its fixed two IDs; exports identify subset membership and size.
+This scopes engineering evaluation without changing source rows, labels, splits or the400-page
+provenance requirement. Keep the subset in run identity/config and test rejected changes, wrong
+split/duplicate/unknown IDs and exact baseline/round metric coverage. Platform alone
 owns new `entrypoints/modal_app.py`, runtime mounts/resource bounds. Development is sole writer
 of `pyproject.toml`/lock after Platform agrees pins. Freeze shared request schemas first; do not
 concurrently edit shared files. Model/metric logic stays outside the Modal entrypoint.
@@ -966,3 +974,7 @@ remove later source/method/hardware gates. No production code or job was changed
 Manager reviewed the exact v0.4 publication and accepted its bounded candidate2 contract and
 staged offline/build/GPU acceptance order. This accepts a specification, not model execution
 or a cloud release; the stated independent review and runtime gates remain in force.
+
+Implementation clarification: use the existing BASELINE_VALIDATION purpose for round zero;
+the previously planned two-page smoke requires an explicit frozen evaluation subset, with full
+source provenance unchanged. This does not change the accepted smoke workload or metric policy.
