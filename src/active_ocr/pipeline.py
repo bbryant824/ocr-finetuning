@@ -403,6 +403,7 @@ class Pipeline:
         snapshot = LocalOracle.freeze(manifest, self.store, source_policy=config.source_policy)
         if config.real is not None and not any(p.split is Split.VALIDATION for p in snapshot.pages):
             raise ValueError("real contracts require nonempty validation pages")
+        self._validation_pages(config, snapshot.pages)
         LocalOracle(snapshot)
         revision, versions = runtime_identity()
         run = SimulationRun(
@@ -528,14 +529,18 @@ class Pipeline:
             check_contract_identity(run.config.real, model, run.kind)
             evaluator = PageTextEvaluatorV1() if evaluator is None else evaluator
             if run.kind is RunKind.REAL:
-                raise NotImplementedError("production real execution is not available")
+                from active_ocr.integrations.modal_model import ModalModel
+
+                if type(model) is not ModalModel:
+                    raise ValueError("production real execution requires the Modal adapter")
+                model.check_run(run, self.store)
         if model.backend != run.config.backend or model.fit_policy != run.config.fit_policy:
             raise ValueError("model backend/fit policy differs from frozen config")
         if (evaluator.identifier if evaluator is not None else None) != run.config.evaluator_id:
             raise ValueError("validation evaluator differs from frozen config")
+        validation = self._validation_pages(run.config, run.dataset.pages)
         if run.complete:
             return run
-        validation = tuple(p for p in run.dataset.pages if p.split is Split.VALIDATION)
         if run.kind is not RunKind.FIXTURE and run.baseline is None:
             model_id = model.load_base(experiment_id=run.id)
             self._validate_simulation_model_id(run, model_id)
@@ -560,7 +565,9 @@ class Pipeline:
             baseline = SimulationBaseline(
                 model_id=model_id,
                 validation_predictions=predictions,
-                validation_metrics=oracle.evaluate_validation(predictions, evaluator),
+                validation_metrics=oracle.evaluate_validation(
+                    predictions, evaluator, tuple(p.id for p in validation)
+                ),
                 telemetry=getattr(model, "telemetry", None),
             )
             updated = run.model_copy(update={"baseline": baseline})
@@ -626,7 +633,9 @@ class Pipeline:
                 require_scores=False,
                 purpose=PredictionPurpose.VALIDATION,
             )
-            metrics = oracle.evaluate_validation(validation_predictions, evaluator)
+            metrics = oracle.evaluate_validation(
+                validation_predictions, evaluator, tuple(p.id for p in validation)
+            )
         record = SimulationRound(
             number=number,
             selected_ids=selected,
@@ -641,6 +650,16 @@ class Pipeline:
         )
         updated = run.model_copy(update={"rounds": (*run.rounds, record)})
         return self._commit_simulation_step(run, updated, model)
+
+    @staticmethod
+    def _validation_pages(config, pages):
+        validation = {p.id: p for p in pages if p.split is Split.VALIDATION}
+        ids = config.validation_page_ids
+        if ids is None:
+            return tuple(validation.values())
+        if not ids or len(set(ids)) != len(ids) or any(i not in validation for i in ids):
+            raise ValueError("validation subset must contain only frozen validation pages")
+        return tuple(validation[i] for i in ids)
 
     def _commit_simulation_step(
         self, run: SimulationRun, updated: SimulationRun, model: SimulationModel
@@ -675,7 +694,12 @@ class Pipeline:
         """Export one consistent committed snapshot; refuse to overwrite prior results."""
         run = self.get_simulation(run_id)
         directory.mkdir(parents=True, exist_ok=False)
+        validation_ids = [p.id for p in self._validation_pages(run.config, run.dataset.pages)]
         (directory / "results.json").write_text(run.model_dump_json(indent=2), encoding="utf-8")
+        (directory / "validation.json").write_text(
+            json.dumps(dict(page_ids=validation_ids, page_count=len(validation_ids)), indent=2),
+            encoding="utf-8",
+        )
         output = io.StringIO()
         writer = csv.writer(output)
         metric_columns = (
@@ -718,6 +742,8 @@ class Pipeline:
                 "record_type",
                 "purpose",
                 "validation_statuses",
+                "validation_page_ids",
+                "validation_page_count",
                 "source_policy",
                 "document_grouping",
                 "engineering_only",
@@ -761,6 +787,8 @@ class Pipeline:
                     if is_baseline
                     else (PredictionPurpose.VALIDATION if record.validation_predictions else ""),
                     json.dumps({p.page_id: p.status for p in record.validation_predictions}),
+                    json.dumps(validation_ids),
+                    len(validation_ids),
                     run.config.source_policy,
                     "unknown" if run.config.source_policy is SourcePolicy.READ2016 else "known",
                     "true" if run.config.source_policy is SourcePolicy.READ2016 else "false",

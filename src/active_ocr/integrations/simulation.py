@@ -232,11 +232,23 @@ class LocalOracle:
         return tuple(examples)
 
     def evaluate_validation(
-        self, predictions: tuple[Prediction, ...], evaluator: ValidationEvaluator
+        self,
+        predictions: tuple[Prediction, ...],
+        evaluator: ValidationEvaluator,
+        page_ids: tuple[str, ...] | None = None,
     ) -> dict[str, int | float]:
         """Give only validation truth to the explicit evaluator, never to fit/predict."""
         examples = []
-        for page in self._source.values():
+        ids = (
+            tuple(p.id for p in self._source.values() if p.split is Split.VALIDATION)
+            if page_ids is None
+            else page_ids
+        )
+        if len(set(ids)) != len(ids) or any(
+            i not in self._source or self._source[i].split is not Split.VALIDATION for i in ids
+        ):
+            raise ValueError("invalid validation membership")
+        for page in (self._source[i] for i in ids):
             if page.split is not Split.VALIDATION:
                 continue
             if page.regions is None:

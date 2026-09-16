@@ -425,7 +425,7 @@ def test_explicit_kinds_adapter_and_validation_required(tmp_path):
     real = pipeline.create_simulation(manifest, config(), kind=RunKind.REAL)
     model = Adapter()
     model.kind = RunKind.REAL
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError, match="requires the Modal adapter"):
         pipeline.step_simulation(real.id, model)
     assert not model.calls
     rows = [json.loads(line) for line in manifest.read_text().splitlines()]
@@ -811,3 +811,52 @@ def test_finite_failed_output_retains_raw_evidence_and_roundtrips(tmp_path, base
     assert json.loads((tmp_path / "export/results.json").read_text()) == updated.model_dump(
         mode="json"
     )
+
+
+def test_validation_subset_is_frozen_for_prediction_evaluation_resume_and_export(tmp_path):
+    pipeline, original, manifest = setup(tmp_path)
+    rows = [json.loads(line) for line in manifest.read_text().splitlines()]
+    rows[0]["split"] = "validation"  # Two distinct synthetic validation pages.
+    manifest.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    selected = (next(p.id for p in original.dataset.pages if p.split is Split.VALIDATION),)
+    run = pipeline.create_simulation(
+        manifest, config(validation_page_ids=selected, max_rounds=1), kind=RunKind.CONTRACT_TEST
+    )
+    model = Adapter()
+    done = pipeline.run_simulation(run.id, model)
+    assert tuple(p.page_id for p in done.baseline.validation_predictions) == selected
+    assert tuple(p.page_id for p in done.rounds[0].validation_predictions) == selected
+    assert done.baseline.validation_metrics["pages"] == 1
+    assert done.rounds[0].validation_metrics["pages"] == 1
+    for call in model.calls:
+        if call[0] == "predict":
+            assert tuple(p.id for p in call[-1]) == selected
+    assert pipeline.step_simulation(run.id, model) == done
+    with pytest.raises(ValueError, match="cannot change frozen"):
+        pipeline.step_simulation(run.id, model, config=config(max_rounds=1))
+    pipeline.export_simulation(run.id, tmp_path / "subset-export")
+    membership = json.loads((tmp_path / "subset-export/validation.json").read_text())
+    assert membership == dict(page_ids=list(selected), page_count=1)
+    with (tmp_path / "subset-export/rounds.csv").open() as stream:
+        rows = list(csv.DictReader(stream))
+    assert all(json.loads(r["validation_page_ids"]) == list(selected) for r in rows)
+    assert all(r["validation_page_count"] == "1" for r in rows)
+
+
+@pytest.mark.parametrize("ids", [(), ("x", "x"), ("",)])
+def test_invalid_validation_subset_config(ids):
+    with pytest.raises(ValueError, match="nonempty and unique"):
+        config(validation_page_ids=ids)
+
+
+def test_validation_subset_rejects_train_and_missing_on_create_and_resume(tmp_path):
+    pipeline, run, manifest = setup(tmp_path)
+    train_id = next(p.id for p in run.dataset.pages if p.split is Split.TRAIN)
+    for bad in (train_id, "absent"):
+        cfg = config(validation_page_ids=(bad,))
+        with pytest.raises(ValueError, match="only frozen validation"):
+            pipeline.create_simulation(manifest, cfg, kind=RunKind.CONTRACT_TEST)
+        invalid = run.model_copy(update={"config": cfg})
+        pipeline.store.save("simulation", run.id, invalid)
+        with pytest.raises(ValueError, match="only frozen validation"):
+            pipeline.step_simulation(run.id, Adapter())

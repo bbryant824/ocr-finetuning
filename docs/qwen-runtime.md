@@ -211,7 +211,7 @@ After the reviewed Linux build is released, install from the frozen GPU/dev lock
 
 ```sh
 QWEN_PROCESSOR_DIR=/reviewed/processor-assets \
-  python -m pytest tests/test_qwen.py -k 'actual and not staged_headers' -rs
+  python -m pytest tests/test_qwen.py -k 'test_actual_ and not staged_headers' -rs
 ```
 
 The small code allowlist for those synthetic tests is `active_ocr/__init__.py`,
@@ -238,3 +238,29 @@ Pinned API sources inspected during implementation:
 [Qwen configuration](https://github.com/huggingface/transformers/blob/93c8b7b485963a10800c91f55304db6be211c2bd/src/transformers/models/qwen3_vl/configuration_qwen3_vl.py),
 [PEFT config serialization](https://github.com/huggingface/peft/blob/a5526d27a9d47d1e8264d5e1b1f96c0fdc79464e/src/peft/config.py),
 [PEFT save/load](https://github.com/huggingface/peft/blob/a5526d27a9d47d1e8264d5e1b1f96c0fdc79464e/src/peft/peft_model.py).
+
+## Remote fresh-process diagnostic
+
+`QwenModel(..., deadline_unix_seconds=None)` preserves the local default and optionally checks an
+absolute wall-clock deadline before model loads, training pages and prediction/probe generation.
+The remote parent must also terminate a child blocked in a long CUDA operation at that deadline.
+
+`fit(..., external_reload=False)` retains the original default. With `True`, it performs one fit
+and the before probe, saves its verified adapter/checkpoint and full probe evidence, then returns
+without a same-process after probe. That checkpoint is a pending operation artifact. The parent
+exits the training interpreter and launches a fresh interpreter for `verify_reload`, which takes
+only the owned checkpoint, first selected TRAIN page metadata, and hashed before-evidence paths.
+It runs one after probe and compares the exact generated IDs/status/regions/tensor hashes and
+full-vocabulary logits using the fixed **before-generated** prefix. No labels are passed to the
+second interpreter. One fit/two probes are preserved; no third probe is implied.
+
+Evidence is immutable `probes/<checkpoint-sha>/before.json`, `before.f32le`, `after.json` and
+`after.f32le` under the Qwen output root. Binary logits are finite little-endian contiguous FP32,
+`[min(8,generated_length),151936]`, with exact byte/hash references. The nested `logits.key` is
+relative to this Qwen root. The coordinator's outer references add `qwen/` relative to the run root;
+neither component infers host paths or adds that prefix twice. `verify_reload` returns the maximum
+absolute difference and actual training/reload PIDs only after successful verification. Comparison
+uses the existing `torch.allclose(before, after, rtol=1e-3, atol=1e-2)` convention. Failed diagnostics
+retain partial evidence and cannot produce a successful transport completion or round commit.
+The local coordinator validates this evidence with standard-library binary readers, without ML
+packages. See [Modal recovery](modal-runtime.md) for the completion and execution gates.

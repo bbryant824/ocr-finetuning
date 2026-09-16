@@ -617,7 +617,13 @@ def tiny_reload_child(root: Path):
     )
     processor = q.load_processor(Path(os.environ["QWEN_PROCESSOR_DIR"]))
     inputs = torch.load(root / "inputs.pt", weights_only=True)
-    result = q.reload_probe(model, inputs, processor.tokenizer, original_size=(64, 64))
+    result = q.reload_probe(
+        model,
+        inputs,
+        processor.tokenizer,
+        original_size=(64, 64),
+        fixed_ids=json.loads((root / "before-ids.json").read_text()),
+    )
     torch.save(result, root / "after.pt")
 
 
@@ -678,6 +684,7 @@ def test_actual_tiny_forward_reset_frozen_and_fresh_process(processor, tmp_path)
     tiny_probe_setup()
     try:
         before = q.reload_probe(model, inputs, processor.tokenizer, original_size=(64, 64))
+        (tmp_path / "before-ids.json").write_text(json.dumps(before["ids"]))
         del model, parameters, state, updated
         code = (
             "import runpy; from pathlib import Path; "
@@ -1083,3 +1090,49 @@ def test_generated_parser_depth_retains_raw_but_tokenizer_recursion_escapes():
 
     with pytest.raises(RecursionError, match="tokenizer infrastructure"):
         q.decode_result([7, q.EOS], BrokenTokenizer(), 1, 1)
+
+
+def test_absolute_deadline_stops_before_load_or_fit(worker, tmp_path, monkeypatch):
+    worker.deadline_unix_seconds = 1
+    monkeypatch.setattr(q.time, "time", lambda: 2)
+    with pytest.raises(TimeoutError, match="absolute run deadline"):
+        worker._load()
+    with pytest.raises(TimeoutError, match="absolute run deadline"):
+        worker.fit(
+            (RevealedExample(page=page(tmp_path), regions=()),),
+            seed=824,
+            experiment_id="run",
+            round_number=1,
+            external_reload=True,
+        )
+
+
+def test_probe_files_are_exclusive_full_float32_and_qwen_relative(worker, tmp_path):
+    from active_ocr.integrations.modal_model import ProbeMetadata
+
+    class Logits:
+        shape = (1, 151936)
+
+        def reshape(self, _):
+            return self
+
+        def tolist(self):
+            return [0.25] * 151936
+
+    probe = dict(
+        ids=[q.EOS],
+        status="invalid_output",
+        regions=[],
+        finish_reason="eos",
+        tensors={key: "a" * 64 for key in q.adapter_shapes()},
+        logits=Logits(),
+    )
+    model_id = "checkpoint:sha256:" + "b" * 64
+    metadata = worker._write_probe(model_id, page(tmp_path), probe, "before")
+    parsed = ProbeMetadata.model_validate(metadata)
+    assert parsed.logits.key == "probes/" + "b" * 64 + "/before.f32le"
+    data = (worker.output_root / parsed.logits.key).read_bytes()
+    assert data == struct.pack("<f", 0.25) * 151936
+    assert q.file_hash(worker.output_root / parsed.logits.key) == parsed.logits.sha256
+    with pytest.raises(FileExistsError):
+        worker._write_probe(model_id, page(tmp_path), probe, "before")
