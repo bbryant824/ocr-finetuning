@@ -1,19 +1,23 @@
 # Plan — real OCR with simulated annotation on Modal
 
-Owner: Planning. Version: **0.4**, 2026-09-16. Status: **Qwen specification proposed; converter specification accepted; candidate 1A completed**.
+Owner: Planning. Version: **0.4**, 2026-09-16. Status: **Local contracts and converter completed; Qwen specification accepted**.
 Manager reviewed v0.2 at `d659c48f38639e54e19ac6aceff1b5adf853355a`
 and accepts its roadmap and bounded local candidate 1A under the user's engineering authorization.
 Candidate 1A at `dee5e1a5ecbbc326921e0f4019792c8f7e5deab2` passed independent Testing;
 Manager accepted and integrated it with review evidence `2db380a497ca641d8e1df0cda773074e0d306040`.
 See the [exact review and limitations](../docs/verification/local-contract-review.md). Engineering-only
 READ source use is now user-approved; Manager accepted the exact converter specification at
-`653fe7dff2018de1e35c91d616c24ed848681a16` and releases candidate 1B for implementation/review. Later implementation, methodology and
-execution retain their stated gates.
+`653fe7dff2018de1e35c91d616c24ed848681a16`. Candidate1B `8db583326e55b307df487d57d4c03be1d6e12689`
+is accepted with independent C1–C8 evidence `f84f26b854bb29c4ad428ab2d6ab84a702d83b55`.
+All400 actual pages passed conversion, original-label comparison, freeze and fresh-process reopen.
+See the [converter review](../docs/verification/read2016-converter-review.md). Later implementation,
+methodology and execution retain their stated gates.
 Phase-A v0.1 remains in Git history. Real model execution is still unavailable.
 
 Inspected control for v0.4: `fad7cae5baf5d7e30ecf9a772152363ab9ca6902`, including accepted
 local contracts, converter specification and two-Volume runtime correction. Earlier scopes below
-are retained unchanged; the new proposal is candidate 2 only and awaits Manager acceptance.
+were retained; Manager accepted candidate2 publication `320790d69970348386ac180c524f5f568e035159`
+and its staged offline/build/GPU acceptance. Implementation and runtime proof remain pending.
 Scientific input: accepted [RES-002](../research/RES-002-real-ocr-pilot.md) at
 `8a173197fd4ef12f91da3fde0d0197bc4bda21b6`. Development, independent Testing and QA
 preparation informed this reconciliation; they are not verdicts on a real implementation.
@@ -48,15 +52,15 @@ A null/worse result is admissible. Revealed pages are simulated annotation budge
 
 ### Inspected implementation
 
-Candidate 1A is implemented and independently passed: separate baseline, positive acquired rounds,
-prediction purpose/failure checks, expected-identity guards and page-text counts. The review above
-records its exact scope and limitations; integrated main has 237 passing tests per Manager evidence.
-`SourcePage` still inherits required `Page.document_id`; `_read_source` rejects cross-split document
-IDs/image hashes; freeze/reload hashes manifests/images but has no source admission policy or XML
-provenance. Legacy `local_data.py` hashes known documents to splits and must remain unchanged.
-Qwen/Modal execution and the READ converter remain missing. Planning inspected current models,
-oracle, coordinator, importer, tests/config and actual source. This plan-only turn ran no application
-suite, conversion or model/cloud workload.
+Candidate1A is implemented and independently passed: separate baseline, positive acquired rounds,
+prediction purpose/failure checks, expected-identity guards and page-text counts. Candidate1B adds
+strict-default source policy, required nullable simulation-only document IDs for admitted READ,
+literal PAGE conversion, hashed original provenance, safe publication and freeze/reload integrity.
+Legacy Page/importer remains unchanged. Independent review reproduced320 existing/author tests
+plus38 separate cases; all400 actual pages/9410lines and804originals passed structural comparison
+and a full freeze/fresh-process reopen. These are data/local engineering results only.
+Qwen loading/training/prediction and Modal/real CLI remain unimplemented. This specification and
+its accepted dependency pins do not prove actual model/library/GPU compatibility.
 
 ### READ2016 asset evidence and the grouping boundary
 
@@ -280,7 +284,7 @@ Qwen quality, training, CUDA, checkpoints-on-disk, Modal auth or cancellation PA
 
 ### Candidate 1B — READ2016 converter and engineering-only source policy
 
-**Accepted v0.3 specification; implementation and independent review pending.** On 2026-09-16
+**Implemented and independently passed C1–C8 at candidate `8db583326e55b307df487d57d4c03be1d6e12689`.** On 2026-09-16
 the user admitted the official
 READ2016 1.2.0 TRAIN/VALIDATION partitions for engineering verification with document grouping
 explicitly unknown. Original labels/membership stay unchanged; final test is excluded. This
@@ -925,7 +929,7 @@ exports never overwrite prior results.
 | Readiness verdict | Required evidence; who decides |
 | --- | --- |
 | Slice1A technical acceptance | Exact code SHA, L1–L9, full regression+Ruff and independent Testing review; Manager accepts warnings. No real-model PASS. |
-| Converter acceptance | User engineering-only admission is granted; exact v0.3 mapping/policy, C1–C7 code review and C8 structural smoke still need verification. Unknown groups constrain use; no fabricated identities. |
+| Converter acceptance | Completed at candidate8db5833, independent C1–C8 evidencef84f26b. All400 actual pages compared, frozen and reopened. Unknown groups still constrain engineering use; no independence claim. |
 | Candidate2/3 preflight acceptance | Exact code/recipe, supervised-mask/reset/checkpoint tests, purpose-bound journal failure matrix, upload/mount allowlists, identity checks and independent review. Fakes cannot prove hardware/provider behavior. |
 | Paid smoke release | Accepted source/recipe/code, account/access, precise resource/cost/deadline envelope and user spend authorization. Runtime-only evidence is acquired during smoke, not required as a past success to authorize first smoke. |
 | Real engineering acceptance | Finite loss/gradients and intended update on CUDA, unchanged frozen weights, full-page geometry evidence, fresh checkpoint reload equivalence with declared tolerance, known-call/receipt recovery and separate-process CLI resume, accounting and independent Testing review. No efficacy threshold. |
@@ -978,3 +982,7 @@ or a cloud release; the stated independent review and runtime gates remain in fo
 Implementation clarification: use the existing BASELINE_VALIDATION purpose for round zero;
 the previously planned two-page smoke requires an explicit frozen evaluation subset, with full
 source provenance unchanged. This does not change the accepted smoke workload or metric policy.
+
+2026-09-16 converter acceptance: Manager verified C1–C8 publication, local receipt/script and
+prepared manifest/provenance hashes, independently rehashed all804 copied files and checked counts.
+Implementation and independent review are integrated; no model or cloud execution is implied.

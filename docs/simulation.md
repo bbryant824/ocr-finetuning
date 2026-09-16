@@ -340,3 +340,9 @@ publication/integrity without relaxing the public pinned-archive API. Read-only 
 matched350/50 pages,8367/1043 lines,four empty strings and two missing baselines. Full actual prepared
 dataset conversion/freeze (C8) has **not** been executed by this implementation; it follows independent
 review and release. No real model, GPU, cloud, OCR quality or active-learning result is established.
+
+The pinned READ converter passed independent C1–C8 verification at
+`8db583326e55b307df487d57d4c03be1d6e12689`:350train/50validation pages,9410literal lines,
+804unchanged originals and successful full freeze/fresh-process reopen. See the
+[structural review](verification/read2016-converter-review.md) for counts, hashes, commands
+and limits. This establishes engineering data readiness, not OCR/model execution.

@@ -8,8 +8,9 @@ the current research simulates annotation by revealing existing source ground tr
 selected training pages. Ground truth contains the source's line boxes and transcriptions.
 The practical objective is a small, reproducible, understandable pipeline with fair comparisons.
 
-The local fixture loop and synthetic real-adapter contracts are delivered. Next, connect a verified public dataset and a pinned real
-OCR model to training/inference on Modal, with independent checks before bounded experiments.
+The local fixture loop, synthetic real-adapter contracts and pinned READ2016 converter are delivered.
+The full engineering dataset passed independent conversion/freeze/reopen checks. Next, connect
+the pinned OCR model to training/inference on Modal, with independent checks before bounded experiments.
 Keep simple interchangeable dataset/model interfaces; a labeling frontend is not required.
 Keep implementations minimal, straightforward and correct; do not add speculative infrastructure.
 The oracle must not expose unrevealed or held-out labels to fitting or acquisition. Revealed-page
@@ -23,14 +24,16 @@ contracts are evidence to review, not completed model integration or approved fi
 ## Architecture summary
 
 CURRENTLY IMPLEMENTED: one `Pipeline` orchestrator with a local simulation path; a normalized
-JSONL source/true-label oracle; frozen images/source/config and run identity; cumulative reset-fit
+JSONL source/true-label oracle; pinned READ2016 converter with explicit engineering-only unknown-group
+policy and hashed original XML/image provenance; frozen images/source/config and run identity; cumulative reset-fit
 model interface and deterministic fixture; random/least-confidence/entropy selection; atomic SQLite
 round snapshots, resume and JSON/CSV exports; optional isolated validation evaluator; CLI/example.
 Fixture scores and empty OCR predictions are not research findings. Fixture resume assumes unchanged
 code, dependencies and versioned adapters. Explicit contract-test runs check frozen local code,
 dependency and declared adapter identities; these declarations do not verify actual model weights.
 Contract-test runs add a separate zero-label baseline, prediction purpose/failure validation and
-page-text error counts with independently undefined CER/WER rates. Real execution remains unavailable.
+page-text error counts with independently undefined CER/WER rates. Converter review and actual400-page
+structural evidence are in docs/verification/read2016-converter-review.md. Real model execution remains unavailable.
 
 Simulation flow: frozen source → select train pages → reveal selected labels → fit cumulative
 examples → predict remaining pool → optional isolated validation → commit round → next batch.
