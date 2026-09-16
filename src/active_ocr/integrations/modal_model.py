@@ -562,7 +562,7 @@ class ModelOperation(Model):
     state: Literal[
         "RESERVED", "SUBMITTING", "RUNNING", "UNKNOWN", "CANCEL_REQUESTED", "FAILED", "COMPLETED"
     ]
-    provider_call_id: str | None = None
+    provider_call_id: Annotated[str, Field(strict=True, min_length=1)] | None = None
     response: DispatchResponse | None = None
     failure: FailureReceipt | None = None
 
@@ -807,8 +807,14 @@ class ModalModel:
         expected_images = {"images/" + p.image_sha256 for p in run.dataset.pages}
         if {n for n in bundle if n.startswith("images/")} != expected_images:
             raise ValueError("input bundle must contain exactly the frozen source images")
+        from pathlib import Path
+
         for page in run.dataset.pages:
-            if bundle["images/" + page.image_sha256].sha256 != page.image_sha256:
+            entry = bundle["images/" + page.image_sha256]
+            if (
+                entry.sha256 != page.image_sha256
+                or entry.bytes != Path(page.image_uri).stat().st_size
+            ):
                 raise ValueError("input bundle image identity mismatch")
         control = self.store.load("model-control", run.id, RunControl)
         if control is not None and control.settings_sha256 != digest(
