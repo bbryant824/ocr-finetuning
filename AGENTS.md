@@ -73,6 +73,9 @@ or its runtime experiment UUIDs with another service.
 
 - Inspect current code, configuration and tests before changes. Prefer a minimal coherent diff,
   existing interfaces and libraries. No speculative abstraction or coordination infrastructure.
+- Prioritize the simplest working pipeline. Adapt agent instructions only for durable, project-specific
+  lessons; replace stale guidance, keep current assignments concise and link evidence instead of
+  repeating history. Avoid redundant handoffs and checks that do not resolve an outstanding question.
 - Every behavior change needs proportionate verification. Run focused and broader relevant
   checks, plus configured lint/types; absence of tests is a gap, not a pass.
 - Preserve module boundaries and sensible compatibility; remove duplication only when safe.
