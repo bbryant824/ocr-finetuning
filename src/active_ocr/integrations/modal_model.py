@@ -929,9 +929,16 @@ class ModalModel:
                 raise TimeoutError("absolute run deadline reached before submission")
             # Preflight fails safely before SUBMITTING; no spawn has happened yet.
             self.transport.preflight()
+            payload = invocation.model_dump(mode="json")
+            if self.clock() >= control.deadline_unix_seconds:
+                raise TimeoutError("absolute run deadline reached before submission")
             record = self._change(record, state="SUBMITTING")
+            # The journal write can also wait. An expired, unsubmitted claim is safe to release.
+            if self.clock() >= control.deadline_unix_seconds:
+                self._change(record, state="RESERVED")
+                raise TimeoutError("absolute run deadline reached before submission")
             try:
-                call_id = self.transport.spawn(invocation.model_dump(mode="json"))
+                call_id = self.transport.spawn(payload)
                 if not isinstance(call_id, str) or not call_id:
                     raise ValueError("missing provider call identity")
                 record = self._change(record, state="RUNNING", provider_call_id=call_id)

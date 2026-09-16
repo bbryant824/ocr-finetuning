@@ -968,6 +968,50 @@ def test_expired_new_operation_never_gets_fresh_deadline(tmp_path):
     assert control.first_submission_unix_seconds == 1000 and control.deadline_unix_seconds == 3400
 
 
+@pytest.mark.parametrize("expires_during", ["preflight", "journal"])
+@pytest.mark.parametrize("finished_at", [3400, 3401])
+def test_submission_expiry_preserves_unsubmitted_journal(
+    tmp_path, monkeypatch, expires_during, finished_at
+):
+    model, transport, request = coordinator(tmp_path)
+    now = [1000]
+    model.clock = lambda: now[0]
+    model._control()
+    now[0] = 3399
+    original_preflight = transport.preflight
+    original_cas = model.store.compare_and_swap
+
+    def preflight():
+        original_preflight()
+        if expires_during == "preflight":
+            now[0] = finished_at
+
+    def compare_and_swap(kind, key, expected, value):
+        original_cas(kind, key, expected, value)
+        if (
+            expires_during == "journal"
+            and kind == "model-operation"
+            and value.state == "SUBMITTING"
+        ):
+            now[0] = finished_at
+
+    monkeypatch.setattr(transport, "preflight", preflight)
+    monkeypatch.setattr(model.store, "compare_and_swap", compare_and_swap)
+    with pytest.raises(TimeoutError, match="before submission"):
+        model.execute(request)
+    record = model.store.load("model-operation", m.operation_id(request), m.ModelOperation)
+    assert record.state == "RESERVED"
+    assert record.provider_call_id is None and record.response is None and record.failure is None
+    assert transport.payloads == [] and transport.cancelled == []
+    control = model.store.load("model-control", model.settings.context.experiment_id, m.RunControl)
+    assert control.first_submission_unix_seconds == 1000 and control.deadline_unix_seconds == 3400
+    # Ordinary resume remains expired: no fresh budget, attempt, preflight, spawn or cancellation.
+    with pytest.raises(TimeoutError, match="before submission"):
+        model.execute(request)
+    assert model.store.load("model-operation", record.operation_id, m.ModelOperation) == record
+    assert transport.preflights == 1 and transport.payloads == [] and transport.cancelled == []
+
+
 def test_real_pipeline_recovers_after_round_commit_failure_without_retraining(
     tmp_path, monkeypatch
 ):
