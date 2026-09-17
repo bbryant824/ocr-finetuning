@@ -398,6 +398,73 @@ def test_wrong_recipe_constructor_and_worker_before_load(worker, monkeypatch):
         worker.load_base(experiment_id="run")
 
 
+@pytest.mark.parametrize("rank", [16, 8])
+def test_fit_exports_full_targets_and_preserves_strict_config_guard(worker, monkeypatch, rank):
+    # Real fit/save/bind/config checks with unavailable ML execution stubbed.
+    expected = dict(
+        base_model_name_or_path=q.REPOSITORY,
+        revision=q.REVISION,
+        target_modules=list(q.TARGETS),
+        r=16,
+        inference_mode=True,
+    )
+    model = SimpleNamespace(state={"parameter": "initial"})
+    checked = []
+
+    def check(candidate):
+        assert candidate is model
+        checked.append(True)
+        return []
+
+    class BeforeTensorValidation(Exception):
+        pass
+
+    def save(stage, **kwargs):
+        assert checked == [True]
+        # PEFT's >=20-target injection optimization, measured on the pinned build.
+        config = {**expected, "target_modules": ["q_proj", "v_proj"], "r": rank}
+        (stage / "adapter_config.json").write_text(json.dumps(config))
+        (stage / "adapter_model.safetensors").write_bytes(b"synthetic adapter")
+
+    def train(*args):
+        model.state = {"parameter": "trained"}
+        return {"updates": 3}
+
+    def safe_open(*args, **kwargs):
+        raise BeforeTensorValidation
+
+    model.save_pretrained = save
+    monkeypatch.setattr(worker, "_verify_runtime", lambda: None)
+    monkeypatch.setattr(worker, "_processor_ready", lambda: object())
+    monkeypatch.setattr(worker, "_load", lambda: model)
+    monkeypatch.setattr(worker, "_drop", lambda: None)
+    monkeypatch.setattr(q, "reset_seed", lambda seed: None)
+    monkeypatch.setattr(q, "encode_page", lambda *args: ({}, {"target_tokens": 4}))
+    monkeypatch.setattr(q, "lora_config", lambda: SimpleNamespace(to_dict=lambda: dict(expected)))
+    monkeypatch.setattr(q, "check_trainables", check)
+    monkeypatch.setattr(q, "frozen_hashes", lambda model: {"frozen": "unchanged"})
+    monkeypatch.setattr(q, "tensor_hash", lambda value: value)
+    monkeypatch.setattr(q, "train_epochs", train)
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "safetensors", SimpleNamespace(safe_open=safe_open))
+    monkeypatch.setitem(
+        sys.modules,
+        "peft",
+        SimpleNamespace(
+            get_peft_model=lambda *args, **kwargs: model,
+            get_peft_model_state_dict=lambda model: model.state,
+        ),
+    )
+    error = BeforeTensorValidation if rank == 16 else ValueError
+    with pytest.raises(error, match=None if rank == 16 else "configuration mismatch"):
+        worker.fit(
+            (RevealedExample(page=page(worker.input_root.parent), regions=()),),
+            seed=824,
+            experiment_id="run",
+            round_number=1,
+        )
+
+
 @pytest.mark.parametrize("image_first", [True, False])
 def test_installed_packages_records_effective_search_path_versions(
     tmp_path, monkeypatch, image_first
@@ -612,7 +679,7 @@ def test_actual_tokenization_and_loss_mask(processor, tmp_path, text):
     assert empty["labels"][0, -1].item() == q.EOS
 
 
-def tiny_model():
+def tiny_model(text_layers=2):
     """Test-only FP32/math-SDPA model. Never a production fallback."""
     import torch
     from transformers import Qwen3VLConfig, Qwen3VLForConditionalGeneration
@@ -623,7 +690,7 @@ def tiny_model():
             vocab_size=151936,
             hidden_size=64,
             intermediate_size=128,
-            num_hidden_layers=2,
+            num_hidden_layers=text_layers,
             num_attention_heads=4,
             num_key_value_heads=2,
             head_dim=16,
@@ -856,11 +923,29 @@ def test_actual_generation_defaults(processor):
 
 def test_actual_adapter_tensor_and_config_validation(processor, tmp_path, worker):
     import torch
+    from peft import get_peft_model
     from safetensors.torch import save_file
 
-    config = q.lora_config()
-    config.inference_mode = True
-    config.save_pretrained(tmp_path)
+    # Cross PEFT's 20-target compaction threshold through real injection/export.
+    # Tiny dimensions remain test-only; all 72 pinned target paths are present.
+    base = tiny_model(text_layers=36)
+    base.requires_grad_(False)
+    model = get_peft_model(base, q.lora_config(), autocast_adapter_dtype=True)
+    assert model.peft_config["default"].target_modules == {"q_proj", "v_proj"}
+    assert {name for name, p in model.named_parameters() if p.requires_grad} == {
+        name.replace(".weight", ".default.weight") for name in q.adapter_shapes()
+    }
+    model.save_pretrained(tmp_path, safe_serialization=True, save_embedding_layers=False)
+    config_path = tmp_path / "adapter_config.json"
+    config = json.loads(config_path.read_text())
+    config.update(base_model_name_or_path=q.REPOSITORY, revision=q.REVISION)
+    config_path.write_bytes(q.canonical(config))
+    # Compact suffixes are still refused by the strict checkpoint reader.
+    with pytest.raises(ValueError, match="configuration mismatch"):
+        q.check_adapter(tmp_path)
+    config["target_modules"] = list(q.TARGETS)
+    config_path.write_bytes(q.canonical(config))
+    del model, base
     tensors = {
         key: torch.zeros(shape, dtype=torch.float32) for key, shape in q.adapter_shapes().items()
     }

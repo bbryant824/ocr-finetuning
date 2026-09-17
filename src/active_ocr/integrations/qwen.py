@@ -1341,7 +1341,13 @@ class QwenModel:
                 model.save_pretrained(stage, safe_serialization=True, save_embedding_layers=False)
                 cfg_path = stage / "adapter_config.json"
                 config = strict_json(cfg_path.read_bytes())
-                config.update(base_model_name_or_path=REPOSITORY, revision=REVISION)
+                # PEFT condenses >=20 target names during injection. The actual
+                # topology passed check_trainables; persist the exact pinned list.
+                config.update(
+                    base_model_name_or_path=REPOSITORY,
+                    revision=REVISION,
+                    target_modules=list(TARGETS),
+                )
                 cfg_path.write_bytes(canonical(config))
                 adapter_files = tuple(
                     FileEntry(**f)
