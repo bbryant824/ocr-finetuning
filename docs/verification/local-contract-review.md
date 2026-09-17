@@ -1,5 +1,8 @@
 # Local contract independent review
 
+> Historical verification: statements apply to the recorded candidate and date.
+> See [the project guide](../PROJECT_GUIDE.md) for current status and completed GPU evidence.
+
 Verdict: **PASS**, limited to corrected candidate
 `dee5e1a5ecbbc326921e0f4019792c8f7e5deab2` and the accepted plan's candidate 1A/L1–L9.
 Control: `dec843196a0edba537a05ee26345d814ab525b45`.

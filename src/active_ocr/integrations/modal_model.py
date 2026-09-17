@@ -1,7 +1,7 @@
 """Candidate-3 wire contract and synchronous durable Modal coordinator.
 
 Only fit carries selected labels. Journal semantic_record(), never the wire fit payload.
-Platform owns the one dispatcher; see docs/modal-runtime.md for bootstrap and ownership.
+Platform owns the one dispatcher; see docs/PROJECT_GUIDE.md for bootstrap and ownership.
 """
 
 from __future__ import annotations

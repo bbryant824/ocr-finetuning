@@ -8,59 +8,27 @@ the current research simulates annotation by revealing existing source ground tr
 selected training pages. Ground truth contains the source's line boxes and transcriptions.
 The practical objective is a small, reproducible, understandable pipeline with fair comparisons.
 
-The local fixture loop, synthetic real-adapter contracts and pinned READ2016 converter are delivered.
-The full engineering dataset passed independent conversion/freeze/reopen checks. The Qwen/Modal
-pipeline completed one real engineering round, including fresh-process checkpoint reload and exports;
-see experiments/EXP-003.md. OCR quality remains unestablished.
-Keep simple interchangeable dataset/model interfaces; a labeling frontend is not required.
-Keep implementations minimal, straightforward and correct; do not add speculative infrastructure.
-The oracle must not expose unrevealed or held-out labels to fitting or acquisition. Revealed-page
-counts represent simulated annotation budgets, not measured human annotation time. Fixture model
-outputs verify plumbing only and never establish OCR quality or active-learning improvement.
+Stage 2 engineering is complete: local simulation, READ2016 preparation and one real Qwen/Modal
+round passed their scoped independent reviews. The actual round selected two pages, performed
+three updates, verified fresh-process checkpoint reload, committed, resumed and exported.
+Baseline and post-fit OCR both failed on two validation pages (CER/WER 1.0); usable OCR and an
+active-learning benefit remain unestablished. Real acquisition currently supports random only.
+Keep source-label simulation, simple interchangeable boundaries and minimal straightforward code.
+A labeling frontend is not required. Revealed pages are simulated budgets, not human time.
 
-The pinned `Qwen/Qwen3-VL-4B-Instruct` runtime now implements loading, prediction, reset LoRA
-fine-tuning and immutable checkpoints. Independent offline review and all eleven actual Linux
-processor/tiny-model checks passed. Actual 4B/CUDA fitting completed three updates on two selected
-pages; checkpoint reload and completed-run resume passed. Baseline and post-fit OCR both failed the
-output contract on both validation pages (CER/WER 1.0). This establishes pipeline execution, not
-usable OCR or active-learning benefit. Modal transport and the real-run CLI are implemented.
+## Architecture and current evidence
 
-## Architecture summary
-
-CURRENTLY IMPLEMENTED: one `Pipeline` orchestrator with a local simulation path; a normalized
-JSONL source/true-label oracle; pinned READ2016 converter with explicit engineering-only unknown-group
-policy and hashed original XML/image provenance; frozen images/source/config and run identity; cumulative reset-fit
-model interface and deterministic fixture; random/least-confidence/entropy selection; atomic SQLite
-round snapshots, resume and JSON/CSV exports; optional isolated validation evaluator; CLI/example.
-Fixture scores and empty OCR predictions are not research findings. Fixture resume assumes unchanged
-code, dependencies and versioned adapters. Explicit contract-test runs check frozen local code,
-dependency and declared adapter identities; these declarations do not verify actual model weights.
-Contract-test runs add a separate zero-label baseline, prediction purpose/failure validation and
-page-text error counts with independently undefined CER/WER rates. Converter review and actual400-page
-structural evidence are in docs/verification/read2016-converter-review.md. Qwen implementation and
-offline review are documented in docs/qwen-runtime.md and docs/verification/qwen-runtime-review.md.
-Modal dispatch, operation recovery and real CLI are implemented; see docs/verification/modal-runtime-review.md.
-Actual execution evidence is in experiments/EXP-003.md; later research runs need an adequate
-OCR recipe and documented methodology before interpreting strategy comparisons.
-
-Simulation flow: frozen source → select train pages → reveal selected labels → fit cumulative
-examples → predict remaining pool → optional isolated validation → commit round → next batch.
-Only the evaluator receives validation truth; final-test evaluation is deferred. See docs/simulation.md.
-For contract-test runs, a baseline-only step precedes acquisition. Independent review of the corrected
-local implementation is recorded in docs/verification/local-contract-review.md; it is not GPU evidence.
-
-Optional older code remains: JSONL/CSV image import with document-hash splits, Label Studio
-payload/client, GPU HTTP client, polling controller, metrics and health endpoint. Legacy GPU job
-endpoints remain placeholders. Their remote image resolver is missing and they are not needed by
-simulation or the new Qwen boundary. Runtime state stays ignored; simulation uses its own
-configured database/artifacts.
-The configured Qwen model is not a limitation of the new model interface. Current priorities live
-in shared local `.agent-local/PROJECT.md`.
+Read [the project guide](docs/PROJECT_GUIDE.md) for the complete repository map, data/model/Modal
+connections, operating procedure, research stage and evidence index. The completed actual run is
+[EXP-003](experiments/EXP-003.md). Current assignments and authorization live in shared local
+`.agent-local/PROJECT.md`, not in historical implementation plans or private conversation.
 
 Preserve the shallow module design: algorithms in `active_learning.py`, metrics in `evaluation.py`,
 coordination in `pipeline.py`, external/model boundaries in `integrations/`, launchers in `entrypoints/`.
-The new agent coordination files supplement this application; they do not replace its SQLite store
-or its runtime experiment UUIDs with another service.
+`LocalOracle` reveals only selected TRAIN labels; only the evaluator receives validation truth.
+The real path uses `ModalModel` and Qwen; legacy GPU HTTP endpoints remain placeholders.
+SQLite and content-addressed artifacts hold application state. Agent coordination supplements
+this application; it never replaces its database or runtime UUIDs with another service.
 
 ## Global research rules
 
@@ -105,7 +73,10 @@ Manager owns canonical main, local TEAM, assignment headers/releases, PROJECT an
 Specialists own local task Progress/Result and assigned artifacts on their isolated code branches.
 Only one writer edits a task at a time: Manager changes it while its specialist is idle or after
 an acknowledged checkpoint. Specialists never self-release dependencies or mark canonical DONE.
-QA is read-only by default. Substantial QA writing needs an explicit assignment and isolated scope.
+QA has standing permission to author requested project documentation, reports, mentor PPTX decks
+and supporting visuals, without a separate Manager release. Its code/research-state access remains
+read-only; use owned artifact paths and the QA Skill. Local authoring must not modify active agents'
+files, shared Git state, canonical task records or research decisions.
 
 Commit reusable code, tests, approved plans, scientific notes and small reproducibility records.
 Keep routine progress, machine paths, task IDs, setup evidence and operational inventory local.

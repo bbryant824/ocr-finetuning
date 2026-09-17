@@ -1,5 +1,8 @@
 # Independent Qwen runtime review
 
+> Historical verification: statements apply to the recorded candidate and date.
+> See [the project guide](../PROJECT_GUIDE.md) for current status and completed GPU evidence.
+
 ## Saved-adapter export correction — PASS (offline)
 
 Candidate `1a03f77519439c0601a83c8c3b4670ca896de337`; control
@@ -135,7 +138,7 @@ Historical phase 1 verdict: **FAIL for the offline candidate**
 `c4d9e09770f1c31c75a6078898dd342da63f5469`, including implementation commit
 `17e8167084ae5b437e32c3ab071a01a98b109bb6`.
 Control/accepted specification: `d8ee28cf6ebc02cbe6fe949a96ffb3c0c100f3e9` and
-[candidate 2, Q1–Q9](../../plans/PLAN-003-real-ocr-modal.md#candidate-2--concrete-qwen-runtime-training-and-checkpoints).
+[candidate 2, Q1–Q9](https://github.com/bbryant824/ocr-finetuning/blob/b30cb09d21e560b24eac56d30b726f651a912aa8/plans/PLAN-003-real-ocr-modal.md#candidate-2--concrete-qwen-runtime-training-and-checkpoints).
 
 At that candidate, two independent regressions remained. No production or author-test changes were made. The
 existing passing suite does not override these findings. Linux processor/tiny-model execution

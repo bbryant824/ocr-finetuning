@@ -1,7 +1,7 @@
 """Explicit Modal bootstrap and one bounded dispatcher; import never contacts Modal.
 
 Only the child interpreter constructs QwenModel. Build/deploy helpers are operator
-entrypoints, not import-time actions. See docs/modal-deployment.md before execution.
+entrypoints, not import-time actions. See docs/PROJECT_GUIDE.md before execution.
 """
 
 from __future__ import annotations

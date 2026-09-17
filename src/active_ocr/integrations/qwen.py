@@ -1,6 +1,6 @@
 """Pinned, synchronous Qwen page OCR. GPU libraries are imported only on use.
 
-See docs/qwen-runtime.md for the worker manifest and staged verification gates.
+See docs/PROJECT_GUIDE.md for the worker manifest and staged verification gates.
 No oracle, selection, transport, automatic downloads or CPU runtime fallback lives here.
 """
 

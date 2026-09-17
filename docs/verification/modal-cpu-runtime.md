@@ -1,5 +1,8 @@
 # Actual Modal CPU builds
 
+> Historical verification: statements apply to the recorded candidate and date.
+> See [the project guide](../PROJECT_GUIDE.md) for current status and completed GPU evidence.
+
 ## Attempt 1
 
 **Result: FAIL, 2026-09-17.** The locked Linux build reached the CPU test gate,
@@ -21,7 +24,7 @@ or accepted runtime image was produced. This is not a GPU or OCR result.
   truth or 4B weights. The separate local Python3.11.14/Modal1.5.5 client
   environment contained no GPU/ML packages.
 - One explicit `build_image` invocation followed the
-  [deployment recipe](../modal-deployment.md), with Debian/Python3.11 and
+  [deployment recipe](../PROJECT_GUIDE.md#8-setup-and-operating-procedure), with Debian/Python3.11 and
   hash-required dependency installation. CPU gate requested CPU2, RAM32768MiB,
   GPU=None, timeout900s and child watchdog850s; no automatic retry.
 - Operator attempt: 01:04:55.015322–01:08:18.630811 UTC, 203.50 seconds including
@@ -173,7 +176,7 @@ This is author evidence for the corrected CPU image, not independent acceptance
 or 4B/CUDA execution. Evidence-only review must precede any GPU release. Exact
 invocation, inputs, returned identities, logs and accounting remain indexed in
 private build records; the standard command recipe is unchanged in the
-[deployment guide](../modal-deployment.md).
+[deployment guide](../PROJECT_GUIDE.md#8-setup-and-operating-procedure).
 
 ## Attempt 5 — corrected adapter export CPU build
 

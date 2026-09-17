@@ -1,6 +1,8 @@
 # Reviewed plans
 
-Planning uses [TEMPLATE](TEMPLATE.md) for each substantive plan, such as PLAN-001-inference-contract.md.
-DRAFT → WAITING_REVIEW → APPROVED (or REJECTED/SUPERSEDED). Manager records exact version and
-acceptance evidence; reserved methodology decisions require user approval. Material changes need
-re-review. Link the full artifact path from its task; no approved plan exists from setup alone.
+The completed Stage 2 implementation plan is consolidated into the maintained
+[project guide](../docs/PROJECT_GUIDE.md). Its exact reviewed versions remain in Git history.
+
+Use [TEMPLATE](TEMPLATE.md) for a new substantive plan when needed. Manager records version,
+acceptance and required decisions; proposals do not authorize work. Keep current plans concise,
+link evidence, and retire superseded instructions after implementation is accepted.

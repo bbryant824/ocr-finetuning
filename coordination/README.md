@@ -2,7 +2,7 @@
 
 Protocol: 3
 
-Use the existing **Manager** task for project control and **QA & Understand** for explanations.
+Use **Manager** for project control and **QA & Understand** for explanations, documentation and mentor presentations.
 A Codex task is the agent; its Skill is the playbook. Native task messages deliver work.
 The existing seven tasks and worktrees remain; this protocol does not create a daemon or scheduler.
 
@@ -39,7 +39,11 @@ Each task follows [TASK_TEMPLATE](TASK_TEMPLATE.md). Manager owns headers/releas
 the assigned specialist owns Progress/Result. Manager edits a task only while its specialist is
 idle or after an acknowledged checkpoint. Write one complete edit at a time, inspect the diff or
 prior text, and re-read before replacing a file. Never overwrite another writer's changes.
-QA remains read-only unless assigned substantial writing with explicit ownership.
+QA may author requested documentation and presentations under its standing user authorization;
+no separate Manager release is required. Code, research state and other roles' records remain
+read-only. Its [Skill](../.agents/skills/qa-understanding/SKILL.md) defines artifact ownership and
+visual reporting. Local drafts/exports default to ignored `.local/qa-understanding/`; preserve
+existing delivered versions and keep the shared Git index untouched during active development.
 
 The shared directory is local durable memory, not Git history or a cloud backup. Include it in
 normal private computer backups. Preserve it before removing/moving the canonical checkout;
@@ -63,7 +67,8 @@ These are prompts, not installed shell commands.
 | Specialist: `status` | Report evidence, blockers and next step read-only |
 | Specialist: `manager sync` | Record meaningful local progress and send one evidence handoff |
 | Manager: `Pause the team` | Request safe checkpoints; after receipt record holds and verify stopped work |
-| QA: `Trace how an image moves through the code` | Inspect and explain without edits |
+| QA: `Trace how an image moves through the code` | Inspect and explain without changing code |
+| QA: `Create a short PPTX for my mentor on current progress` | Refresh evidence and author a concise visual deck with sources; no separate Manager release |
 
 READY means eligible on continuation, not already running. No runnable assignment means wait or
 report a blocker. A setup/communication check does not authorize research execution or paid jobs.

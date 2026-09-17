@@ -1,5 +1,8 @@
 # READ2016 converter independent review
 
+> Historical verification: statements apply to the recorded candidate and date.
+> See [the project guide](../PROJECT_GUIDE.md) for current status and completed GPU evidence.
+
 Verdict: **PASS for C1–C8**, at exact candidate
 `8db583326e55b307df487d57d4c03be1d6e12689`.
 Parent: `fad7cae5baf5d7e30ecf9a772152363ab9ca6902`.

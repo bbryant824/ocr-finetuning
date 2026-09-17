@@ -1,5 +1,8 @@
 # Independent CPU runtime review
 
+> Historical verification: statements apply to the recorded candidate and date.
+> See [the project guide](../PROJECT_GUIDE.md) for current status and completed GPU evidence.
+
 ## Adapter-export CPU attempt 5 — PASS (actual CPU evidence)
 
 Source `1a03f77519439c0601a83c8c3b4670ca896de337`; control

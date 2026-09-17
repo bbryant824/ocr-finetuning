@@ -1,5 +1,8 @@
 # First historical page OCR pilot
 
+> Historical research rationale and proposals. See [the project guide](../docs/PROJECT_GUIDE.md)
+> for the implemented pipeline and measured run; this note does not supersede its current status.
+
 Research recommendation, 2026-09-14. Evidence: primary literature, publisher/Hub
 metadata and repository inspection. No real inference, fine-tuning, GPU measurement,
 dataset-archive inspection or active-learning result was produced for this note.
@@ -338,7 +341,7 @@ Inspected code at `a6f31e42b9bbcb33ad2773b91845fa66f9824e34`:
 [simulation adapters](../src/active_ocr/integrations/simulation.py),
 [Pipeline](../src/active_ocr/pipeline.py), [models](../src/active_ocr/models.py),
 [metrics](../src/active_ocr/evaluation.py), [simulation tests](../tests/test_simulation.py)
-and [guide](../docs/simulation.md). Inspection, not a new test run, established:
+and [guide](../docs/PROJECT_GUIDE.md#5-active-learning-lifecycle). Inspection, not a new test run, established:
 
 - `LocalOracle` already supplies only cumulative selected training examples and
   separates validation truth. A PAGE importer should emit the existing strict

@@ -42,4 +42,4 @@ not permission to reconstruct assignments from private conversation or invent wo
 updates meaningful local evidence and sends one native handoff to Manager using TEAM.
 Commit only owned reusable outputs, never local agent memory. Include exact code/output SHAs
 and a task-file SHA-256 in handoffs; a memory-only handoff needs no empty Git commit.
-No unchanged-status pings, ACK replies or invented work. QA retains its read-only exception.
+No unchanged-status pings, ACK replies or invented work.
