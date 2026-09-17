@@ -1,5 +1,40 @@
 # Independent CPU runtime review
 
+## Corrected CPU attempt 4 — PASS (actual CPU evidence)
+
+Source `7dd40ec6cc444c939bdd09b42963bbf639cecbca`; release/prior offline review
+`77b762f91f82f79df08c2e1115aaa23d5ed9bc75`. Final author record
+`0d1c8457aa941e7409707be019f76a0bfca5f71c` and its 25-file index inspected.
+**11 passed, 0 skipped, 0 failed; 142.588 seconds on 2026-09-17.**
+
+All final indexed files rehash correctly. Canonical spec/receipt/report and exact seven
+runtime Git blobs, test blob and lock/export match the new source. Only the dispatcher
+runtime file differs from attempt 3; CPU test, recipe, processor identities and resource
+settings are unchanged. All eight small processor assets rehash to their pinned values.
+Receipt validation confirms Python 3.11.12, 96 unique sorted packages and every required
+pin; remote environment digest matches the accepted prior build. The 829-byte report
+contains the same eleven intended case names, now executed by this corrected build.
+
+| Evidence | SHA-256 |
+| --- | --- |
+| Final index | `b625fbaea15eafacb2defa5ceb4c5d5209c15c38b384ad3c8905a8fdd9be6c83` |
+| BuildSpec | `c876d946ac6635d8cd9172bafb7c9873cced759ed9fa6d0248177762919f1ecf` |
+| BuildReceipt | `cb477825e80734235813a86eeb98309455e814ba3a19a02ba185fc19609cc550` |
+| CPU report | `274ff01ffbf962724bbd0590a6a32af05cc167fc6dafcd4a983c0a51ab41df39` |
+
+The log, returned image and successful helper readback agree. The helper differs only in
+checkout and attempt number; its canonical durable Volume readback checks remain intact.
+Receipt placement inside the image follows the successful reviewed build step, without
+separate image-filesystem inspection. The build App stopped; captured inventory shows no
+active containers and the older deployment idle. Attempt cost USD0.00357553 and aggregate
+USD0.42 metered / zero billed after credits remain provisional. Preserve the higher prior
+USD0.45 observation, separate diagnostic costs and unsettled storage under gross USD5/USD30.
+
+Verification used the read-only hash/schema/Git-blob procedure documented below, including
+decimal summation of this App's resource rows. No tests, build, provider or ML call was
+repeated. No CPU blocker found. This accepts the corrected CPU image only: the incomplete
+GPU round and actual 4B/CUDA behavior still require a separate release and measured evidence.
+
 ## Input-verification correction — PASS (offline)
 
 Candidate `7dd40ec6cc444c939bdd09b42963bbf639cecbca`, control
