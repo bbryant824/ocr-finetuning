@@ -436,12 +436,14 @@ def load_processor(model_root: Path):
         "do_rescale": True,
         "do_normalize": True,
         "rescale_factor": 1 / 255,
-        "image_mean": [0.5] * 3,
-        "image_std": [0.5] * 3,
+        # The pinned backend canonicalizes JSON normalization lists to tuples.
+        "image_mean": (0.5,) * 3,
+        "image_std": (0.5,) * 3,
         "resample": Image.Resampling.BICUBIC,
     }
-    if any(getattr(image, k) != v for k, v in expected.items()):
-        raise ValueError("processor settings changed")
+    for key, value in expected.items():
+        if getattr(image, key) != value:
+            raise ValueError(f"processor settings changed: {key}")
     for token, expected_id in (
         ("<|im_end|>", EOS),
         ("<|endoftext|>", PAD),

@@ -1672,3 +1672,343 @@ raise SystemExit(pytest.main(args,plugins=[Nodes()]))
     )
     assert len(nodes) == 11, nodes
     assert all(node.split("::")[-1].startswith("test_actual_") for node in nodes)
+
+
+@pytest.mark.parametrize(
+    "damage", [None, "code", "lock", "processor", "test", "export", "dirty", "revision"]
+)
+def test_bootstrap_allowlist_and_preconstruction_rejections(
+    worker_fixture, monkeypatch, tmp_path, damage
+):
+    import shutil
+    from types import SimpleNamespace
+
+    from active_ocr.entrypoints import modal_app as a
+
+    w = worker_fixture
+    checkout = tmp_path / "checkout"
+    shutil.copytree(w.code / "active_ocr", checkout / "src/active_ocr")
+    (checkout / "tests").mkdir()
+    (checkout / "tests/test_qwen.py").write_bytes(b"# synthetic build-test input\n")
+    (checkout / "uv.lock").write_bytes(b"version = 1\n")
+    requirements = tmp_path / "requirements-linux.txt"
+    export = b"example==1 --hash=sha256:" + b"0" * 64 + b"\n"
+    requirements.write_bytes(export)
+    # Unlisted source, labels and model weight files must never enter this image.
+    (checkout / "private-labels.jsonl").write_text(SECRET)
+    processor = w.inputs / "model"
+
+    def entry(path, name):
+        raw = path.read_bytes()
+        return dict(filename=name, bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
+
+    spec_data = w.settings.build_spec.model_dump()
+    spec_data.update(
+        lock_sha256=hashlib.sha256((checkout / "uv.lock").read_bytes()).hexdigest(),
+        requirements_file=entry(requirements, requirements.name),
+        cpu_test_file=entry(checkout / "tests/test_qwen.py", "tests/test_qwen.py"),
+    )
+    spec = m.BuildSpec.model_validate(spec_data)
+    commands = []
+
+    def run(args, **kwargs):
+        commands.append(args)
+        if args[:2] == ["uv", "export"]:
+            assert "--offline" in args and "--frozen" in args and "--no-emit-project" in args
+            output = b"wrong export" if damage == "export" else export
+        elif args[1] == "rev-parse":
+            output = ((("0" * 40) if damage == "revision" else spec.source_sha) + "\n").encode()
+        else:
+            assert args[1] == "status"
+            output = b" M tracked.py" if damage == "dirty" else b""
+        return SimpleNamespace(returncode=0, stdout=output)
+
+    monkeypatch.setattr(a.subprocess, "run", run)  # Explicit Git/export boundary fake only.
+    calls = []
+
+    class Image:
+        @classmethod
+        def debian_slim(cls, **kwargs):
+            calls.append(("base", kwargs))
+            return cls()
+
+        def pip_install_from_requirements(self, *args, **kwargs):
+            calls.append(("requirements", args, kwargs))
+            return self
+
+        def add_local_file(self, *args, **kwargs):
+            calls.append(("copy", args, kwargs))
+            return self
+
+        def env(self, value):
+            calls.append(("env", value))
+            return self
+
+        def run_function(self, function, **kwargs):
+            assert function is a.cpu_build_gate
+            calls.append(("cpu", kwargs))
+            return self
+
+    volume = SimpleNamespace(object_id="vo-synthetic", with_mount_options=lambda **kw: kw)
+    sdk = SimpleNamespace(__name__="independent_fake", Image=Image)
+    damaged = {
+        "code": checkout / "src" / CODE_FILES[0],
+        "lock": checkout / "uv.lock",
+        "processor": processor / "tokenizer.json",
+        "test": checkout / "tests/test_qwen.py",
+    }
+    if damage in damaged:
+        damaged[damage].write_bytes(b"changed")
+    kwargs = dict(
+        checkout=checkout,
+        requirements=requirements,
+        processor_root=processor,
+        output_volume=volume,
+        sdk=sdk,
+    )
+    if damage:
+        with pytest.raises(a.WorkerError):
+            a.prepare_image(spec, **kwargs)
+        assert calls == []
+        return
+    a.prepare_image(spec, **kwargs)
+    copies = {args[1] for kind, *rest in calls if kind == "copy" for args in [rest[0]]}
+    expected = {"/opt/ocr/" + name for name in CODE_FILES}
+    expected |= {
+        "/opt/ocr/tests/test_qwen.py",
+        "/opt/ocr/uv.lock",
+        "/opt/ocr/requirements-linux.txt",
+    }
+    expected |= {"/opt/ocr/processor/" + name for name in q.PROCESSOR_FILES}
+    assert copies == expected and len(copies) == 18
+    assert all(rest[1] == {"copy": True} for kind, *rest in calls if kind == "copy")
+    cpu = calls[-1][1]
+    assert cpu["gpu"] is None and cpu["cpu"] == 2 and cpu["memory"] == 32768
+    assert cpu["timeout"] == 900 and cpu["include_source"] is False
+    assert cpu["volumes"] == {
+        "/build-evidence": {"sub_path": "/builds/" + spec.sha256, "read_only": False}
+    }
+    assert calls[1][2] == {"extra_options": "--require-hashes"}
+    assert len(commands) == 3
+
+
+def test_real_cli_with_unmocked_clean_local_identity(tmp_path):
+    """CLI in a clean checkout; only the provider transport has a fake implementation."""
+    root = Path(q.__file__).parents[3]
+    checkout = tmp_path / "checkout"
+    subprocess.run(["git", "clone", "--quiet", "--no-local", str(root), str(checkout)], check=True)
+    program = """
+import json, pathlib, runpy, sys
+from typer.testing import CliRunner
+from active_ocr.entrypoints import cli
+from active_ocr.integrations import modal_model as m
+from active_ocr.integrations.simulation import local_contract_identity, create_fixture
+from active_ocr.models import SimulationConfig
+from active_ocr.pipeline import Pipeline
+helper=runpy.run_path(sys.argv[1])
+work=pathlib.Path(sys.argv[2])
+checkout=pathlib.Path.cwd()
+assert pathlib.Path(m.__file__).resolve().is_relative_to(checkout)
+revision,dependencies=local_contract_identity()
+assert len(revision)==40 and len(dependencies)==64
+runtime=helper['settings'].__wrapped__()
+data=runtime.model_dump()
+data['build_spec']['source_sha']=revision
+spec=m.BuildSpec.model_validate(data['build_spec'])
+data['build'].update(source_sha=revision,build_spec_sha256=spec.sha256)
+build=m.BuildReceipt.model_validate(data['build'])
+identity=data['context']['real_config']['expected_identity']
+identity.update(source_sha=revision,dependency_sha256=dependencies,
+    code_bundle_sha256=build.code_bundle_sha256,build_spec_sha256=spec.sha256)
+runtime=m.RuntimeSettings.model_validate(data)
+manifest=create_fixture(work/'data',train_pages=3)
+config=SimulationConfig(real=runtime.context.real_config,backend='qwen3-vl-v1',
+    evaluator_id='page-text-nfc-v1',max_rounds=1,batch_size=1,validation_page_ids=('page-3',))
+configuration=work/'config.json'
+configuration.write_text(config.model_dump_json())
+directory=work/'run'
+runner=CliRunner()
+def invoke(*args,ok=True):
+    result=runner.invoke(cli.app,['real',*map(str,args)])
+    assert (result.exit_code==0)==ok, str(result.exception)
+    return result
+run_id=invoke('create',manifest,directory,configuration).output.strip()
+pipeline=Pipeline.for_simulation(directory)
+run=pipeline.get_simulation(run_id)
+model=helper['attach_baseline'](pipeline,run,runtime)
+runtime=model.settings
+settings_file=work/'runtime.json'
+settings_file.write_text(runtime.model_dump_json())
+deployment=work/'deployment.json'
+deployment.write_text(m.DeploymentObservation(settings_sha256=helper['digest'](runtime.model_dump(mode='json')),
+    function_id='fu-synthetic',app_id='ap-synthetic').model_dump_json())
+transport=helper['FullByteTransport'](runtime,helper['adapter_bytes'].__wrapped__())
+m.SDKTransport=lambda settings,observed:transport
+assert json.loads(invoke('preflight',directory,run_id,settings_file).output)['local']=='verified'
+assert transport.calls==[]
+# Wrong measured local dependency identity rejects before any model submission.
+bad=config.model_dump()
+bad['real']['expected_identity']['dependency_sha256']='0'*64
+configuration.write_text(json.dumps(bad))
+rejected=invoke('create',manifest,work/'bad-run',configuration,ok=False)
+assert 'local code/dependency identity' in str(rejected.exception)
+# A tracked local edit invalidates resume/preflight even though the saved recipe is unchanged.
+readme=checkout/'README.md'
+original=readme.read_bytes()
+try:
+    readme.write_bytes(original+b'\\nidentity test mutation\\n')
+    rejected=invoke('preflight',directory,run_id,settings_file,ok=False)
+    assert 'local code/dependency identity' in str(rejected.exception)
+    assert transport.calls==[]
+finally:
+    readme.write_bytes(original)
+baseline=json.loads(invoke('resume',directory,run_id,settings_file,deployment,'--one-round').output)
+assert baseline['baseline']['labelled_count']==0 and baseline['rounds']==[]
+done=json.loads(invoke('run',directory,run_id,settings_file,deployment).output)
+assert done['complete'] and len(done['rounds'])==1
+assert len(transport.calls)==4
+invoke('resume',directory,run_id,settings_file,deployment)
+assert len(transport.calls)==4
+status=invoke('status',directory,run_id).output
+assert 'Synthetic page' not in status
+assert all(r['state']=='COMPLETED' for r in json.loads(status)['operations'])
+invoke('export',directory,run_id,work/'export')
+assert json.loads((work/'export/results.json').read_text())['complete'] is True
+membership=json.loads((work/'export/validation.json').read_text())
+assert membership==dict(page_ids=['page-3'],page_count=1)
+assert local_contract_identity()==(revision,dependencies)
+print('clean identity, rejection, baseline, fit, resume, status and export verified')
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", program, str(Path(__file__).resolve()), str(tmp_path)],
+        cwd=checkout,
+        env={**os.environ, "PYTHONPATH": str(checkout / "src")},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (
+        "clean identity, rejection, baseline, fit, resume, status and export verified"
+        in result.stdout
+    )
+    assert subprocess.check_output(["git", "status", "--porcelain"], cwd=checkout) == b""
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [None, "missing_receipt", "corrupt_report", "skipped_report", "source", "noncanonical"],
+)
+def test_build_receipt_retrieval_never_rebuilds_missing_or_bad_evidence(
+    settings, monkeypatch, damage
+):
+    from types import SimpleNamespace
+
+    from active_ocr.entrypoints import modal_app as a
+
+    spec = settings.build_spec
+    report = dict(
+        selected=11, passed=11, skipped=0, failed=0, tests=[f"case-{i}" for i in range(11)]
+    )
+    if damage == "skipped_report":
+        report.update(passed=10, skipped=1)
+    raw = encoded(report)
+    receipt = settings.build.model_copy(
+        update={
+            "cpu_report": m.ArtifactRef(
+                key="cpu-report.json", bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest()
+            )
+        }
+    )
+    if damage == "source":
+        receipt = receipt.model_copy(update={"source_sha": "0" * 40})
+    prefix = "/builds/" + spec.sha256 + "/"
+    files = {
+        prefix + "build-receipt.json": encoded(receipt.model_dump(mode="json")),
+        prefix + "cpu-report.json": raw,
+    }
+    if damage == "missing_receipt":
+        del files[prefix + "build-receipt.json"]
+    elif damage == "corrupt_report":
+        files[prefix + "cpu-report.json"] += b"!"
+    elif damage == "noncanonical":
+        files[prefix + "build-receipt.json"] = receipt.model_dump_json(indent=2).encode()
+    calls = []
+
+    class Image:
+        def build(self, app):
+            calls.append("build")
+            self.object_id = "im-observed-synthetic"
+
+    def read(key):
+        assert calls == ["build"]
+        calls.append(key)
+        try:
+            return [files[key]]
+        finally:
+            calls.pop()
+
+    monkeypatch.setattr(a, "prepare_image", lambda *args, **kw: Image())
+    kwargs = dict(
+        app=object(),
+        checkout=Path("."),
+        requirements=Path("."),
+        processor_root=Path("."),
+        output_volume=SimpleNamespace(read_file=read),
+    )
+    if damage:
+        with pytest.raises((a.WorkerError, KeyError)):
+            a.build_image(spec, **kwargs)
+    else:
+        image, observed, observed_report = a.build_image(spec, **kwargs)
+        assert (
+            image == "im-observed-synthetic" and observed == receipt and observed_report == report
+        )
+    assert calls == ["build"]
+
+
+@pytest.mark.parametrize("damage", [None, "image", "model", "symlink"])
+def test_input_upload_plan_excludes_labels_and_validates_before_batch(worker_fixture, damage):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    w = worker_fixture
+    pages = [
+        SimpleNamespace(image_uri=str(w.inputs / f.filename), image_sha256=f.sha256)
+        for f in w.settings.bundle.files
+        if f.filename.startswith("images/")
+    ]
+    (w.inputs / "model/private-labels.xml").write_text(SECRET)
+    if damage == "image":
+        Path(pages[0].image_uri).write_bytes(b"changed")
+    elif damage == "model":
+        (w.inputs / "model/tokenizer.json").write_bytes(b"changed")
+    elif damage == "symlink":
+        path = w.inputs / "model/tokenizer.json"
+        raw = path.read_bytes()
+        path.unlink()
+        outside = w.outputs / "tokenizer.json"
+        outside.write_bytes(raw)
+        path.symlink_to(outside)
+    uploaded = []
+    batches = []
+
+    @contextmanager
+    def batch_upload(*, force):
+        assert force is False
+        batches.append(True)
+        yield SimpleNamespace(put_file=lambda path, key: uploaded.append((path, key)))
+
+    volume = SimpleNamespace(batch_upload=batch_upload)
+    if damage:
+        with pytest.raises(ValueError):
+            m.upload_input_bundle(volume, w.settings.bundle, pages, w.inputs / "model")
+        assert batches == uploaded == []
+    else:
+        m.upload_input_bundle(volume, w.settings.bundle, pages, w.inputs / "model")
+        assert len(batches) == 1
+        prefix = "/bundles/" + w.settings.bundle.sha256 + "/"
+        assert {key for _, key in uploaded} == {
+            prefix + f.filename for f in w.settings.bundle.files
+        }
+        assert all("private-labels" not in str(path) for path, _ in uploaded)
