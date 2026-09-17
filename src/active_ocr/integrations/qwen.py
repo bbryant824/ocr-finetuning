@@ -21,7 +21,7 @@ import tempfile
 import time
 from array import array
 from contextlib import suppress
-from importlib.metadata import distributions
+from importlib.metadata import distribution, distributions
 from pathlib import Path
 from typing import Any, Literal
 
@@ -217,15 +217,16 @@ class WorkerManifest(Model):
 
 
 def installed_packages() -> Packages:
+    # Provider bootstrap paths can expose shadowed copies. Resolve each name as
+    # Python metadata does, rather than choosing by enumeration order or version.
+    names = {
+        re.sub(r"[-_.]+", "-", d.metadata["Name"].lower())
+        for d in distributions()
+        if d.metadata["Name"]
+    }
     return Packages(
         python=platform.python_version(),
-        packages=tuple(
-            sorted(
-                (re.sub(r"[-_.]+", "-", d.metadata["Name"].lower()), d.version)
-                for d in distributions()
-                if d.metadata["Name"]
-            )
-        ),
+        packages=tuple((name, distribution(name).version) for name in sorted(names)),
     )
 
 

@@ -58,9 +58,16 @@ copy. The future builder supplies any additional dispatcher files in the same al
 `code_bundle_sha256` is the SHA-256 of canonical JSON
 `{"source_sha": ..., "files": [...]}`. Canonical JSON means sorted keys, compact separators,
 UTF-8, no NaN and no ASCII escaping. `remote_dependency_sha256` hashes the complete
-`environment` object. `installed_packages()` obtains Python's version and all installed
-(name, version) pairs, sorted with distribution names lowercased and runs of `[-_.]`
-normalized to `-`. There is no comparison of remote packages with the coordinator's local
+`environment` object. `installed_packages()` obtains Python's version and one effective
+version per discovered distribution name, lowercased with runs of `[-_.]` normalized to `-`
+and sorted by name. Each version comes from `importlib.metadata.distribution(name)`, using
+Python's metadata search-path precedence. Provider bootstrap paths can expose additional,
+shadowed copies with equal or conflicting versions; these are not selected by highest
+version, enumeration order or package exclusions. A measured Modal parent/fresh-child
+diagnostic found identical effective inventories despite 17 duplicate names across image
+and bootstrap paths. Build and worker checks still compare the complete effective inventory
+and enforce exact pins; this is metadata identity, not proof of imported module provenance.
+There is no comparison of remote packages with the coordinator's local
 `dependency_sha256`. Code SHA, build and deployment declarations must match ExpectedIdentity;
 null build/deployment values are permitted by that existing record, not evidence of a build.
 Candidate 3 must freeze actual reviewed build/deployment values before execution release.

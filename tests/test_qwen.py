@@ -398,6 +398,32 @@ def test_wrong_recipe_constructor_and_worker_before_load(worker, monkeypatch):
         worker.load_base(experiment_id="run")
 
 
+@pytest.mark.parametrize("image_first", [True, False])
+def test_installed_packages_records_effective_search_path_versions(
+    tmp_path, monkeypatch, image_first
+):
+    # Actual metadata resolution, without installing or importing any ML package.
+    image, vendor = tmp_path / "image", tmp_path / "vendor"
+    for root, name, version in (
+        (image, "Typing_Extensions", "4.16.0"),
+        (vendor, "typing-extensions", "4.13.2"),
+        (image, "hyperframe", "6.1.0"),
+        (vendor, "hyperframe", "6.1.0"),
+        (image, "torch", q.PINS["torch"]),
+    ):
+        metadata = root / f"{name.lower().replace('-', '_')}-{version}.dist-info"
+        metadata.mkdir(parents=True)
+        (metadata / "METADATA").write_text(f"Name: {name}\nVersion: {version}\n")
+    paths = [str(image), str(vendor)] if image_first else [str(vendor), str(image)]
+    monkeypatch.setattr(sys, "path", paths)
+    observed = q.installed_packages()
+    assert observed.packages == (
+        ("hyperframe", "6.1.0"),
+        ("torch", q.PINS["torch"]),
+        ("typing-extensions", "4.16.0" if image_first else "4.13.2"),
+    )
+
+
 def test_worker_manifest_no_git_checks_actual_code_and_packages(worker, monkeypatch):
     import active_ocr
     import active_ocr.models
