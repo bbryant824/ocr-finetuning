@@ -132,3 +132,45 @@ the rounded summary showed USD0.02 metered,0 billed and a0.02 credit adjustment.
 Keep gross USD5/USD30 accounting and reporting-lag caveats; remaining credits
 are unknown. Preserve all prior failures. This completes author CPU evidence;
 independent CPU acceptance still precedes any GPU deployment or real OCR round.
+
+## Attempt 4 — corrected dispatcher CPU build
+
+**Measured result: build succeeded, 11 passed, 0 skipped, 0 failed, 2026-09-17.**
+One released build used clean source `7dd40ec6cc444c939bdd09b42963bbf639cecbca`,
+independently reviewed at `77b762f91f82f79df08c2e1115aaa23d5ed9bc75`. Only the
+dispatcher differs from attempt 3's seven runtime files; Qwen, CPU test bodies,
+lock, hashed requirements and processor assets are unchanged. Existing cache,
+client and Volumes were reused. No local test campaign, separate diagnostic,
+real page/model-weight upload, GPU allocation or deployment replacement occurred.
+
+The existing `build_image` helper ran once with CPU2 / RAM32768MiB / GPU=None,
+900-second timeout and 850-second child watchdog. Operator elapsed time was
+142.588 seconds, 04:01:11.562126–04:03:34.152830 UTC. The actual image returned was
+`im-82wRAkCIoH38W1LnO3G4KT`. The durable canonical report and receipt were read
+back and checked against source, code, spec, byte count and hashes. The receipt
+records Python3.11.12 and 96 effective package names; the environment digest
+matches attempt 3. No separate image-inspection container was launched.
+
+| Identity | SHA-256 |
+| --- | --- |
+| BuildSpec | `c876d946ac6635d8cd9172bafb7c9873cced759ed9fa6d0248177762919f1ecf` |
+| BuildReceipt | `cb477825e80734235813a86eeb98309455e814ba3a19a02ba185fc19609cc550` |
+| CPU report | `274ff01ffbf962724bbd0590a6a32af05cc167fc6dafcd4a983c0a51ab41df39` |
+| Code bundle | `2a641c51600b848bb93557afa4d8b193e46108e1c158400bcef6cf33727d62ed` |
+| Remote environment | `1ca1ef0d869fd49340cbe1cfdb8ade6f3e016cfa900443a11f60c6084a98cf14` |
+
+The build App stopped and provider inventory listed zero containers. The previous
+dispatcher remained deployed with its original Function ID and zero warm containers;
+its failed run/control was not changed. All prior attempts remain preserved.
+The immediate attempt-specific resource report attributed USD0.00357553
+(CPU0.00097151, memory0.00260402). Latest aggregate accounting reported
+USD0.42 metered / USD0 billed after credits,
+provisional; retain the earlier USD0.45 observation and separate diagnostic costs
+rather than interpreting lower later totals as refunds. Storage and final billing
+remain unsettled. Gross firstUSD5/totalUSD30 bounds remain in force.
+
+This is author evidence for the corrected CPU image, not independent acceptance
+or 4B/CUDA execution. Evidence-only review must precede any GPU release. Exact
+invocation, inputs, returned identities, logs and accounting remain indexed in
+private build records; the standard command recipe is unchanged in the
+[deployment guide](../modal-deployment.md).
