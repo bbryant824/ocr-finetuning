@@ -1,5 +1,72 @@
 # Independent Modal integration review
 
+## Actual bounded round — PASS for engineering execution
+
+Runtime UUID `c241b57754f94b86a389ed20842ec9e7`; source
+`1a03f77519439c0601a83c8c3b4670ca896de337`; review release
+`c6bf8a281f0bdf8a032e2a38380b7919f02e26ad`.
+This verifies one real round, checkpoint/reload, completed resume and exports.
+**It does not establish usable OCR or an active-learning benefit:** baseline and post-fit
+validation each contain one invalid output and one truncated output, with CER/WER 1.0.
+
+Read-only SQLite verification (`mode=ro`, `PRAGMA quick_check`, decoded `records` rows)
+matches the retained state and both fresh-process status outputs exactly. There is one
+atomic committed round, two revealed pages, 348 remaining TRAIN pages, `page_budget` stop,
+and four COMPLETED operations with distinct provider call IDs and no active operation.
+Retained run/status/resume/status/export invocations all exited zero; completed resume left
+the complete state, membership, operation IDs and call IDs unchanged, with no new submission.
+JSON results match the stored run; both CSV rows match baseline/round predictions, metrics,
+model IDs, selected/revealed counts and the two-page validation subset. Annotation time is blank.
+
+Recomputing random selection from the 350 TRAIN IDs and seed824 gives Seite0286/Seite0332.
+Their original frozen regions reproduce both request target digest and serialized checkpoint
+target digest. Only selected TRAIN pages are bound to fit; predict requests carry image/page
+metadata for the same two validation pages, Seite0355/Seite0356, without ground truth.
+The accepted source enforces selected-only label submission and evaluator-only validation
+truth. Source manifest bytes and the four consumed image hashes agree with the frozen data.
+This reuses the accepted engineering split policy; unknown document groups remain a limitation.
+
+Actual worker manifests, operation receipts and all referenced artifact bytes agree with the
+accepted CPU image/source/pins and local retained evidence. Fit is bound to the base checkpoint
+and reset-fit policy, seed824, three epochs and three finite optimizer updates (six losses).
+All 144 adapter tensors changed; the executed guard records unchanged frozen-base identity.
+The content-addressed checkpoint, its file inventory and normalized full target configuration
+verify. No pretrained weight rehash was repeated during this review.
+
+Fresh reload uses distinct child PIDs4/29. Before/after metadata match in tensors, generated
+IDs, status, regions and geometry. Independent FP32 framing/hash checks match all 144 saved
+adapter tensors to the probes; the two 8×151936 logit files are byte-identical and finite,
+so maximum absolute difference is 0.0 within the declared tolerances. The probe itself is
+truncated, which establishes reload consistency rather than output correctness.
+
+| Reproducible artifact | SHA-256 |
+| --- | --- |
+| Adapter checkpoint manifest | `b726e06ce06de3e052de914461dd3ec0b644b59249fce58a3fa9040b6dc1d660` |
+| Before reload metadata | `4776c59d8fef21d97b1465484d7373638d88db4241762492af5ecfbf44f18ad2` |
+| After reload metadata | `ea0fb308eac60950015c6497dedc9e8f8201841f21596bec89f05d2985fd9e1b` |
+| Both logit files | `dc890c4bfe8984bb5a8f70e6e192232acb437c3e41e8bdb6ca83cf37e1ae2927` |
+| JSON export | `98b701e42b19c03d49b8df39b57acafdbdb7f1a1018d1bd98a8115a10934980f` |
+| CSV export | `f628eec19e5283c6247d7496c50a3a11e6946a47f113e0dc3679ff397a6969c1` |
+
+Validation counts were independently recomputed from source references and failed predictions:
+981 character edits / 981 reference characters, 151 word edits / 151 reference words, at both
+baseline and post-fit. Empty scored hypotheses follow the declared failure policy; raw failed
+outputs remain retained. Selected training targets have 2206/2129 tokens, both longer than the
+unchanged 2048-token generation cap. No quality improvement, human-time saving, comparative
+method advantage or document-independent generalization is demonstrated.
+
+Final author handoff `cc6a21070a93ebec436c224e2b1b2f6aae18a5d9` inspected;
+all 89 files in index `38200f2159817311a18ab04db174d59b7bf5c57a322e8f6b89c1e2f9118241ed`
+rehash correctly. Captured provider state has zero active containers and an idle deployment.
+The run App resource rows sum to USD0.35677159; aggregate USD0.99 metered / zero billed
+after credits is provisional. Retain the USD2.16 storage reserve and gross USD5/USD30 limits;
+observed usage plus that reserve is below the first limit, without claiming settled billing.
+
+Read-only verification used Python JSON/CSV/hashlib/sqlite3, exact schema/reference checks,
+original selected-region serialization, seeded selection, finite FP32 byte inspection and
+metric recomputation. It invoked no model, provider, training, test campaign or additional round.
+Historical failures and earlier offline reviews below remain preserved.
+
 ## Final verdict — PASS for complete offline integration
 
 Reviewed implementation: `ca3c60c3eb03b51ef442b80e53dade60673e30f2`.
