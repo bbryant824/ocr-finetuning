@@ -264,3 +264,16 @@ uses the existing `torch.allclose(before, after, rtol=1e-3, atol=1e-2)` conventi
 retain partial evidence and cannot produce a successful transport completion or round commit.
 The local coordinator validates this evidence with standard-library binary readers, without ML
 packages. See [Modal recovery](modal-runtime.md) for the completion and execution gates.
+
+## Pinned processor normalization representation
+
+Transformers 5.16.1 initializes the Torchvision backend through
+`BaseImageProcessor._set_attributes` and `_standardize_kwargs`; the latter converts
+`image_mean` and `image_std` JSON lists to tuples. The pinned assets specify three `0.5`
+values for each. The loader checks those canonical tuples, preserving normalization values,
+bicubic resampling and every other processor check. A mismatch reports the failing setting
+name without emitting input text or images. The former list comparison rejected valid setup
+before all eleven intended CPU checks. The offline regression reproduces this boundary with
+ML dependency stubs; successful actual processor/ML execution still requires the reviewed CPU
+build. Source inspection used the exact lock-pinned Transformers wheel, SHA256
+`2f2d5b98a5ad3718713653734298fa620754ed683702a635ebb587df3ed29c7e`.

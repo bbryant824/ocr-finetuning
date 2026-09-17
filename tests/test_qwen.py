@@ -111,6 +111,74 @@ def test_import_never_imports_ml():
     )
 
 
+def test_load_processor_accepts_canonical_tuple_normalization_and_rejects_drift(
+    tmp_path, monkeypatch
+):
+    # Transformers 5.16.1 BaseImageProcessor._standardize_kwargs converts both JSON
+    # lists to tuples. Stub only the unavailable ML boundary; run our real loader/guard.
+    class TorchvisionBackend:
+        pass
+
+    class Qwen2VLImageProcessor(TorchvisionBackend):
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            return image
+
+    class Qwen3VLProcessor:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    image = Qwen2VLImageProcessor()
+    image.__dict__.update(
+        patch_size=16,
+        temporal_patch_size=2,
+        merge_size=2,
+        do_resize=True,
+        do_rescale=True,
+        do_normalize=True,
+        rescale_factor=1 / 255,
+        resample=Image.Resampling.BICUBIC,
+        image_mean=(0.5, 0.5, 0.5),
+        image_std=(0.5, 0.5, 0.5),
+    )
+    tokenizer = SimpleNamespace(
+        is_fast=True,
+        convert_tokens_to_ids={
+            "<|im_end|>": 151645,
+            "<|endoftext|>": 151643,
+            "<|image_pad|>": 151655,
+        }.__getitem__,
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "transformers",
+        SimpleNamespace(
+            AutoTokenizer=SimpleNamespace(from_pretrained=lambda *a, **k: tokenizer),
+            Qwen3VLVideoProcessor=SimpleNamespace(from_pretrained=lambda *a, **k: object()),
+            Qwen3VLProcessor=Qwen3VLProcessor,
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "transformers.image_processing_backends",
+        SimpleNamespace(TorchvisionBackend=TorchvisionBackend),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "transformers.models.qwen2_vl.image_processing_qwen2_vl",
+        SimpleNamespace(Qwen2VLImageProcessor=Qwen2VLImageProcessor),
+    )
+    (tmp_path / "chat_template.json").write_text('{"chat_template":"synthetic"}')
+    loaded = q.load_processor(tmp_path)
+    assert loaded.image_processor.image_mean == (0.5, 0.5, 0.5)
+    assert loaded.image_processor.image_std == (0.5, 0.5, 0.5)
+    for attribute in ("image_mean", "image_std"):
+        setattr(image, attribute, (0.5, 0.5, 0.4))
+        with pytest.raises(ValueError, match=attribute):
+            q.load_processor(tmp_path)
+        setattr(image, attribute, (0.5, 0.5, 0.5))
+
+
 def test_public_assets_match_embedded_provenance():
     record = json.loads(
         (Path(__file__).parents[1] / "experiments/assets/read2016-qwen3vl4b.json").read_text()
