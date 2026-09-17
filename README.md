@@ -3,10 +3,10 @@
 A small research pipeline for studying whether active-learning strategies can reduce the amount
 of human annotation needed to adapt OCR models to historical and low-resource documents.
 
-The intended current path is a **local active-learning simulation**: existing source true labels
-simulate annotation, and a deterministic fixture model exercises the complete loop without services.
-The pinned READ2016 data preparation path is independently verified. The Qwen/Modal pipeline is
-implemented and passed offline review; actual Linux CPU and GPU verification remain next.
+Existing source true labels simulate annotation. A deterministic fixture exercises the loop
+without services; the real path uses the pinned Qwen model through Modal. READ2016 preparation,
+offline integration and actual Linux CPU checks are independently verified. The first complete
+4B/GPU active-learning round remains in progress.
 
 ## Quick start: no-service simulation
 
@@ -44,8 +44,9 @@ and [real-pipeline plan](plans/PLAN-003-real-ocr-modal.md) for evidence and rema
 The pinned Qwen runtime implements model loading, reset LoRA fitting, strict OCR output parsing
 and immutable checkpoints. It passed [independent offline review](docs/verification/qwen-runtime-review.md);
 the Modal adapter, operation recovery and real-run CLI also passed
-[independent integration review](docs/verification/modal-runtime-review.md). Actual Linux processor/
-tiny-model checks and 4B/CUDA execution remain unverified. See the [deployment guide](docs/modal-deployment.md).
+[independent integration review](docs/verification/modal-runtime-review.md). All eleven actual Linux
+processor/tiny-model checks passed [independent CPU review](docs/verification/modal-cpu-review.md).
+Real 4B/CUDA execution remains unverified. See the [deployment guide](docs/modal-deployment.md).
 
 The earlier optional Label Studio/remote-worker flow is retained below for compatibility. Its
 GPU job endpoints remain placeholders. No real-model experiment or selection-quality result is claimed.

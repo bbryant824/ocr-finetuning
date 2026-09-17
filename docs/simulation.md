@@ -4,8 +4,8 @@ This path verifies the loop using source true labels as a simulated annotator. T
 `deterministic-fixture-v1` model produces empty OCR regions and synthetic hash-based scores.
 These are **not OCR quality, calibrated uncertainty, measured annotation effort, or evidence that
 one acquisition strategy is better**. No downloads, services, credentials, network, torch or GPU
-are needed. Production real adapters and final-test evaluation remain future work. The Python API also
-provides the explicit synthetic contract path described below.
+are needed for the fixture. The separate Qwen/Modal real adapter is described below and in the
+[Modal runtime guide](modal-runtime.md); final-test evaluation remains deferred.
 
 ## Flow and boundaries
 
@@ -67,9 +67,9 @@ compares the previous payload before replacing it with the new complete state. F
 commit leaves the old round; loss of the response after commit leaves one full committed round.
 No partial durable reveal/budget/score set exists. A stale concurrent writer must reload. Supported
 execution is sequential and synchronous; every fit must reset and consume cumulative examples.
-The fixture is stateless. Retry may repeat oracle/model calls; remote exactly-once side effects
-and real checkpoint recovery are not implemented. This small snapshot design favors readability
-over scalability to large datasets/runs.
+The fixture is stateless, and fixture retry may repeat oracle/model calls. The real Modal adapter
+adds durable operation reconciliation and checkpoint reuse; it does not promise exactly-once
+paid execution. See [remote recovery](modal-runtime.md).
 
 The initial batch counts toward `page_budget`. Each batch is truncated by remaining budget/pool;
 seven pages, batch 3, budget 5 gives 3+2. Empty pool, exhausted budget or reached round limit stops.
@@ -127,10 +127,10 @@ SQLite rollback and concurrent stale writes, reset-fit retries, held-out validat
 
 ## Local baseline and real-adapter contracts
 
-**Implementation state:** local records, boundary checks and synthetic adapter execution exist.
-Qwen/Modal adapter construction and execution, weight-byte verification, remote
-operation recovery and uncertainty remain unavailable. The CLI still constructs fixtures only.
-These contracts make no OCR, GPU, learning or annotation-time claim.
+Local records and boundary checks support both explicit synthetic adapters and the Qwen/Modal
+real path. The `simulation` CLI constructs fixtures; the separate `real` CLI uses the checked
+Modal adapter and its recovery journal. Synthetic contract results make no OCR or learning claim.
+Real uncertainty-based acquisition and final-test methodology remain deferred.
 
 `SimulationRun.kind` is explicit:
 
@@ -138,7 +138,7 @@ These contracts make no OCR, GPU, learning or annotation-time claim.
 | --- | --- |
 | `fixture-simulation-not-ocr-evidence` | Default fixture backend, no real recipe or baseline. |
 | `adapter-contract-test-not-ocr-evidence` | Frozen real-shaped recipe plus an explicitly supplied synthetic adapter. |
-| `real-ocr-simulated-annotation-v1` | Can represent a frozen recipe/run locally; execution raises `NotImplementedError` in this slice. |
+| `real-ocr-simulated-annotation-v1` | Uses an explicit real adapter; the `real` CLI connects the identity-checked Modal runtime. |
 
 `create_simulation(manifest, config, kind=RunKind.CONTRACT_TEST)` freezes a `SimulationConfig`
 whose `real` is a `RealOCRConfig`. Its backend/evaluator must match that recipe. This path currently
@@ -158,7 +158,8 @@ nonignored files) or unavailable Git cannot match a clean expected source SHA. C
 local identity without calling a model. Each step checks local identity, explicit adapter kind,
 backend, fit policy, complete recipe and its declared identity before model work, between load/fit
 and prediction, and before commit. Completed resume checks inputs/config/identity before returning.
-These declarations do not verify actual checkpoint bytes; a later real adapter must do that.
+These declarations alone do not verify checkpoint bytes; the Qwen/Modal adapter additionally
+checks immutable checkpoint files and fresh-process reload evidence.
 
 Execution telemetry is optional and absent initially: device, driver/CUDA, free/peak memory,
 elapsed time, call ID and billed cost. Adapters may provide an `ExecutionTelemetry` as `telemetry`
