@@ -1,5 +1,57 @@
 # Independent Qwen runtime review
 
+## Saved-adapter export correction — PASS (offline)
+
+Candidate `1a03f77519439c0601a83c8c3b4670ca896de337`; control
+`ad2c27804cef81ea89c5cd86496348f29f0057e9`. Scope is the eight-line export correction,
+its two-case regression, and inspection of the revised existing actual CPU test.
+
+Retained GPU diagnostic `d38e912891df5634663a010bb363182da8844b74d8a8f55fa93d0628aeede91d`
+records six forward/backward completions and three updates before strict saved-configuration
+comparison failed. The separate CPU export result
+`7b77e60aa9dff6760dcad0d2ed5c902c28d521efcace2e4126d0efe3ee59801a`
+identifies only `target_modules` as differing after existing normalization: 72 full paths
+versus two suffixes. Its 36-layer tiny model has all 144 requested trainable tensor names;
+it performs no forward/training and loads no pretrained weights. Relevant scripts and result
+hashes were checked directly; these observations do not imply a completed GPU checkpoint.
+
+Fit now persists `list(TARGETS)` alongside the existing pinned base/revision normalization.
+Actual target topology, trainable names/shapes/dtype/count, adapter change, frozen-base hashes
+and update count are checked before export. Exported tensors are subsequently checked before
+binding or publication. Strict configuration equality, tensor/inventory validation and reader
+code are unchanged. The fit/save/bind regression reaches the real configuration guard using
+explicit ML stubs: rank16 proceeds to tensor validation; changed rank8 still rejects.
+Persisted base/target/config drift remains rejected by the unchanged reader, not accepted
+through a broader suffix-matching rule. Pins and research recipe are unchanged.
+
+**16 focused cases passed in 0.25s** at the clean candidate; affected Ruff and diff checks pass:
+
+```sh
+python -m pytest \
+  tests/test_qwen.py::test_fit_exports_full_targets_and_preserves_strict_config_guard \
+  tests/test_qwen.py::test_checkpoint_corruption \
+  tests/test_qwen.py::test_adapter_byte_inventory_rejects_missing_corrupt_and_extra \
+  tests/test_qwen_independent.py::test_adapter_mutation_between_validation_and_load_is_rejected \
+  tests/test_qwen_independent.py::test_real_checkpoint_inventory_rejects_drift \
+  tests/test_qwen_independent.py::test_phase2_failed_binding_cannot_reuse_previous_identity \
+  tests/test_qwen_independent.py::test_phase2_fit_retains_staged_inventory_until_publication --tb=short
+```
+
+Author red/green evidence reports the original code failed the rank16 case and passed rank8;
+this review independently ran the corrected cases and inspected the original failing path.
+No new test or production edit was needed. No full campaign, cloud call or ML execution ran.
+The revised actual CPU case crosses PEFT's compaction threshold through real injection/export,
+requires compact-config rejection and retains tensor/base-drift checks; **it remains unexecuted
+at this candidate until the separately released CPU build**. Prior CPU passes cannot cover it.
+A corrected image and completed GPU round remain later gates. Malformed/truncated baseline
+outputs and selected targets longer than the decode cap remain disclosed in
+[the execution record](../../experiments/EXP-002.md); no OCR/active-learning benefit is inferred.
+
+## Historical offline review
+
+The following verdict and execution limitations describe the earlier review date and source.
+Later actual CPU evidence is recorded in [the CPU review](modal-cpu-review.md).
+
 Current verdict: **PASS for the reviewed offline scope** at corrected candidate
 `31bb47224c03b0db8f7f9705028e29e1d13e2c0e`.
 Control: `58c34c9e9b8460e9b19af0a23d5c8af1f78789aa`; the accepted specification and production
