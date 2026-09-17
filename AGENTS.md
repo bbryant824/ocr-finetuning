@@ -10,7 +10,7 @@ The practical objective is a small, reproducible, understandable pipeline with f
 
 The local fixture loop, synthetic real-adapter contracts and pinned READ2016 converter are delivered.
 The full engineering dataset passed independent conversion/freeze/reopen checks. The Qwen/Modal
-pipeline passed offline review; actual Linux CPU verification and a bounded GPU smoke are next.
+pipeline passed offline review and actual Linux CPU verification; one bounded GPU round is next.
 Keep simple interchangeable dataset/model interfaces; a labeling frontend is not required.
 Keep implementations minimal, straightforward and correct; do not add speculative infrastructure.
 The oracle must not expose unrevealed or held-out labels to fitting or acquisition. Revealed-page
@@ -18,8 +18,8 @@ counts represent simulated annotation budgets, not measured human annotation tim
 outputs verify plumbing only and never establish OCR quality or active-learning improvement.
 
 The pinned `Qwen/Qwen3-VL-4B-Instruct` runtime now implements loading, prediction, reset LoRA
-fine-tuning and immutable checkpoints. Its independent offline review passed; actual Linux
-processor/tiny-model checks and 4B/CUDA execution remain unverified. Modal transport, operation
+fine-tuning and immutable checkpoints. Independent offline review and all eleven actual Linux
+processor/tiny-model checks passed. Real 4B/CUDA execution remains unverified. Modal transport, operation
 recovery and the real-run CLI passed independent offline integration review. This is not a model result.
 
 ## Architecture summary
