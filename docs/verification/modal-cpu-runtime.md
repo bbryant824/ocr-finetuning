@@ -1,4 +1,6 @@
-# First actual Modal CPU build
+# Actual Modal CPU builds
+
+## Attempt 1
 
 **Result: FAIL, 2026-09-17.** The locked Linux build reached the CPU test gate,
 but all eleven intended tests failed during processor fixture setup with
@@ -62,3 +64,38 @@ Platform must resolve the missing durable failure diagnostic within an assigned
 correction. Preserve these failed outputs, independently review any correction,
 then obtain a bounded retry release. All eleven actual CPU checks must pass with
 zero skips before a GPU round can be released.
+
+## Attempt 2 — eleven CPU passes, receipt failure
+
+**Build result: FAIL, 2026-09-17. CPU checks: 11 passed, 0 skipped, 0 failed.**
+This single corrected attempt used clean source
+`7ea96c3b9b10612a0751ff78a668cbe076c18ef9`, independently reviewed at
+`4753dd0600047d6fc03f6c469b1ecf28c7ff6e68`, unchanged dependency lock/export,
+existing processor assets and the same named resources. No separate diagnostic,
+GPU work or automatic retry was performed.
+
+New BuildSpec SHA-256:
+`ac5f9a5c32fa819432182c51c5266dce4b0d9113ef8e9806afd7b5aca8dff702`.
+The attempt took149.47seconds including setup/image layers and failure handling,
+ending01:38:13.076701UTC. The output Volume durably contains the canonical
+829-byte `cpu-report.json`, SHA-256
+`274ff01ffbf962724bbd0590a6a32af05cc167fc6dafcd4a983c0a51ab41df39`.
+Readback verified eleven distinct intended test names and the exact zero-skip
+pass counts. These are real synthetic processor/tiny-model/fresh-process CPU
+checks, not a4B/CUDA result. The corrected mount/publication path now produced
+durable output.
+
+After these passes, `BuildReceipt` construction rejected the observed package
+inventory with `build package inventory must be sorted with unique names`.
+The retained exception does not identify the duplicate names/versions; those
+details remain to be diagnosed. No BuildReceipt or accepted runtime image exists,
+so the runtime acceptance gate remains closed despite the passing CPU report.
+Provider inventory confirmed the App stopped and no containers remained.
+
+Immediate billing observations remain provisional: this App's per-resource
+report showed USD0.00393008, while the workspace ephemeral-App breakdown had
+reached USD0.01130515 across work so far. The summary showed USD0.01 metered,
+USD0 billed and a USD0.01 credit adjustment; reporting intervals/lag differ.
+Continue gross accounting inside the existing USD5/USD30 ceilings, without
+assuming further free credits. Preserve both attempts and correct/review only
+the reproduced inventory-receipt blocker before any further build release.
