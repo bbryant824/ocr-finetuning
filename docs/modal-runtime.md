@@ -52,6 +52,11 @@ This explicitly admits nullable READ IDs only under the frozen engineering polic
 no source XML, oracle manifest or provenance. Prediction receives no examples. Coordinator
 construction must compare remote page metadata against its frozen snapshot before dispatch;
 the worker checks membership/hash against the approved bundle and Qwen checks image bytes.
+The parent checks full-bundle paths, inventory and sizes, but hashes only images
+named by the current fit/predict request; base loading reads no page bodies. Pinned
+model/processor bytes are verified by the unchanged Qwen child before model use,
+without a redundant parent scan. Unrequested image bytes are checked when consumed;
+full source membership and the uploaded bundle remain unchanged.
 The boundary is protection against accidental leakage, not a malicious authorized coordinator.
 
 `operation_id(request)` hashes schema1 and `request.semantic_record()` as canonical UTF-8 JSON

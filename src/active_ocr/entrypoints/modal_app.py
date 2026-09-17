@@ -815,7 +815,25 @@ def dispatch_operation(
             x.is_relative_to(y) for i, x in enumerate(roots) for j, y in enumerate(roots) if i != j
         ):
             raise WorkerError("identity")
-        _files(input_root, settings.bundle.files)
+        # Admit the full frozen inventory without reading unrelated page bodies.
+        # The child verifies pinned model/processor bytes before any model use.
+        for entry in settings.bundle.files:
+            path = q.safe_path(input_root, entry.filename)
+            if not path.is_file() or path.stat().st_size != entry.bytes:
+                raise WorkerError("identity")
+        request = invocation.request
+        pages = (
+            tuple(e.page for e in request.examples)
+            if isinstance(request, m.FitRequest)
+            else request.pages
+            if isinstance(request, m.PredictRequest)
+            else ()
+        )
+        requested_images = {p.image_key for p in pages}
+        _files(
+            input_root,
+            tuple(e for e in settings.bundle.files if e.filename in requested_images),
+        )
         if any(p.is_symlink() for p in input_root.rglob("*")):
             raise WorkerError("identity")
         actual = {

@@ -134,8 +134,12 @@ One synchronous dispatcher requests L40S only, CPU request/limit2 and memory
 request/limit32768MiB; max1/min0/buffer0 containers, scaledown2s, retries0,
 execution600s and startup300s. Input Volume `/bundles/<bundle-sha>` is mounted
 read-only at `/inputs`; the distinct output Volume `/runs/<actual-run-uuid>` is
-writable at `/outputs`. Only the exact input inventory is admitted; symlinks,
-changed bytes, extra oracle/GT files and invalid page headers reject. Code/build
+writable at `/outputs`. The parent admits only the exact full input inventory and
+file sizes, rejects symlinks/extra oracle or GT files, and hashes requested image
+bodies only (none for base loading). It does not read unrelated pages or duplicate
+the model-body scan. The unchanged child hashes pinned model/processor assets
+before model use and validates every consumed image's bytes and geometry; changed
+used assets and invalid page headers reject. Code/build
 receipt and actual packages are rechecked before model work. The worker manifest
 is constructed from observed build evidence and copied into operation artifacts.
 

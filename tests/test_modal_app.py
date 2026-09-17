@@ -226,6 +226,48 @@ def test_base_completion_and_same_attempt_reuse(runtime):
     assert response.result.provider_call_id == "fc-observed"
 
 
+def test_base_parent_does_not_read_input_bodies(runtime, monkeypatch):
+    original_open = Path.open
+    input_reads = []
+
+    def observe_open(path, *args, **kwargs):
+        if path.is_relative_to(runtime.inputs):
+            input_reads.append(path.relative_to(runtime.inputs).as_posix())
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", observe_open)
+    response = dispatch(runtime, invoke(runtime, m.BaseRequest(context=runtime.settings.context)))
+    assert m.DispatchResponse.model_validate(response).result.model_id.startswith("checkpoint:")
+    assert input_reads == []
+
+
+@pytest.mark.parametrize("operation", ["fit", "predict"])
+def test_requested_image_same_size_corruption_fails_before_child(runtime, operation):
+    checkpoint = base(runtime)
+    if operation == "fit":
+        request = m.FitRequest(
+            context=runtime.settings.context,
+            round_number=1,
+            input_checkpoint=checkpoint,
+            seed=824,
+            examples=(m.RemoteExample(page=runtime.page, regions=()),),
+        )
+    else:
+        request = m.PredictRequest(
+            context=runtime.settings.context,
+            round_number=0,
+            input_checkpoint=checkpoint,
+            purpose="baseline_validation",
+            pages=(runtime.page.model_copy(update={"split": Split.VALIDATION}),),
+        )
+    path = runtime.inputs / runtime.page.image_key
+    raw = path.read_bytes()
+    path.write_bytes(bytes([raw[0] ^ 1]) + raw[1:])
+    with pytest.raises(a.WorkerError, match="identity"):
+        dispatch(runtime, invoke(runtime, request))
+    assert not runtime.payloads
+
+
 def test_changed_attempt_or_deadline_never_reuses_or_retrains(runtime):
     call = invoke(runtime, m.BaseRequest(context=runtime.settings.context))
     dispatch(runtime, call)
