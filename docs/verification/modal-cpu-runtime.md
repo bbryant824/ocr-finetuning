@@ -99,3 +99,36 @@ USD0 billed and a USD0.01 credit adjustment; reporting intervals/lag differ.
 Continue gross accounting inside the existing USD5/USD30 ceilings, without
 assuming further free credits. Preserve both attempts and correct/review only
 the reproduced inventory-receipt blocker before any further build release.
+
+## Attempt 3 — successful CPU build and durable receipt
+
+**Measured result: build succeeded, 11 passed, 0 skipped, 0 failed, 2026-09-17.**
+This single released attempt used clean source
+`1a413d7e373a1182c3552bd9c05c9687fef14485`, independently reviewed at
+`19c48c3ed655dec1150471e12ac37a6017a49b98`. It reused the frozen lock/export,
+client environment, processor assets, cached dependencies and existing Volumes.
+No GPU, real4B weights, additional diagnostic or local test campaign ran.
+
+The build ran02:03:09.044837–02:05:47.808315UTC,158.76seconds including setup
+and image work. Its canonical receipt records Python3.11.12 and96 unique effective
+packages; required direct pins passed. The helper re-read both durable artifacts,
+checked canonical bytes, report size/hash and source/code/spec identities, and
+returned the actual completed image ID. The reviewed successful step writes the
+same canonical receipt into the image; no separate image-inspection container
+was launched. Actual provider IDs and full package inventory remain in private
+indexed evidence for independent review.
+
+| Identity | SHA-256 |
+| --- | --- |
+| BuildSpec | `6a73443392d9c38552afbe279884c9ac5c37cf32030e3a729be0730ec73f9288` |
+| BuildReceipt | `23bcabdd3fe6c0a89a36c31b09c9e21e24010bec2c8e9b74558e07d4ea7dc069` |
+| CPU report | `274ff01ffbf962724bbd0590a6a32af05cc167fc6dafcd4a983c0a51ab41df39` |
+| Code bundle | `dbcf09900b9f828f05a7b87ff23c260182e6bfd0a31331646ae735f25f174412` |
+| Remote environment | `1ca1ef0d869fd49340cbe1cfdb8ade6f3e016cfa900443a11f60c6084a98cf14` |
+
+Provider inventory confirmed the App stopped and no active containers. The latest
+provisional workspace App-usage breakdown was USD0.01865657 across work so far;
+the rounded summary showed USD0.02 metered,0 billed and a0.02 credit adjustment.
+Keep gross USD5/USD30 accounting and reporting-lag caveats; remaining credits
+are unknown. Preserve all prior failures. This completes author CPU evidence;
+independent CPU acceptance still precedes any GPU deployment or real OCR round.
