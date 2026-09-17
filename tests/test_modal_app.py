@@ -632,7 +632,10 @@ def test_cpu_report_accepts_exact_success_without_transcript(tmp_path):
     assert len(report["tests"]) == 11
 
 
-def test_cpu_build_writes_measured_receipt_and_commits_only_output(runtime, monkeypatch):
+@pytest.mark.parametrize("mount_symlink", [False, True])
+def test_cpu_build_writes_measured_receipt_and_commits_only_output(
+    runtime, monkeypatch, mount_symlink
+):
     import shutil
 
     evidence = runtime.outputs / "build-evidence"
@@ -640,7 +643,10 @@ def test_cpu_build_writes_measured_receipt_and_commits_only_output(runtime, monk
     shutil.copytree(runtime.inputs / "model", runtime.code / "processor")
     (runtime.code / "build-receipt.json").unlink()  # Fake build starts before its receipt exists.
     monkeypatch.setattr(m, "CODE_ROOT", str(runtime.code))
-    monkeypatch.setattr(a, "BUILD_EVIDENCE_ROOT", str(evidence))
+    mount = runtime.outputs / "mounted-evidence"
+    if mount_symlink:
+        mount.symlink_to(evidence, target_is_directory=True)
+    monkeypatch.setattr(a, "BUILD_EVIDENCE_ROOT", str(mount if mount_symlink else evidence))
 
     class Child:
         returncode = 0
@@ -982,3 +988,90 @@ def test_probe_hashes_close_over_actual_adapter_bytes(runtime, damage):
     path.write_bytes(data)
     with pytest.raises((a.WorkerError, ValueError)):
         a._reload(runtime.outputs, model_id, runtime.page)
+
+
+def test_publication_without_hardlinks_stays_atomic_and_exclusive(tmp_path, monkeypatch):
+    def unavailable(*args, **kwargs):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(a.os, "link", unavailable)
+    target = tmp_path / "evidence.json"
+    rename = a.os.rename
+    observed = []
+
+    def check_rename(source, destination):
+        assert not target.exists()
+        assert Path(source).read_bytes() == b"original"
+        # A competing publisher cannot steal the reserved destination.
+        with pytest.raises(a.WorkerError):
+            a._publish(tmp_path, "evidence.json", b"competitor")
+        observed.append(True)
+        rename(source, destination)
+
+    monkeypatch.setattr(a.os, "rename", check_rename)
+    ref = a._publish(tmp_path, "evidence.json", b"original")
+    assert a._read(tmp_path, ref) == b"original" and observed == [True]
+    assert a._publish(tmp_path, "evidence.json", b"original") == ref
+    with pytest.raises(a.WorkerError):
+        a._publish(tmp_path, "evidence.json", b"replacement")
+    assert target.read_bytes() == b"original"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["evidence.json"]
+
+
+@pytest.mark.parametrize("stage", ["publish", "commit"])
+def test_cpu_failure_logs_persistence_stage_without_exception_secrets(
+    runtime, monkeypatch, capsys, stage
+):
+    def fail(*args):
+        raise PermissionError(1, "secret=private-value")
+
+    if stage == "publish":
+        monkeypatch.setattr(a, "_publish", fail)
+    else:
+        monkeypatch.setattr(a, "_sdk", lambda: SimpleNamespace(
+            Volume=SimpleNamespace(from_id=lambda _: SimpleNamespace(commit=fail)),
+        ))
+    a._cpu_failure(runtime.code / "absent.xml", 1, "cpu_checks", runtime.settings.build_spec,
+                   runtime.outputs, "vo-fake")
+    records = [q.strict_json(line.encode()) for line in capsys.readouterr().out.splitlines()]
+    assert records[-1] == {"code": "cpu_failure_persistence", "stage": stage,
+                           "type": "PermissionError", "errno": 1}
+    assert "private-value" not in str(records)
+
+
+def test_failed_fsync_never_exposes_partial_publication(tmp_path, monkeypatch):
+    def fail(fd):
+        raise OSError(5, "synthetic I/O error")
+
+    monkeypatch.setattr(a.os, "fsync", fail)
+    with pytest.raises(OSError):
+        a._publish(tmp_path, "complete.json", b'{"complete":true}')
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_dispatch_resolves_provider_mounts_but_rejects_descendant_symlinks(runtime, monkeypatch):
+    input_mount = runtime.code.parent / "input-mount"
+    output_mount = runtime.code.parent / "output-mount"
+    input_mount.symlink_to(runtime.inputs, target_is_directory=True)
+    output_mount.symlink_to(runtime.outputs, target_is_directory=True)
+    monkeypatch.setattr(m, "INPUT_ROOT", str(input_mount))
+    monkeypatch.setattr(m, "OUTPUT_ROOT", str(output_mount))
+    monkeypatch.setattr(m, "CODE_ROOT", str(runtime.code))
+    monkeypatch.setattr(a, "__file__", str(runtime.code / "active_ocr/entrypoints/modal_app.py"))
+    monkeypatch.setattr(m, "__file__", str(runtime.code / "active_ocr/integrations/modal_model.py"))
+    (runtime.code / "runtime-settings.json").write_bytes(
+        q.canonical(runtime.settings.model_dump(mode="json"))
+    )
+    monkeypatch.setattr(a, "_sdk", lambda: SimpleNamespace(
+        current_function_call_id=lambda: "fc-synthetic",
+        Volume=SimpleNamespace(from_id=lambda _: SimpleNamespace(commit=lambda: None)),
+    ))
+    def observe(settings, payload, **kwargs):
+        assert kwargs["input_root"] == runtime.inputs.resolve()
+        assert kwargs["output_root"] == runtime.outputs.resolve()
+        (runtime.outputs / "escape").symlink_to(runtime.code, target_is_directory=True)
+        with pytest.raises(ValueError, match="symlink"):
+            a._publish(kwargs["output_root"], "escape/forbidden.json", b"forbidden")
+        return {"boundary_verified": True}
+    monkeypatch.setattr(a, "dispatch_operation", observe)
+    assert a.dispatch({}) == {"boundary_verified": True}

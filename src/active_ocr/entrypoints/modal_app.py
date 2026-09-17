@@ -57,23 +57,33 @@ def _json(root: Path, key: str, model):
 
 
 def _publish(root: Path, key: str, data: bytes) -> m.ArtifactRef:
-    """Atomic, no-clobber publication; a previous different value is never replaced."""
+    """Reserve one writer, then atomically publish; stale reservations fail closed."""
     path = q.safe_path(root, m.relative_key(key))
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".publish-", delete=False) as stream:
-        temporary = Path(stream.name)
-        try:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-            stream.close()
-            try:
-                os.link(temporary, path)
-            except FileExistsError:
-                if path.read_bytes() != data:
-                    raise WorkerError("identity") from None
-        finally:
-            temporary.unlink(missing_ok=True)
+    reservation = path.parent / (".publish-" + hashlib.sha256(path.name.encode()).hexdigest())
+    try:
+        reservation.mkdir()
+    except FileExistsError:
+        raise WorkerError("identity") from None
+    try:
+        if path.exists():
+            if path.read_bytes() != data:
+                raise WorkerError("identity")
+        else:
+            with tempfile.NamedTemporaryFile(
+                dir=path.parent, prefix=".publish-", delete=False
+            ) as stream:
+                temporary = Path(stream.name)
+                try:
+                    stream.write(data)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                    stream.close()
+                    os.rename(temporary, path)
+                finally:
+                    temporary.unlink(missing_ok=True)
+    finally:
+        reservation.rmdir()
     return _ref(root, key)
 
 
@@ -284,17 +294,30 @@ def _cpu_failure(
     raw = q.canonical(diagnostic)
     # Safe log is fallback evidence if the Volume itself is unavailable.
     print(raw.decode(), flush=True)
+    stage = "publish"
     try:
         _publish(output, "failures/" + uuid.uuid4().hex + ".json", raw)
+        stage = "commit"
         _sdk().Volume.from_id(volume_id).commit()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(
+            q.canonical(
+                {
+                    "code": "cpu_failure_persistence",
+                    "stage": stage,
+                    "type": type(exc).__name__,
+                    "errno": exc.errno if isinstance(exc, OSError) else None,
+                }
+            ).decode(),
+            flush=True,
+        )
 
 
 def cpu_build_gate(build_spec: dict, build_spec_sha256: str, output_volume_id: str) -> None:
     """Remote CPU image-build step. Never invoked by module import or local tests."""
     spec = m.BuildSpec.model_validate(build_spec)
-    root, output = Path(m.CODE_ROOT), Path(BUILD_EVIDENCE_ROOT)
+    # Provider subpath mounts are symlinks; trust only this fixed mount boundary.
+    root, output = Path(m.CODE_ROOT), Path(BUILD_EVIDENCE_ROOT).resolve(strict=True)
     if spec.sha256 != build_spec_sha256:
         raise WorkerError("identity")
     _files(root, spec.code_files + (spec.cpu_test_file, spec.requirements_file))
@@ -464,6 +487,8 @@ def dispatch(payload: dict) -> dict:
             payload,
             provider_call_id=sdk.current_function_call_id(),
             commit=sdk.Volume.from_id(settings.output_volume_id).commit,
+            input_root=Path(m.INPUT_ROOT).resolve(strict=True),
+            output_root=Path(m.OUTPUT_ROOT).resolve(strict=True),
         )
     except BaseException:
         raise WorkerError("dispatch_failed") from None

@@ -78,6 +78,8 @@ workload to diagnose a failed first smoke.
    statuses, short redacted failure messages. No raw environment or full transcript
    is exported. Missing JUnit/return code remains unknown. A failure cannot produce
    a successful `BuildReceipt`. Persistence failure is not provider termination.
+   If persistence fails, a second bounded log records the publication/commit
+   stage, exception type and errno, without exception text or credentials.
 5. A successful step writes hashed `cpu-report.json` and canonical
    `build-receipt.json`, commits the output Volume, and stores identical receipt
    bytes in `/opt/ocr/build-receipt.json` in the image. Environment packages and
@@ -155,6 +157,22 @@ selected TRAIN page metadata, checkpoint identity and hashed before references.
 Raw child stdout/stderr are suppressed; its separate result pipe emits derived
 results only. Failure/timeout kills the child process group and reaps the child;
 uncertain provider termination is still a coordinator/operator reconciliation task.
+
+The provider entrypoints resolve their fixed Volume mount roots once; subpath
+mounts can be symlinks. Paths and files beneath those resolved roots retain the
+strict containment and no-symlink checks. Publication reserves a destination with
+an exclusive directory, writes and fsyncs a temporary file, then renames it into
+place. Other publishers using this helper cannot replace the reserved destination;
+busy or stale reservations stop for reconciliation. Identical completed bytes may
+be reused; conflicting bytes are rejected. This uses the existing single-dispatcher
+ownership, not a cross-container distributed lock or exactly-once guarantee.
+
+An actual synthetic diagnostic after the first failed CPU build found the previous
+path check rejected the provider mount, hard links failed with `EPERM`, and
+`renameat2(RENAME_NOREPLACE)` failed with `EINVAL`. Ordinary writes, fsync and
+commit succeeded, with diagnostic bytes re-read from the Volume. The corrected
+publication path has local regression evidence; its next actual build remains a
+separate acceptance gate. See [the retained first failure](verification/modal-cpu-runtime.md).
 
 Before completing a fit, verify checkpoint ownership/files, selected target digest,
 actual distinct process IDs, all144 adapter tensor hashes against FP32 safetensor
