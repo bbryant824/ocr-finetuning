@@ -1,5 +1,41 @@
 # Independent CPU runtime review
 
+## Inventory correction — PASS (offline)
+
+Code: `1a413d7e373a1182c3552bd9c05c9687fef14485`.
+Control: `a4ee183ddb1c33c847b64f860ebb8f1bca122870`.
+The three-file correction resolves each normalized distribution name explicitly through
+`importlib.metadata.distribution(name)`, then records unique names in sorted order.
+It does not choose the highest version, discard packages or rely on enumeration order.
+Receipt schema, canonical hashing, complete worker/build inventory equality and exact pins
+are unchanged; the next build must record the newly resolved inventory in a fresh receipt.
+
+Retained diagnostic SHA-256
+`b0f544826634d40dc7759936dd40a724f30c07db4041214c68ae0c7fb9e37ea0`
+verified, along with all nine indexed evidence files. The inspected diagnostic launches a
+fresh metadata-only child with the worker's executable/cwd/`-m`/environment pattern.
+Whole parent/child captures match: 113 records, 96 normalized names, 17 duplicate groups
+(16 with conflicting versions). Every effective model/runtime pin matches; no discovered
+name is excluded. Neither capture contains imported ML modules. This establishes metadata
+resolution, not provenance of already-imported module objects.
+
+**6 passed in 0.18s**, using the existing real dist-info regression in both path orders,
+worker identity rejection, CPU receipt construction for both mount forms and strict receipt
+validation:
+
+```sh
+python -m pytest \
+  tests/test_qwen.py::test_installed_packages_records_effective_search_path_versions \
+  tests/test_qwen.py::test_worker_manifest_no_git_checks_actual_code_and_packages \
+  tests/test_modal_app.py::test_cpu_build_writes_measured_receipt_and_commits_only_output \
+  tests/test_modal_model.py::test_cpu_receipt_cannot_pass_with_skips_or_different_build --tb=short
+```
+
+Affected-file Ruff and diff checks pass; pins/lock, shared receipt and worker boundaries are
+byte-unchanged. No blocker, new test, broad campaign, ML execution or cloud action occurred.
+The prior eleven actual CPU passes apply to the earlier candidate only. This new candidate
+has not run remotely; phase-B receipt/image acceptance and a build retry remain separately gated.
+
 ## Phase A — PASS for the two offline runtime corrections
 
 Code: `7ea96c3b9b10612a0751ff78a668cbe076c18ef9`.
