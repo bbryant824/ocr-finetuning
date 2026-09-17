@@ -174,3 +174,36 @@ or 4B/CUDA execution. Evidence-only review must precede any GPU release. Exact
 invocation, inputs, returned identities, logs and accounting remain indexed in
 private build records; the standard command recipe is unchanged in the
 [deployment guide](../modal-deployment.md).
+
+## Attempt 5 — corrected adapter export CPU build
+
+**Measured result: 11 passed, 0 skipped, 0 failed, 2026-09-17.** The single
+standard build used clean source `1a03f77519439c0601a83c8c3b4670ca896de337`,
+with independent focused review `c5d1d87d1c1c3276ba8cbe649d1583aef612c4c2`.
+Only Qwen and the test file changed among build inputs; pins, requirements and
+processor assets remained unchanged. The existing adapter case now exercises
+36-layer injection/export and strict configuration validation; the gate still has
+eleven cases. Cache, client and Volumes were reused without a local test campaign.
+
+The reviewed helper ran once, CPU 2 / RAM 32 GiB / no GPU, timeout 900 seconds
+and child watchdog 850 seconds. It took 174.973 seconds, from 05:08:39.505 to
+05:11:34.455 UTC, and returned image `im-kTX4rgt7qqc1JzkmhM1vxb`.
+Canonical report/receipt were read back from the durable Volume and checked
+against exact source, code, spec, sizes and hashes. Python 3.11.12 and all 96
+effective packages match the prior accepted environment.
+
+| Identity | SHA-256 |
+| --- | --- |
+| BuildSpec | `028c1c0444208a92b16f536e46117b61481df60c7cdc71c538dea0db48f142a7` |
+| BuildReceipt | `bdb8fd441b19d646d4c85d574ad0b10b5ee5c5f98146268c3172963175473348` |
+| CPU report | `274ff01ffbf962724bbd0590a6a32af05cc167fc6dafcd4a983c0a51ab41df39` |
+| CPU test file | `9262d9554b990d0df6767f9cac30d78dd621ea31f8b0ac51834bc309bd3756be` |
+| Code bundle | `5e8aff34f3281e03b122999f21b9735efcf329f9354dc5a8bfdf1737d2307051` |
+
+The App stopped and final inventories showed zero tasks/containers. An earlier
+lagged task-count observation is retained. Existing deployment, old run state
+and indexed evidence remained unchanged. Provisional build cost: USD 0.00484499
+(CPU 0.00148693, memory 0.00335806); aggregate USD 0.60 metered / USD 0 billed
+after credits. Storage/settled costs remain unknown. No GPU or deployment
+replacement occurred. This image awaits independent evidence review before a
+new execution release; the earlier failed GPU fit remains preserved.
