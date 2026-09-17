@@ -1,5 +1,76 @@
 # Independent CPU runtime review
 
+## Actual CPU attempt 3 — PASS, with provisional accounting warning
+
+Reviewed source: `1a413d7e373a1182c3552bd9c05c9687fef14485`, released under
+control `b517d7062cb2770ed7d1072d3b75533e38cf8414`.
+**Measured result: 11 passed, 0 skipped, 0 failed on 2026-09-17.**
+Independent review of retained execution evidence supports CPU acceptance; no test,
+build, provider call or ML execution was repeated. Prior offline acceptance remains applicable.
+
+The final 21-file evidence index rehashes in full, including the execution helper,
+build log, canonical BuildSpec/BuildReceipt/report, provider observations and result.
+All seven runtime files and the CPU test match exact Git blobs; lock and requirements
+bytes match the spec. All eight small processor assets match the pinned manifest.
+The receipt validates against the reviewed schema: Python 3.11.12, 96 sorted unique
+effective package names, every required model/runtime pin and Modal 1.5.5.
+Source, code-bundle and remote-environment hashes agree with the final author record.
+
+| Evidence | SHA-256 |
+| --- | --- |
+| Final index | `6612fe53db0fcb9c6865880ddebe51e28460f78639b54a31e50049a7b670de51` |
+| BuildSpec | `6a73443392d9c38552afbe279884c9ac5c37cf32030e3a729be0730ec73f9288` |
+| BuildReceipt | `23bcabdd3fe6c0a89a36c31b09c9e21e24010bec2c8e9b74558e07d4ea7dc069` |
+| CPU report (829 bytes) | `274ff01ffbf962724bbd0590a6a32af05cc167fc6dafcd4a983c0a51ab41df39` |
+
+The eleven unique reported cases match the reviewed selector and parameterization:
+four processor grid/template sizes; three tokenization/loss-mask targets; tiny forward,
+reset, frozen parameters and fresh-process reload; partial accumulation against manual
+Adam; generation defaults; and adapter tensor/config validation. The staged-header test
+is excluded. The successful gate requires an exited-zero pytest child, eleven distinct
+JUnit cases without failure/error/skip elements, Linux/x86_64 and the exact package pins.
+Thus these are actual CPU processor/tiny-model checks, not collection or fixture-only evidence.
+
+The retained log records completion of the same final image returned by the helper.
+After successful build, the reviewed helper reads canonical report/receipt bytes from the
+output Volume twice and checks equality. This supports durable provider readback. The
+successful build step writes identical canonical receipt bytes into the image and commits
+the Volume; **no separate image-filesystem readback container was run**. Image receipt
+placement is supported by inspected executed code, not an independent image inspection.
+The overall attempt elapsed 158.76 seconds, including setup and image work.
+
+Read-only verification used `PYTHONPATH=src python` with `hashlib`, JSON parsing,
+`git show <source>:<path>` byte comparisons, reviewed BuildSpec/BuildReceipt validation,
+pinned processor-file hashing and decimal sums of retained provider observations.
+To reproduce the artifact-integrity portion without executing tests or contacting Modal,
+set `EVIDENCE_DIR` to the retained attempt directory:
+
+```sh
+python - <<'PY'
+import hashlib, json, os
+from pathlib import Path
+root = Path(os.environ["EVIDENCE_DIR"])
+for name, expected in json.loads((root / "handoff-index.json").read_bytes()).items():
+    raw = (root / name).read_bytes()
+    assert len(raw) == expected["bytes"], name
+    assert hashlib.sha256(raw).hexdigest() == expected["sha256"], name
+PY
+```
+
+The post-build inventory records the matching App stopped with zero tasks and no active
+containers. Immediate cost observations remain provisional: this App USD0.00409222;
+itemized App rows total USD0.01465614; billing-summary App aggregate USD0.01865657
+(a USD0.00400043 difference); rounded metered USD0.02, billed zero, credits minus USD0.02.
+These separately captured views are not reconciled final billing. Keep the larger observed
+aggregate and reporting-lag caveat for gross USD5/USD30 accounting; remaining credits are
+unknown. This accounting warning does not contradict CPU execution or quiescence evidence.
+
+No CPU blocker found. Actual 4B/CUDA loading, training/inference, GPU runtime receipts,
+full real-round recovery and OCR quality remain unverified and separately gated. No active-
+learning improvement or annotation-time result follows from this CPU acceptance.
+The [author execution record](modal-cpu-runtime.md) and earlier failures remain preserved.
+The historical offline sections below describe their evidence state at the time.
+
 ## Inventory correction — PASS (offline)
 
 Code: `1a413d7e373a1182c3552bd9c05c9687fef14485`.
