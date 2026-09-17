@@ -1,5 +1,61 @@
 # Independent CPU runtime review
 
+## Input-verification correction — PASS (offline)
+
+Candidate `7dd40ec6cc444c939bdd09b42963bbf639cecbca`, control
+`73e8290841ccc3ba5e4cd2053f67da1c58e43b9d`. Review covers the small dispatcher
+change and its three added regression cases; prior CPU acceptance applies to its
+historical source/image, not a new image built from this candidate.
+
+The parent retains full bundle membership, size, containment and symlink checks.
+Request membership and image SHA-256 binding are checked before selecting files to hash.
+Base admission reads no input bodies; fit/predict hash each requested image, with same-size
+corruption rejected before the child starts. Unrequested image bodies are deferred until use.
+No oracle/GT channel, model pin, timeout, research configuration or Qwen implementation changed.
+
+Source tracing confirms all four child entry paths (`load_base`, `fit`, `predict`,
+`verify_reload`) call `_verify_runtime` and its exact pinned model/processor inventory
+comparison before processor/model use. Consumed images undergo SHA-256 and geometry checks;
+checkpoint/adapter integrity and post-operation checks remain. Thus same-size model corruption
+moves from parent detection to child detection before use. This conclusion combines inspected
+unchanged code with existing integrity regressions; it is not a new real-model corruption run.
+
+**33 existing focused cases passed in 1.26s** at the clean candidate:
+
+```sh
+python -m pytest \
+  tests/test_modal_app.py::test_base_parent_does_not_read_input_bodies \
+  tests/test_modal_app.py::test_requested_image_same_size_corruption_fails_before_child \
+  tests/test_modal_app.py::test_base_completion_and_same_attempt_reuse \
+  tests/test_modal_app.py::test_identity_failure_before_any_child \
+  tests/test_modal_app.py::test_dispatch_resolves_provider_mounts_but_rejects_descendant_symlinks \
+  tests/test_modal_independent.py::test_worker_preconditions_never_start_child \
+  tests/test_modal_independent.py::test_worker_dispatch_complete_fit_two_stages_and_reuse \
+  tests/test_qwen.py::test_symlink_and_image_mutation \
+  tests/test_qwen.py::test_fit_failure_before_processor_or_model \
+  tests/test_qwen_independent.py::test_real_identity_failure_precedes_optional_model_import \
+  tests/test_qwen_independent.py::test_image_mutation_during_generation_publishes_no_receipt \
+  tests/test_qwen_independent.py::test_phase2_prediction_drift_stops_publication --tb=short
+```
+
+Affected-file Ruff and diff whitespace checks pass. No new regression or production edit
+was needed; no full campaign, provider call, build or ML execution was performed in this review.
+
+Both retained diagnostic indexes and their 17 files each rehash correctly. Independent parsing
+of event records reproduces 269 image hashes / 331,833,179 bytes in 139.537446 seconds before
+the bounded watchdog stopped the first CPU diagnostic. It did not reach directory/worker/
+publish/commit stages. The separate model-only diagnostic completed the unchanged verifier
+twice in 31.157210 and 28.569850 seconds, matching all pinned file digests: 13 entries,
+12 distinct files, 8,887,285,585 bytes per pass (shared config counted twice).
+Model-timing index `b2b8dcde4babcadab35a80ecd12a0272c5d85d5b698538fb488853b529b50a36`;
+result `e03a2c06995da9fb992e4958c7c6dbeab6b2b3af024e458dffe0ba36bb6fbd32`.
+
+These CPU/4 GiB child diagnostics support removing redundant reads. They neither locate
+the original GPU stall conclusively nor measure model loading or corrected GPU performance.
+The first GPU call timed out without a worker result; the actual round remains incomplete.
+No CPU/code blocker found for a separately released corrected image build. Actual GPU
+completion, fresh runtime evidence and provisional cost reconciliation remain later gates.
+
 ## Actual CPU attempt 3 — PASS, with provisional accounting warning
 
 Reviewed source: `1a413d7e373a1182c3552bd9c05c9687fef14485`, released under
