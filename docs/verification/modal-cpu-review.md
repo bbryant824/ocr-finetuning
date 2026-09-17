@@ -1,5 +1,41 @@
 # Independent CPU runtime review
 
+## Adapter-export CPU attempt 5 — PASS (actual CPU evidence)
+
+Source `1a03f77519439c0601a83c8c3b4670ca896de337`; control
+`a5244059864e711ba615a663752cd3e1cbfbc5ac`. Final author evidence
+`b73f8e8060f9821261e9865eaa21e2d1374cd327` and all 32 indexed files verified.
+**11 passed, 0 skipped, 0 failed in a 174.973-second build on 2026-09-17.**
+
+Exact Git bytes for the seven runtime files and changed test file match BuildSpec;
+canonical receipt/report, source, code-bundle and environment identities agree. Frozen
+lock/export, processor manifest, recipe and resource settings match prior acceptance.
+Python 3.11.12, 96 sorted unique effective packages and all required pins remain unchanged.
+The same eleven case names passed. Their unchanged report hash does not imply unchanged
+test bodies: the new test-file hash binds the executed 36-layer injection/export case,
+including compact-config rejection, restored full targets and existing tensor/base checks.
+That CPU case is now verified at this source; corrected production GPU fit remains unverified.
+
+| Evidence | SHA-256 |
+| --- | --- |
+| Final index | `0c99a54c29a0a8aac6acc23075d8e36b9b9b2fe22a32ff8bbb59dbf63266ebd5` |
+| BuildSpec | `028c1c0444208a92b16f536e46117b61481df60c7cdc71c538dea0db48f142a7` |
+| BuildReceipt | `bdb8fd441b19d646d4c85d574ad0b10b5ee5c5f98146268c3172963175473348` |
+| CPU report | `274ff01ffbf962724bbd0590a6a32af05cc167fc6dafcd4a983c0a51ab41df39` |
+| CPU test file | `9262d9554b990d0df6767f9cac30d78dd621ea31f8b0ac51834bc309bd3756be` |
+
+The log and returned image agree; the unchanged helper performed canonical durable Volume
+readback. Image receipt placement follows the successful build step, without separate image
+inspection. Final observations show the build App stopped, zero tasks and no containers;
+earlier stopped/one-task observations remain retained. Provisional build cost USD0.00484499
+and aggregate USD0.60 metered / zero billed after credits do not settle storage or final costs.
+Gross USD5/USD30 limits and remaining-work reserves still apply.
+
+Read-only hash/schema/Git comparisons and decimal cost checks passed; no tests, build, ML or
+provider calls were repeated. Prior pin/asset and offline code reviews were reused. No CPU
+blocker found. GPU checkpoint completion and the full round require a separate release and
+actual evidence; failed/truncated outputs remain preserved, with no research-quality claim.
+
 ## Corrected CPU attempt 4 — PASS (actual CPU evidence)
 
 Source `7dd40ec6cc444c939bdd09b42963bbf639cecbca`; release/prior offline review
