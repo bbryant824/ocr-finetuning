@@ -140,6 +140,12 @@ loads a fresh verified BF16 base on cuda:0 with native SDPA, and injects a new L
 optimizer. There is no CPU/offload/quantized fallback or warm-start. Exact72 language q/v names
 and q(4096,2560)/v(1024,2560) shapes are checked before PEFT. Rank16/alpha32/dropout0/default
 adapter yields exactly144 trainable FP32 A/B tensors and5,898,240parameters; all else is frozen.
+PEFT0.20.0 compacts the72 configured target paths to `q_proj`/`v_proj` during injection.
+After verifying the actual trainable topology, fit restores the full pinned target list in
+the exported configuration alongside the pinned base/revision. Checkpoint readers still
+require exact configuration equality and tensor names/shapes/dtypes; compact suffix lists
+are not accepted as persisted target identities. The CPU export check uses36 tiny text
+layers to exercise this optimization, which the two-layer forward/backward test does not.
 
 Three epochs start from sorted selected IDs and shuffle with `random.Random(seed+epoch)`.
 Batch size1/accumulation4 uses page-mean supervised-token loss divided by the actual group
