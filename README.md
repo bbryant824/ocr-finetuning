@@ -5,8 +5,10 @@ of human annotation needed to adapt OCR models to historical and low-resource do
 
 Existing source true labels simulate annotation. A deterministic fixture exercises the loop
 without services; the real path uses the pinned Qwen model through Modal. READ2016 preparation,
-offline integration and actual Linux CPU checks are independently verified. The first complete
-4B/GPU active-learning round remains in progress.
+offline integration and actual Linux CPU checks are independently verified. One real 4B/GPU
+engineering round completed: selection, source-label reveal, fitting, checkpoint reload,
+evaluation, committed state, fresh-process resume and JSON/CSV exports.
+See [the measured run](experiments/EXP-003.md).
 
 ## Quick start: no-service simulation
 
@@ -46,10 +48,19 @@ and immutable checkpoints. It passed [independent offline review](docs/verificat
 the Modal adapter, operation recovery and real-run CLI also passed
 [independent integration review](docs/verification/modal-runtime-review.md). All eleven actual Linux
 processor/tiny-model checks passed [independent CPU review](docs/verification/modal-cpu-review.md).
-Real 4B/CUDA execution remains unverified. See the [deployment guide](docs/modal-deployment.md).
+The [real engineering run](experiments/EXP-003.md) selected two training pages, performed three
+optimizer updates, reloaded the saved adapter in a separate process with identical probe logits,
+and completed one round. Reopening/resuming submitted no new model operation. See the
+[deployment guide](docs/modal-deployment.md) and [run commands](experiments/EXP-003.md).
+
+**Pipeline execution passed; usable OCR is not established.** Baseline and post-fit evaluation
+each produced one malformed and one truncated response, with CER/WER 1.0. Both selected targets
+exceed the current 2,048-token generation cap. The next research step is output/decode-budget
+calibration and an adequate initial-training recipe before larger comparisons.
 
 The earlier optional Label Studio/remote-worker flow is retained below for compatibility. Its
-GPU job endpoints remain placeholders. No real-model experiment or selection-quality result is claimed.
+GPU job endpoints remain placeholders and are not used by the completed simulation pipeline.
+The small engineering run makes no selection-quality or annotation-efficiency claim.
 
 ## Structure
 

@@ -357,5 +357,8 @@ exercise ambiguous submission, concurrent reservation, known-call reattach, term
 cancellation ambiguity, absolute deadline preservation, corrupt/foreign receipts, full FP32 probe
 comparison, adapter tensor-byte closure, fit reuse after downstream failure, real Pipeline round
 commit recovery, image-only upload plans, CLI and validation subsets. Fake transport is not proof
-of Modal recovery, mounts, measured spend, GPU behavior or OCR quality. The 11 gated actual-ML
-checks remain unverified until the separately reviewed Linux build runs without skips.
+of Modal recovery, mounts, measured spend, GPU behavior or OCR quality. All 11 actual Linux
+CPU checks subsequently passed [independent review](verification/modal-cpu-review.md).
+[EXP-003](../experiments/EXP-003.md) records one completed real round, durable checkpoint and
+fresh-child reload, post-fit evaluation, completed-run resume without new submissions, and
+matching exports. It does not test every failure/recovery path or establish useful OCR quality.

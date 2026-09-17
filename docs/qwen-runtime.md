@@ -1,10 +1,11 @@
 # Pinned Qwen runtime
 
-`integrations/qwen.py` implements the candidate-2 boundary in the accepted
-[real OCR plan](../plans/PLAN-003-real-ocr-modal.md). This is implementation and offline
-contract evidence, **not executed OCR, a successful Linux build, or CUDA evidence**.
-Pipeline REAL enablement, transport, worker deployment, operation journaling and CLI
-construction remain candidate 3. There is no automatic fixture or CPU fallback.
+`integrations/qwen.py` implements the model boundary in the accepted
+[real OCR plan](../plans/PLAN-003-real-ocr-modal.md). The real Pipeline, Modal transport,
+worker and CLI are connected. Actual CPU checks and one real 4B/CUDA engineering round
+completed; [EXP-003](../experiments/EXP-003.md) records training, fresh-process checkpoint
+reload and exports. OCR outputs remained malformed/truncated, so this is execution evidence,
+not useful OCR quality or active-learning benefit. There is no automatic fixture or CPU fallback.
 
 ## API and inputs
 
@@ -179,7 +180,8 @@ Fresh reload always receives an
 explicit verified base; there is no AutoPeft/Hub lookup or base substitution. Directory creation
 is exclusive, files are fsynced, and the manifest is written last. Existing content is reusable
 only when every byte and the complete inventory match; incomplete directories remain errors.
-The enclosing Volume/journal transaction semantics are candidate 3, not promised here.
+The enclosing Volume/journal transaction semantics are implemented by the
+[Modal runtime](modal-runtime.md), outside this model boundary.
 
 Fit makes a greedy engineering probe on the lexicographically first selected TRAIN page,
 saves and validates the adapter, drops the model, reloads fresh base+adapter and compares exact
@@ -238,11 +240,11 @@ math SDPA and a two-token forced termination probe are explicit test reductions,
 fallbacks. Production decode defaults are asserted separately. The tiny test's input is a
 synthetic64x64RGB image; the recipe's minimum area expands it to256x256.
 
-Absent assets/dependencies mean **UNVERIFIED skips**, never PASS. Even a successful CPU run
-would not prove loaded4B trainability, CUDA/BF16 Flash kernels, memory headroom, source token
-coverage, reload tolerance on GPU, cost, OCR quality or active-learning benefit. Those require
-the separately reviewed and authorized smoke. No ML installation, build,4Bload, dataset/model
-experiment or cloud call was performed for this offline candidate.
+Absent assets/dependencies mean **UNVERIFIED skips**, never PASS. CPU checks alone do not
+prove 4B/CUDA behavior, source coverage or OCR quality. Actual CPU acceptance is recorded in
+[the CPU review](verification/modal-cpu-review.md); the separate authorized
+[real round](../experiments/EXP-003.md) records measured GPU training, reload and cost.
+Its two-page engineering scope does not establish useful OCR or active-learning benefit.
 
 Pinned API sources inspected during implementation:
 [processor](https://github.com/huggingface/transformers/blob/93c8b7b485963a10800c91f55304db6be211c2bd/src/transformers/models/qwen3_vl/processing_qwen3_vl.py),
