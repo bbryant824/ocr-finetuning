@@ -4,6 +4,10 @@ Protocol: 3
 
 Use **Manager** for project control and **QA & Understand** for explanations, documentation and mentor presentations.
 A Codex task is the agent; its Skill is the playbook. Native task messages deliver work.
+Keep each change to one owner and one result handoff; request one independent review for significant
+changes. Research/Planning are consulted only when needed, not mandatory stops for routine fixes.
+Read relevant current sections, avoid ACK/status loops, and do not repeat successful checks without
+a new change or concrete concern. The token-efficiency rules in AGENTS apply to every role.
 The existing seven tasks and worktrees remain; this protocol does not create a daemon or scheduler.
 
 ## What goes to GitHub
@@ -128,8 +132,9 @@ methodology-sensitive changes. Technical PASS, completed execution and scientifi
 
 Allocate unique MGR/RES/PLAN/DEV/TEST/EXP task IDs with at least three digits. Experiment records
 under `experiments/` describe actual executions and retain runtime UUIDs; they are not local task
-records. Preserve Research → Planning → Development → independent Testing → Platform execution
-→ Research interpretation. Keep current dependency gates; QA assists independently.
+records. For research changes, use Research/Planning where decisions are needed; Development implements,
+Testing reviews significant changes and Platform executes authorized workloads. Skip irrelevant
+stages for routine maintenance. Keep current dependency gates; QA assists independently.
 
 ## Checks
 

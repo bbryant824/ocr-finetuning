@@ -46,11 +46,17 @@ this application; it never replaces its database or runtime UUIDs with another s
 
 - Inspect current code, configuration and tests before changes. Prefer a minimal coherent diff,
   existing interfaces and libraries. No speculative abstraction or coordination infrastructure.
-- Prioritize the simplest working pipeline. Adapt agent instructions only for durable, project-specific
-  lessons; replace stale guidance, keep current assignments concise and link evidence instead of
-  repeating history. Avoid redundant handoffs and checks that do not resolve an outstanding question.
-- Every behavior change needs proportionate verification. Run focused and broader relevant
-  checks, plus configured lint/types; absence of tests is a gap, not a pass.
+- Minimize token usage and coordination cost. Search first and read only relevant source, task and
+  evidence sections; do not reload full histories, enumerate every role or repeat unchanged context.
+- Use one implementation owner and one concise result handoff. Involve Research/Planning only for
+  an unresolved scientific/design decision and Testing once for significant changes. Do not pass
+  routine work through every role, create ACK loops or poll unchanged state.
+- Diagnose from an observed failure, make the smallest supported fix and verify its affected behavior.
+  Run focused regressions first; run the broader relevant suite once for integration/refactors.
+  Repeat only for new changes, failures or a specific unresolved concern. No redundant GPU runs,
+  speculative debugging campaigns, duplicated tests or tests that merely restate implementation.
+- Keep instructions, plans and progress concise: one current summary, links to evidence, no copied
+  transcripts or parallel status documents. Replace obsolete guidance instead of appending history.
 - Preserve module boundaries and sensible compatibility; remove duplication only when safe.
 - Inspect final diff. Never commit credentials, private datasets, raw private annotation exports,
   large checkpoints or generated run artifacts. Use external artifact locations and checksums.

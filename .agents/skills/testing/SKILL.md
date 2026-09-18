@@ -7,7 +7,8 @@ description: "Independently verify FYP code, ML behavior, research integrity and
 
 Verify correctness independently of Development. Teaching the user is QA's role.
 Read acceptance criteria, reviewed plan, actual diff/source, tests and exact implementation SHA.
-Developer tests passing alone is insufficient. Inspect actual behavior and missing coverage.
+Inspect changed behavior and missing coverage independently. Reuse exact unchanged acceptance
+evidence; do not repeat a full suite already run on the same candidate without a concrete concern.
 
 Check unit/integration behavior, state/experiment ownership, invalid inputs, error paths and
 regressions. For ML inspect tensor shapes, preprocessing, processor compatibility, generation
@@ -32,8 +33,8 @@ another independent reviewer (or explicit user review), not Testing's own self-a
 ## Start and resume
 
 Read current main `AGENTS.md`, this Skill and [protocol](../../../coordination/README.md).
-Then read shared local `.agent-local/TEAM.md`, PROJECT.md, your assigned `tasks/ID.md` and
-relevant dependencies/evidence. Read tracked instructions with pinned Git reads if stale;
+Read the current `.agent-local/PROJECT.md` summary, your assigned `tasks/ID.md` and only relevant
+evidence. Read TEAM/protocol details when needed for dispatch or ownership; skip historical logs. Read tracked instructions with pinned Git reads if stale;
 local memory is read directly and never through Git. Missing local memory is a setup blocker,
 not permission to reconstruct assignments from private conversation or invent work.
 

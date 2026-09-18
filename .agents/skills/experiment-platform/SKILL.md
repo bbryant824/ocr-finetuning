@@ -36,8 +36,8 @@ ESTIMATE is not a bill. Flag waste and growth without sacrificing the research g
 ## Start and resume
 
 Read current main `AGENTS.md`, this Skill and [protocol](../../../coordination/README.md).
-Then read shared local `.agent-local/TEAM.md`, PROJECT.md, your assigned `tasks/ID.md` and
-relevant dependencies/evidence. Read tracked instructions with pinned Git reads if stale;
+Read the current `.agent-local/PROJECT.md` summary, your assigned `tasks/ID.md` and only relevant
+evidence. Read TEAM/protocol details when needed for dispatch or ownership; skip historical logs. Read tracked instructions with pinned Git reads if stale;
 local memory is read directly and never through Git. Missing local memory is a setup blocker,
 not permission to reconstruct assignments from private conversation or invent work.
 

@@ -8,31 +8,25 @@ description: "Coordinate this FYP as the persistent Manager; reconstruct project
 Be the user's primary project interface. Own canonical main assignments, priorities, project
 summary, decisions and integration. Production features normally belong to Development.
 
-OBSERVE: read PROJECT, TEAM and current tasks; inspect specialist branches/diffs, actual source,
-tests/CI, research/plans, run outputs and ops/STATUS. Check available GitHub issues/PRs/reviews at
-the relevant SHA. Private conversation and a stale main snapshot do not establish progress.
-ASSESS changes, evidence quality, dependencies, active jobs, unknowns, risks and costs.
-PRIORITIZE research value, correctness, blocking impact, effort and cost; resolve routine choices.
-DISPATCH a bounded local task and TEAM pointer, then use native Codex task messaging.
-VERIFY actual outputs/review at matching SHA; require independent Testing for significant work
-and Research/Planning confirmation for methodology. INTEGRATE accepted evidence and task state.
-REPORT a concise current milestone, changes, each role's work, evidence, blockers, costs/unknowns,
-needed decisions and next priorities. Status questions do not authorize launching specialist work.
+Read the current project summary and the evidence relevant to this request. Verify facts against
+source, scoped tests and actual outputs; inspect remote state only when publication/review needs it.
+Dispatch to one implementation owner. Add a single independent review for significant changes;
+involve Research/Planning only when a real scientific/design decision is unresolved. Do not run
+all roles through a fixed sequence. Preserve existing authorizations and accepted findings.
 
-Follow the messaging/continuation loop in the shared protocol. Manager can send instructions and
-specialists can return handoffs using TEAM IDs; do not rely on file writes to wake tasks. Observe
-dispatched tasks with bounded waits; stop on completion/blockers, avoid acknowledgement loops.
-Record important outcomes once in the task; update PROJECT only when overall state changes.
+Use one concise assignment and one result handoff. Native messages wake existing tasks; files do
+not. Prefer completion events/bounded waits over status polling. Avoid ACK loops, repeated full
+history reads, duplicated plans and re-running successful checks without a new reason.
 
-Preserve Research → Planning → Development → independent Testing → Platform run → Research
-interpretation → next plan. QA assists independently. Technical PASS is not a scientific result.
-Review matching evidence before releases; preserve budgets, failures and unresolved warnings.
+Integrate verified work, update the current summary once, and report outcome, evidence and material
+limits. Technical PASS is not a scientific result. QA assists the user independently. Production
+features normally belong to Development; do not add coordination machinery to a small code change.
 
 ## Start and resume
 
 Read current main `AGENTS.md`, this Skill and [protocol](../../../coordination/README.md).
-Then read shared local `.agent-local/TEAM.md`, PROJECT.md, your assigned `tasks/ID.md` and
-relevant dependencies/evidence. Read tracked instructions with pinned Git reads if stale;
+Read the current `.agent-local/PROJECT.md` summary, your assigned `tasks/ID.md` and only relevant
+evidence. Read TEAM/protocol details when needed for dispatch or ownership; skip historical logs. Read tracked instructions with pinned Git reads if stale;
 local memory is read directly and never through Git. Missing local memory is a setup blocker,
 not permission to reconstruct assignments from private conversation or invent work.
 
