@@ -2,7 +2,7 @@
 
 > Execute with the executing-plans skill, one Development owner and one independent review.
 
-**Status:** Implementation handoff v8, 18 September 2026; implementation pending.
+**Status:** Completed and independently verified, 19 September 2026. See EXP-005 and the project guide.
 **Goal:** Replace our custom VLM runtime with LLaMA-Factory and deliver one reproducible initial fit plus acquisition round.
 **Architecture:** Keep the existing small research loop, oracle and durable run state. Run upstream LLaMA-Factory training and inference inside the existing Modal worker through one thin adapter.
 **Stack:** LLaMA-Factory, its supported Transformers/PEFT dependencies, Modal, existing Pydantic/SQLite, RapidFuzz.
@@ -15,7 +15,7 @@ This replaces earlier PLAN-007 drafts, including ms-swift and the hand-integrate
 Choose **LLaMA-Factory for model training/inference; retain our active-learning coordinator**.
 This revises the unimplemented ms-swift choice after comparing integrated toolkits. The reason is
 its released recipe for our exact model, configuration-driven operation and larger public community,
-not a measured superiority in OCR accuracy, reliability or GPU cost. No candidate was installed/run.
+not a measured superiority in OCR accuracy, reliability or GPU cost. At selection time, no candidate had been installed/run.
 
 | Candidate | Verified fit | Decision |
 | --- | --- | --- |
@@ -88,25 +88,25 @@ strategies change selection/scoring. Do not promise zero-code support for arbitr
 
 **Files:** `pyproject.toml`, `uv.lock`, new recipe, selected-row preparation in `simulation.py`.
 
-- [ ] Pin published LLaMA-Factory **v0.9.5** and resolve its supported
+- [x] Pin published LLaMA-Factory **v0.9.5** and resolve its supported
   Linux/Python 3.11 dependencies. Record exact packages and image digest. Do not force our old HF
   pins or use moving `main` documentation as an executable API contract.
-- [ ] Reuse the downloaded model/processor revision. Encode one revealed image with upstream
+- [x] Reuse the downloaded model/processor revision. Encode one revealed image with upstream
   image/conversation format and existing serialized region JSON. Set `qwen3_vl_nothink`
   for both training and inference. Inspect actual template supervision:
   assistant output including EOS trained, image/user/system tokens ignored.
-- [ ] Export `train.jsonl` plus a minimal `dataset_info.json` into each round directory, containing
+- [x] Export `train.jsonl` plus a minimal `dataset_info.json` into each round directory, containing
   only revealed images/targets. Render toolkit YAML from the single validated JSON recipe; record
   the resolved YAML without maintaining two independent configurations. Exclude upstream demo data.
-- [ ] Retain the existing coordinate convention and image-size metadata explicitly in the prompt
+- [x] Retain the existing coordinate convention and image-size metadata explicitly in the prompt
   and conversion. Round-trip one source box and use the same image limits in training/inference.
-- [ ] Start with 2,048 prompt tokens, 4,096 generated tokens including EOS and 6,144 total;
+- [x] Start with 2,048 prompt tokens, 4,096 generated tokens including EOS and 6,144 total;
   greedy inference and identical image limits for training/inference. Preflight all selected targets
   against actual encoded prompt/target limits. Reject oversize
   pages without silently truncating, dropping or substituting them; any recipe correction precedes runs.
   Override the upstream demo's 2,048-token cutoff: set `cutoff_len` to the verified total limit.
   Use unique operation directories and disable overwrite; neither demos nor automatic splits belong in training.
-- [ ] Freeze BF16 LoRA on language attention q/k/v/o projections, rank 8, alpha 16, dropout 0;
+- [x] Freeze BF16 LoRA on language attention q/k/v/o projections, rank 8, alpha 16, dropout 0;
   frozen vision encoder, batch 1, accumulation 4, 3 epochs, AdamW learning rate 3e-5,
   linear schedule, warmup ratio 0.05, gradient checkpointing, no packing or automatic data split.
   These are engineering settings, not claimed optimal hyperparameters.
@@ -120,17 +120,17 @@ References: [release](https://github.com/hiyouga/LlamaFactory/releases/tag/v0.9.
 
 **Files:** new `factory_model.py`, `artifacts.py`; existing Qwen adapter/call sites and relevant tests.
 
-- [ ] Use `llamafactory-cli train <resolved.yaml>` for fit and `ChatModel.chat(..., images=...)`
+- [x] Use `llamafactory-cli train <resolved.yaml>` for fit and `ChatModel.chat(..., images=...)`
   with `infer_backend=huggingface` for predict. Reuse one loaded model across pages within an
   operation. Pass the base path and native adapter path explicitly for reload. Use subprocess
   argument arrays for training; capture exit status/logs and native outputs.
   No shell interpolation, checkpoint-config rewriting, automatic repair or fallback training path.
-- [ ] Supply only revealed labels to SFT. Inference requests contain images/prompts, never reference
+- [x] Supply only revealed labels to SFT. Inference requests contain images/prompts, never reference
   responses. Do not use reward-model `get_scores()` as OCR confidence; native generation uncertainty
   is not part of this random-baseline migration.
-- [ ] Save the native adapter plus a small manifest: selected IDs/source hashes, pinned base,
+- [x] Save the native adapter plus a small manifest: selected IDs/source hashes, pinned base,
   recipe, environment and artifact hashes. Reload using upstream adapter support in a fresh process.
-- [ ] Parse raw JSON into the existing region contract; validate bounds/corner order and retain raw
+- [x] Parse raw JSON into the existing region contract; validate bounds/corner order and retain raw
   output/finish reason. No repair model, regex recovery or conversion of failed output into success.
 
 **Pass:** the adapter satisfies existing model contracts; training/checkpoint internals live upstream.
@@ -139,14 +139,14 @@ References: [release](https://github.com/hiyouga/LlamaFactory/releases/tag/v0.9.
 
 **Files:** `modal_model.py`, `modal_app.py`, `pipeline.py`, `models.py`, `evaluation.py`, CLI.
 
-- [ ] Use one reviewed GPU image and dispatcher. Toolkit owns training; Modal owns execution limits
+- [x] Use one reviewed GPU image and dispatcher. Toolkit owns training; Modal owns execution limits
   and persistence. Remove hard-coded Qwen layer/vocabulary/assets from transport.
-- [ ] Preserve operation identity, reconcile-before-resubmit, allowlisted upload, complete receipts
+- [x] Preserve operation identity, reconcile-before-resubmit, allowlisted upload, complete receipts
   and atomic commits. Resume must not repeat completed training or reveal pages twice.
-- [ ] Persist initial selection before reveal, fit the seed set and evaluate. Each acquisition adds
+- [x] Persist initial selection before reveal, fit the seed set and evaluate. Each acquisition adds
   unique unrevealed TRAIN pages; reset-fit from the pinned base on all accumulated labels. Count
   initial pages in the total page budget. Keep seeds and recipe fixed across eventual comparisons.
-- [ ] Replace manual edit distance with RapidFuzz, preserving NFC/corpus CER-WER/failure semantics.
+- [x] Replace manual edit distance with RapidFuzz, preserving NFC/corpus CER-WER/failure semantics.
   Add separately versioned engineering localization precision/recall/F1 at IoU 0.5: one-to-one greedy
   matching in descending IoU with stable index tie breaks, unmatched predictions/targets counted.
   Report matched-line CER with coverage so omitted lines cannot inflate apparent quality.
@@ -156,34 +156,35 @@ References: [release](https://github.com/hiyouga/LlamaFactory/releases/tag/v0.9.
 
 ### 4. Verify one integrated run and remove replaced code — Testing / Platform / Manager
 
-- [ ] Development runs focused checks for label isolation, template/length boundaries, edit-count
+- [x] Development runs focused checks for label isolation, template/length boundaries, edit-count
   parity and resume, then the affected integration suite once. Testing reviews one immutable candidate.
-- [ ] Platform refreshes existing spend/storage and quotes one sufficient single GPU. Prefer the
+- [x] Platform refreshes existing spend/storage and quotes one sufficient single GPU. Prefer the
   cheapest configuration that fits; do not perform a paid hardware sweep or introduce quantization.
-  Derive a hard runtime ceiling from the remaining first-US$5 and total-US$30 approvals, including
-  CPU/storage/termination reserve. If insufficient, report the exact shortfall before paid execution.
-- [ ] Freeze seed 824, 16 initial TRAIN pages, 8 additional random TRAIN pages and 8 fixed VAL pages
+  Derive a hard runtime ceiling from the remaining original total-US$30 approval, including
+  CPU/storage/termination reserve. The first-US$5 smoke was completed historically; it is not a
+  perpetual cumulative cap on subsequent pilots. If insufficient, report the exact shortfall before paid execution.
+- [x] Freeze seed 824, 16 initial TRAIN pages, 8 additional random TRAIN pages and 8 fixed VAL pages
   before inference. Save exact IDs and full recipe. This is one engineering pilot; official READ split
   is still engineering-only because document grouping is unknown.
-- [ ] Within that one run: initial fit -> fresh-process checkpoint reload/inference -> initial evaluation
+- [x] Within that one run: initial fit -> fresh-process checkpoint reload/inference -> initial evaluation
   -> acquire 8 -> reveal -> fit all 24 -> evaluation -> commit -> reopen/resume -> JSON/CSV export.
   No paid retry loop or automatic hyperparameter search. Original labels/splits remain unchanged.
-- [ ] Record two verdicts: **pipeline pass** requires valid accounting, changed/reloadable adapter,
+- [x] Record two verdicts: **pipeline pass** requires valid accounting, changed/reloadable adapter,
   complete prediction records and no repeat calls on resume; **OCR readiness** requires all eight
   post-fit outputs to pass schema/coordinate checks without truncation, corpus CER below 1 and
   nonzero localization F1. This modest gate is not evidence of competitive OCR or AL benefit.
   If quality fails, retain the result and diagnose model/data/training, not add infrastructure.
-- [ ] After functional acceptance, delete old `qwen.py`, replaced-internal tests, unused dependencies
+- [x] After functional acceptance, delete old `qwen.py`, replaced-internal tests, unused dependencies
   and duplicate configs. Keep behavior tests and historical evidence. Check imports/diff and net
   reduction of custom runtime code; a growing framework wrapper fails the simplification objective.
-- [ ] Manager updates the single guide to actual commands, environment, outputs, costs and limits;
+- [x] Manager updates the single guide to actual commands, environment, outputs, costs and limits;
   integrates reviewed changes. No seven-role relay or extra coordination documents.
 
 ## Execution handoff and basic verification
 
 The user will hand this plan to one coding agent. Implement on an isolated branch/worktree,
-inspect existing changes first, and preserve unrelated work. This plan is currently local/uncommitted;
-transfer it with the prompt when using another checkout. Do not assume it exists on GitHub.
+inspect existing changes first, and preserve unrelated work. Use the exact candidate and current guide when executing; dated experiment records preserve
+which checks and paid attempts actually ran. Verify publication state before using another checkout.
 Follow existing file ownership if other agents are active; no new persistent tasks/schedules.
 
 - Current `SimulationBaseline.labelled_count` is literally zero. Add a separate persisted initial-fit
@@ -225,5 +226,10 @@ honest joint OCR metrics; successful completion does not establish that random o
 improves label efficiency. Later scientific comparisons require adequate adaptation, multiple seeds,
 equal budgets and leakage-resolved data, outside this migration.
 
-LLaMA-Factory is the chosen toolkit, not yet an installed or validated integration. This planning turn
-changes documentation only; no implementation assignment, dependency install, GPU job or new result.
+Source acceptance includes duration correction `11a58ad9ae7e7d61fc45ac05b4dfba09442b710b`.
+All five actual toolkit tests passed in its Linux image. EXP-004 preserves the incomplete first
+attempt. EXP-005 completed initial16 plus acquired8/reset-fit24, both reloads/evaluations, one
+committed round, no-extra-call resume and exports; independent artifact review passed.
+OCR readiness failed (final CER0.999512,WER1,F1zero). The migration is complete; useful OCR
+and comparative active-learning research remain future work. See the project guide and dated
+experiment records for commands, identities, costs, results and limitations.

@@ -1,18 +1,18 @@
 # Active learning for historical OCR
 
-**[Read the complete project guide](docs/PROJECT_GUIDE.md)** for the repository map, connected
-engineering/data/active-learning pipeline, setup, measured results and next research steps.
+A small pipeline for full-page OCR active-learning research. Page images are acquired as units;
+existing source labels simulate human annotation. See the [project guide](docs/PROJECT_GUIDE.md)
+for the repository map, component connections, setup, results and research limits.
 
-Stage 2 engineering is complete: one real Qwen/Modal round selected two pages, revealed source
-labels, fine-tuned, reloaded its checkpoint, evaluated, committed, resumed and exported.
-**OCR quality remains unresolved:** baseline and post-fit both had 0/2 valid validation outputs
-and CER/WER 100%. This verifies execution, not an active-learning benefit.
-See [the dated run evidence](experiments/EXP-003.md).
+The supported runtime is LLaMA-Factory v0.9.5 on Modal. It owns training and inference; our code
+retains selection, source-label reveal, joint OCR metrics and durable run state. Legacy Label
+Studio/HTTP workflows and the custom Qwen trainer are removed.
 
-The current code keeps only the fixture and Modal paths. The custom Qwen runtime has been
-replaced by LLaMA-Factory v0.9.5, which now owns training and inference behind one thin adapter;
-the coordinator now tracks a separate initial fit and consumed labels on failed fits. The migration is implemented
-and locally tested, but **no CPU image, GPU job or OCR result exists for it yet**.
+**Migration complete.** [EXP-005](experiments/EXP-005.md) trained on 16 initial pages, acquired
+8 more, fit on all 24, reloaded checkpoints, evaluated, committed, resumed without extra model
+calls and exported matching results. Independent artifact review passed.
+**OCR readiness failed:** final CER 99.95%, box F1 zero. This verifies engineering, not an
+active-learning benefit. Historical runs remain in the experiment records.
 
 ## Try the local fixture
 

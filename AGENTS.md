@@ -8,27 +8,29 @@ the current research simulates annotation by revealing existing source ground tr
 selected training pages. Ground truth contains the source's line boxes and transcriptions.
 The practical objective is a small, reproducible, understandable pipeline with fair comparisons.
 
-Stage 2 engineering is complete: local simulation, READ2016 preparation and one real Qwen/Modal
-round passed their scoped independent reviews. The actual round selected two pages, performed
-three updates, verified fresh-process checkpoint reload, committed, resumed and exported.
-Baseline and post-fit OCR both failed on two validation pages (CER/WER 1.0); usable OCR and an
-active-learning benefit remain unestablished. Real acquisition currently supports random only.
-Keep source-label simulation, simple interchangeable boundaries and minimal straightforward code.
-A labeling frontend is not required. Revealed pages are simulated budgets, not human time.
+Stage 2 engineering and the LLaMA-Factory migration are complete. EXP-005 passed independent
+artifact review: 16 initial TRAIN pages, 8 acquired, reset-fit on 24, fresh-process reloads, joint
+validation, one committed round, resume without extra calls and matching exports. The final eight
+VAL outputs failed OCR readiness: one valid, CER 0.999512, WER 1.0, box F1 zero. Useful OCR and an active-learning
+benefit remain unestablished. Real acquisition currently supports random only. Keep source-label
+simulation, interchangeable boundaries and minimal straightforward code. A labeling frontend is
+not required. Revealed pages are simulated budgets, not human time.
 
 ## Architecture and current evidence
 
 Read [the project guide](docs/PROJECT_GUIDE.md) for the complete repository map, data/model/Modal
-connections, operating procedure, research stage and evidence index. The completed actual run is
-[EXP-003](experiments/EXP-003.md). Current assignments and authorization live in shared local
-`.agent-local/PROJECT.md`, not in historical implementation plans or private conversation.
+connections, operating procedure, research stage and evidence index. The current completed run is
+[EXP-005](experiments/EXP-005.md); EXP-003 preserves the historical custom-runtime result.
+Current assignments and authorization live in shared local `.agent-local/PROJECT.md`, not in historical implementation plans or private conversation.
 
 Preserve the shallow module design: algorithms in `active_learning.py`, metrics in `evaluation.py`,
 coordination in `pipeline.py`, external/model boundaries in `integrations/`, launchers in `entrypoints/`.
 `LocalOracle` reveals only selected TRAIN labels; only the evaluator receives validation truth.
-The supported paths are fixture simulation and real `ModalModel`/Qwen execution. Legacy Label
-Studio, HTTP GPU services, polling/YAML setup and placeholder endpoints have been removed.
-Recipe v2 fixes the 2,048/4,096 output-capacity mismatch; no new GPU quality result is claimed.
+The supported paths are fixture simulation and real `ModalModel`/LLaMA-Factory execution.
+The toolkit owns model training/inference; our code owns selection, selected-only truth reveal,
+joint OCR metrics and durable initial-fit/round state. Legacy Label Studio, HTTP GPU services,
+polling setup and the custom Qwen trainer have been removed. Use the versioned execution recipe
+and exact-source evidence in the guide; source tests alone are not a GPU or OCR-quality result.
 SQLite and content-addressed artifacts hold application state. Agent coordination supplements
 this application; it never replaces its database or runtime UUIDs with another service.
 
