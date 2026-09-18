@@ -407,7 +407,7 @@ def runtime_identity() -> tuple[str, tuple[tuple[str, str], ...]]:
 
 
 class ContractModel(SimulationModel, Protocol):
-    """Explicit real-contract adapter metadata; production implementation is deferred."""
+    """Explicit metadata shared by real and synthetic contract adapters."""
 
     kind: RunKind
     real_config: RealOCRConfig

@@ -26,7 +26,9 @@ connections, operating procedure, research stage and evidence index. The complet
 Preserve the shallow module design: algorithms in `active_learning.py`, metrics in `evaluation.py`,
 coordination in `pipeline.py`, external/model boundaries in `integrations/`, launchers in `entrypoints/`.
 `LocalOracle` reveals only selected TRAIN labels; only the evaluator receives validation truth.
-The real path uses `ModalModel` and Qwen; legacy GPU HTTP endpoints remain placeholders.
+The supported paths are fixture simulation and real `ModalModel`/Qwen execution. Legacy Label
+Studio, HTTP GPU services, polling/YAML setup and placeholder endpoints have been removed.
+Recipe v2 fixes the 2,048/4,096 output-capacity mismatch; no new GPU quality result is claimed.
 SQLite and content-addressed artifacts hold application state. Agent coordination supplements
 this application; it never replaces its database or runtime UUIDs with another service.
 

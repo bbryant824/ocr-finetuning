@@ -193,7 +193,7 @@ class ExpectedIdentity(Model):
 
 
 class RealOCRConfig(Model):
-    """Represent one pinned recipe; candidate 1A supplies no production real adapter."""
+    """Represent one pinned model, processor, training and decoding recipe."""
 
     backend: str = Field(min_length=1)
     recipe_version: str = Field(min_length=1)

@@ -9,6 +9,9 @@ labels, fine-tuned, reloaded its checkpoint, evaluated, committed, resumed and e
 and CER/WER 100%. This verifies execution, not an active-learning benefit.
 See [the dated run evidence](experiments/EXP-003.md).
 
+The current code keeps only the fixture and Modal paths. Recipe v2 fixes the training/generation
+capacity mismatch with a shared 4,096-token limit; a new GPU quality result is not yet established.
+
 ## Try the local fixture
 
 ```sh

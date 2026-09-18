@@ -1,6 +1,6 @@
 # OCR active-learning project — Stage 2 engineering report and guide
 
-**Status: 17 September 2026. Stage 2 engineering is complete.** One real active-learning
+**Status: 18 September 2026. Stage 2 engineering is complete.** One real active-learning
 round ran through selection, simulated annotation, GPU fine-tuning, checkpoint reload,
 validation, persistence, resume and export. Independent artifact review passed.
 **Usable OCR and an active-learning advantage have not been demonstrated.**
@@ -12,8 +12,9 @@ remain supporting evidence, rather than competing descriptions of current status
 
 The measured execution used source `1a03f77519439c0601a83c8c3b4670ca896de337`.
 Acceptance is recorded in [EXP-003](../experiments/EXP-003.md) and the
-[independent runtime review](verification/modal-runtime-review.md). Subsequent guide and
-code-comment edits do not change the executed recipe; old runs retain their exact source identity.
+[independent runtime review](verification/modal-runtime-review.md). The current code subsequently removes the legacy services and fixes decode capacity under recipe
+v2. That local correction has not been validated by a new GPU run; the v1 results below remain
+unchanged. Old runs retain their exact source identity and frozen execution checkout.
 
 ## Contents
 
@@ -61,42 +62,28 @@ ocr-finetuning/
 ├── pyproject.toml                    package, CLI scripts, extras and lint/test settings
 ├── uv.lock                           resolved dependency lock
 ├── .python-version                   local Python selection
-├── .env.example                      optional legacy service environment example
 ├── .gitignore                        excludes secrets, data, runs and private coordination
-├── Dockerfile                        optional legacy GPU HTTP service image
-├── compose.yaml                      optional legacy service setup
-├── config/
-│   ├── default.yaml                  legacy local/service configuration
-│   └── label-studio.xml              optional line-box/transcription labeling template
 ├── examples/
 │   └── simulate.py                   no-service fixture: generate → run → resume → export
 ├── src/active_ocr/
 │   ├── __init__.py
-│   ├── models.py                     immutable validated data/run/prediction contracts
-│   ├── config.py                     YAML and environment settings for legacy path
+│   ├── models.py                     immutable source/run/prediction contracts
 │   ├── active_learning.py            deterministic random/confidence/entropy ranking
-│   ├── evaluation.py                 text counts, CER/WER, IoU and effort/curve helpers
+│   ├── evaluation.py                 text counts, CER/WER, IoU and curve helpers
 │   ├── pipeline.py                   one orchestrator, including simulation/real lifecycle
 │   ├── integrations/
-│   │   ├── __init__.py               lazy exports: local tools avoid importing ML packages
+│   │   ├── __init__.py               explicit imports; local tools avoid loading ML packages
 │   │   ├── storage.py                SQLite records, atomic updates, hashed artifacts
 │   │   ├── simulation.py             normalized source, oracle, fixture, evaluator, identity
 │   │   ├── public_dataset.py         pinned READ2016 conversion and provenance verification
 │   │   ├── qwen.py                   actual load/predict/reset-fit/checkpoint/reload boundary
-│   │   ├── modal_model.py            remote contract, coordinator, operation journal/recovery
-│   │   ├── local_data.py             legacy manifest import and document-based splitting
-│   │   ├── label_studio.py           optional labeling API and payload conversion
-│   │   └── gpu_client.py             optional legacy asynchronous HTTP job client
+│   │   └── modal_model.py            remote contract, coordinator, operation journal/recovery
 │   └── entrypoints/
 │       ├── __init__.py
 │       ├── cli.py                    simulation and real create/run/status/resume/export
-│       ├── modal_app.py              CPU build gate, single dispatcher, isolated model children
-│       ├── controller.py             optional legacy polling loop
-│       └── gpu_server.py             legacy health endpoint; model job endpoints placeholders
+│       └── modal_app.py              CPU build gate, single dispatcher, isolated model children
 ├── tests/
 │   ├── test_core.py                  shared models/selection fundamentals
-│   ├── test_integrations.py          legacy import/storage/service boundaries
-│   ├── test_pipeline.py              legacy orchestration and prediction ownership
 │   ├── test_simulation.py            fixture lifecycle, budgets, freeze and persistence
 │   ├── test_real_contract.py         baseline/real-shaped adapter contracts
 │   ├── test_contract_independent.py  independent local contract checks
@@ -147,7 +134,7 @@ Ignored local layout: `.venv/` holds local dependencies; `.local/assets/` downlo
 `.local/prepared/` normalized data; `.local/execution/` frozen execution checkouts;
 `.local/verification/` configuration, receipts, runs and exports; `.local/qa-understanding/`
 presentation drafts/visuals; `.agent-local/` shared private task/decision/ops records;
-`var/` legacy runtime state; `.env` secrets. These are not included in a fresh clone.
+`var/` retained historical state; `.env` secrets, if any. These are not included in a fresh clone.
 Cloud input/output Volumes are external artifacts, not repository folders.
 
 ## 3. How the components connect
@@ -289,6 +276,17 @@ with separate failure counts. This is an engineering text view, not official lay
 benchmark scoring. IoU and curve helpers exist separately but were not the real run's metrics.
 
 ## 6. Qwen model and fine-tuning
+
+**Current correction (18 September, local verification):** the supported target and generated output now share a
+4,096-token limit including EOS. The old v1 runtime could train on up to 4,096 target tokens
+but generate only 2,048, making sufficiently long targets impossible to reproduce. A single
+shared limit now controls training admission, generation, truncation detection, checkpoint
+bindings and reload/probe validation. The new IDs are `qwen3-vl-read-engineering-v2` and
+`qwen3-vl-page-greedy-v2`; the training policy is unchanged. Over-capacity targets fail clearly.
+Strict JSON parsing remains unchanged: malformed outputs are still failures, not repaired or
+reported as successful OCR. This fixes capacity consistency; it does not establish model quality.
+
+The table below documents the **historical v1 GPU run**, not new v2 runtime measurements.
 
 The actual adapter uses `Qwen/Qwen3-VL-4B-Instruct`, model and processor revision
 `ebb281ec70b05090aa6165b016eac8ec08e71b17`. Its two weight shards are approximately
@@ -500,13 +498,16 @@ Exports are `results.json` (full committed run), `rounds.csv` (baseline plus rou
 still checks exact source/dependencies: run it from its frozen execution checkout, even when
 current main differs only in documentation.
 
-### Optional legacy path
+### Supported commands and removed services
 
-The older `setup`, `import`, `experiment start/status` and `tick` commands remain, along with
-Label Studio configuration, polling controller and HTTP client. `config/default.yaml` and
-`.env` configure those services. `gpu_server.py` has a working health endpoint but placeholder
-model jobs and no complete remote image resolver for that flow. It is not the successful
-Qwen/Modal path and is not required for simulated annotation. No new frontend work is needed.
+The CLI now exposes only `simulation` and `real`. The old Label Studio client/template,
+HTTP GPU client/server, polling controller, manifest importer, YAML/service configuration,
+Docker/Compose files, obsolete domain records and their exclusive tests were removed.
+`Pipeline` takes one `SQLiteStore`; it no longer constructs annotation or HTTP clients.
+The local package needs Pillow, Pydantic and Typer; Modal and ML remain separate extras.
+There are no placeholder service endpoints left in the supported execution path.
+Historical datasets, checkpoints, run stores and measured results were not deleted. Frozen
+execution checkouts are still used to inspect or resume runs requiring their original identity.
 
 ## 9. The completed real round
 
@@ -605,6 +606,13 @@ alone does not contain the private local run store or downloaded checkpoints.
 
 ## 10. Engineering verification and resolved problems
 
+Current maintenance candidate `4925b720ebfb585e2befad60660dda5a663bfaa8` removed 13 legacy files
+and corrected the output-capacity mismatch. Development's one full suite passed 718 cases with
+11 explicit ML skips. Independent review passed 26 focused checks, including fixture lifecycle,
+real CLI boundaries, label isolation, full-capacity EOS/truncation, strict malformed JSON rejection,
+probe limits and old-recipe refusal. No packages were added/upgraded; seven obsolete packages
+were removed from the lock. No new CPU image or GPU quality result is claimed for this revision.
+
 Verification progressed from cheap local checks to actual execution. Scope matters: a fixture
 pass is not a GPU pass, and an engineering pass is not a scientific finding.
 
@@ -649,9 +657,9 @@ and lack of pretraining overlap were never assumed.
 **The immediate research blocker is useful structured OCR, not pipeline connectivity.**
 The next work should remain small and sequential:
 
-1. **Calibrate the output contract and capacity.** Inspect retained raw failures; measure target
-   length on permitted development data; define a new prompt/decode recipe version with enough
-   capacity and assess valid-output rate. Do not silently repair ground truth or reuse the old
+1. **Validate output quality with the corrected capacity.** The deterministic 2,048/4,096 token
+   mismatch is fixed in recipe v2. Inspect retained raw failures and evaluate a separately recorded
+   run to assess valid-output rate; malformed JSON remains an unresolved model-quality issue. Do not silently repair ground truth or reuse the old
    experiment identity for changed settings.
 2. **Establish adequate initial adaptation.** Choose a modest, fixed training subset and training
    budget; verify usable line/text output and held-out validation behavior before spending on
@@ -667,7 +675,8 @@ The next work should remain small and sequential:
    uncertainty. Change datasets/models in separate controlled replications, not simultaneously
    while diagnosing the first working baseline.
 
-No claim is currently supported for selection superiority, annotation-time savings, useful OCR,
+No new GPU result is claimed for the v2 correction. No claim is currently supported for
+selection superiority, annotation-time savings, useful OCR,
 multi-seed stability or document-independent generalization. Revealed-page counts simulate
 annotation budget; human annotation seconds remain unknown. No research campaign or extra cloud
 job is authorized merely by this report. Dataset/model replacement remains possible through
