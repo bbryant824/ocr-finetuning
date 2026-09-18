@@ -12,15 +12,15 @@ from typing import Annotated, Literal
 
 from pydantic import Field, TypeAdapter, field_validator, model_validator
 
-from active_ocr.integrations.qwen import (
+from active_ocr.integrations.artifacts import FileEntry, Packages, digest
+from active_ocr.integrations.factory_model import (
+    ADAPTER_FILES,
     ASSETS,
+    BACKEND,
     MAX_OUTPUT_TOKENS,
     PROCESSOR_FILES,
-    FileEntry,
-    Packages,
-    adapter_shapes,
     asset_manifest,
-    digest,
+    binding,
 )
 from active_ocr.models import (
     SHA256,
@@ -43,7 +43,8 @@ PositiveInt = Annotated[int, Field(strict=True, gt=0)]
 INPUT_ROOT = "/inputs"
 OUTPUT_ROOT = "/outputs"
 CODE_ROOT = "/opt/ocr"
-QWEN_OUTPUT_ROOT = "/outputs/qwen"
+# The adapter owns this subtree; transport keys are relative to the run output root.
+MODEL_NAMESPACE = "factory"
 
 
 def relative_key(value: str) -> str:
@@ -102,7 +103,8 @@ RUNTIME_CODE_FILES = {
     "active_ocr/__init__.py",
     "active_ocr/models.py",
     "active_ocr/integrations/__init__.py",
-    "active_ocr/integrations/qwen.py",
+    "active_ocr/integrations/artifacts.py",
+    "active_ocr/integrations/factory_model.py",
     "active_ocr/integrations/modal_model.py",
     "active_ocr/entrypoints/__init__.py",
     "active_ocr/entrypoints/modal_app.py",
@@ -116,6 +118,7 @@ class BuildSpec(Model):
     lock_sha256: SHA256
     requirements_file: FileEntry
     cpu_test_file: FileEntry
+    recipe_file: FileEntry
     processor_manifest_sha256: SHA256
     modal_version: Literal["1.5.5"] = "1.5.5"
     base: Literal["debian_slim:python3.11"] = "debian_slim:python3.11"
@@ -131,10 +134,11 @@ class BuildSpec(Model):
             raise ValueError("build requires the exact reviewed runtime code allowlist")
         if (
             self.requirements_file.filename != "requirements-linux.txt"
-            or self.cpu_test_file.filename != "tests/test_qwen.py"
+            or self.cpu_test_file.filename != "tests/test_factory_model.py"
+            or self.recipe_file.filename != "experiments/recipes/read2016-llamafactory-joint.json"
             or self.processor_manifest_sha256 != digest(asset_manifest(PROCESSOR_FILES))
         ):
-            raise ValueError("build accepts only the pinned synthetic test/processor inputs")
+            raise ValueError("build accepts only the pinned recipe/test/processor inputs")
         return self
 
     @property
@@ -151,7 +155,7 @@ class BuildReceipt(Model):
     code_files: tuple[FileEntry, ...]
     environment: Packages
     cpu_report: ArtifactRef  # Relative to /builds/<build_spec_sha256>, not a run.
-    cpu_passed: Literal[11]
+    cpu_passed: PositiveInt
     cpu_skipped: Literal[0]
 
     @model_validator(mode="after")
@@ -336,14 +340,14 @@ class RuntimeSettings(Model):
     gpu: Literal["L40S"] = "L40S"
     cpu: Literal[2] = 2
     memory_mib: Literal[32768] = 32768
-    timeout_seconds: Literal[600] = 600
+    timeout_seconds: int = Field(default=2400, strict=True, gt=10, le=2400)
     startup_timeout_seconds: Literal[300] = 300
     max_containers: Literal[1] = 1
     min_containers: Literal[0] = 0
     buffer_containers: Literal[0] = 0
     retries: Literal[0] = 0
     scaledown_seconds: Literal[2] = 2
-    aggregate_gpu_seconds: Literal[2400] = 2400
+    aggregate_gpu_seconds: int = Field(default=2400, strict=True, gt=0, le=2400)
     cancellation_tail_seconds: Literal[300] = 300
 
     @property
@@ -403,7 +407,7 @@ class RuntimeSettings(Model):
 
 
 class ProbeMetadata(Model):
-    """Derived TRAIN diagnostic; logits are finite FP32 little-endian rows in a separate file."""
+    """Derived TRAIN diagnostic: one greedy generation from the saved native adapter."""
 
     schema_version: Literal[1] = 1
     model_id: CheckpointReference
@@ -412,37 +416,27 @@ class ProbeMetadata(Model):
     original_width: PositiveInt
     original_height: PositiveInt
     process_id: PositiveInt
-    generated_ids: tuple[Annotated[int, Field(strict=True, ge=0)], ...] = Field(
-        min_length=1, max_length=MAX_OUTPUT_TOKENS
-    )
     status: Literal["ok", "invalid_output", "truncated"]
+    finish_reason: Literal["stop", "length"]
+    response_tokens: int = Field(strict=True, ge=0, le=MAX_OUTPUT_TOKENS)
+    response_sha256: SHA256
     regions: tuple[Region, ...]
-    finish_reason: Literal["eos", "length"]
-    adapter_tensors: dict[str, SHA256]
-    logits: ArtifactRef
-    logits_shape: tuple[PositiveInt, Literal[151936]]
 
     @model_validator(mode="after")
-    def logit_shape(self) -> ProbeMetadata:
-        rows, columns = self.logits_shape
-        if set(self.adapter_tensors) != set(adapter_shapes()):
-            raise ValueError("probe requires all 144 adapter tensor hashes")
-        if rows != min(8, len(self.generated_ids)) or self.logits.bytes != rows * columns * 4:
-            raise ValueError("probe must retain full-vocabulary first-min(8,length) FP32 logits")
+    def failed_output(self) -> ProbeMetadata:
         if self.status != "ok" and self.regions:
             raise ValueError("failed probe output cannot contain regions")
         return self
 
 
 class ReloadEvidence(Model):
+    """Two interpreters loaded the same native adapter and generated identical output."""
+
     before: ArtifactRef  # Canonical ProbeMetadata JSON.
     after: ArtifactRef
     train_process_id: PositiveInt
     reload_process_id: PositiveInt
-    rtol: Literal[0.001] = 0.001
-    atol: Literal[0.01] = 0.01
-    max_absolute_difference: float = Field(ge=0, allow_inf_nan=False)
-    exact_tensors_ids_status_regions: Literal[True]
+    identical_output: Literal[True]
 
     @model_validator(mode="after")
     def fresh_interpreter(self) -> ReloadEvidence:
@@ -473,7 +467,7 @@ class OperationResult(Model):
         if len(refs) != len(self.artifacts):
             raise ValueError("duplicate output artifact key")
         checkpoint_sha = self.model_id.rsplit(":", 1)[1]
-        manifest = refs.get(f"qwen/checkpoints/{checkpoint_sha}/manifest.json")
+        manifest = refs.get(f"{MODEL_NAMESPACE}/checkpoints/{checkpoint_sha}/manifest.json")
         if manifest is None or manifest.sha256 != checkpoint_sha:
             raise ValueError("result must inventory its content-addressed checkpoint manifest")
         if refs.get(self.worker_manifest.key) != self.worker_manifest:
@@ -520,7 +514,7 @@ class DispatchResponse(Model):
 
     @model_validator(mode="after")
     def completion_identity(self) -> DispatchResponse:
-        from active_ocr.integrations.qwen import canonical
+        from active_ocr.integrations.artifacts import canonical
 
         r = self.result
         key = (
@@ -657,30 +651,19 @@ def remote_page(page) -> RemotePage:
     )
 
 
-def _probe_values(data):
-    import sys
-    from array import array
-
-    values = array("f")
-    values.frombytes(data)
-    if sys.byteorder != "little":
-        values.byteswap()
-    if any(not math.isfinite(v) for v in values):
-        raise ValueError("nonfinite probe logits")
-    return values
+def probe_key(model_id: str, stage: str) -> str:
+    return f"{MODEL_NAMESPACE}/probes/{model_id.rsplit(':', 1)[1]}/{stage}.json"
 
 
 def verify_reload_evidence(result, paths, request):
-    """Compare all fixed-prefix FP32 entries without installing Torch on the coordinator."""
-    from active_ocr.integrations.qwen import canonical, strict_json
+    """Confirm two interpreters loaded the saved adapter and produced identical output."""
+    from active_ocr.integrations.artifacts import canonical, strict_json
 
     evidence = result.reload
-    sha = result.model_id.rsplit(":", 1)[1]
     page = min((e.page for e in request.examples), key=lambda p: p.id)
-    probes, values = [], []
-    for name, ref in (("before", evidence.before), ("after", evidence.after)):
-        prefix = f"probes/{sha}/{name}"
-        if ref.key != "qwen/" + prefix + ".json":
+    probes = []
+    for stage, ref in (("before", evidence.before), ("after", evidence.after)):
+        if ref.key != probe_key(result.model_id, stage):
             raise ValueError("probe metadata namespace mismatch")
         raw = paths[ref.key].read_bytes()
         probe = ProbeMetadata.model_validate(strict_json(raw))
@@ -691,89 +674,27 @@ def verify_reload_evidence(result, paths, request):
             or probe.page_id != page.id
             or probe.image_sha256 != page.image_sha256
             or (probe.original_width, probe.original_height) != (page.width, page.height)
-            or probe.logits.key != prefix + ".f32le"
         ):
-            raise ValueError("probe page/model/logits namespace mismatch")
-        # Only this fixed prefix translates the nested Qwen-root key into a run-root key.
-        outer = probe.logits.model_copy(update={"key": "qwen/" + probe.logits.key})
-        if outer not in result.artifacts:
-            raise ValueError("probe logits missing from artifact inventory")
+            raise ValueError("probe page/model identity mismatch")
         probes.append(probe)
-        values.append(_probe_values(paths[outer.key].read_bytes()))
     before, after = probes
     if (before.process_id, after.process_id) != (
         evidence.train_process_id,
         evidence.reload_process_id,
     ):
         raise ValueError("probe process identity mismatch")
-    for key in (
-        "generated_ids",
-        "status",
-        "regions",
-        "finish_reason",
-        "adapter_tensors",
-        "logits_shape",
-    ):
-        if getattr(before, key) != getattr(after, key):
-            raise ValueError("fresh reload exact evidence mismatch")
-    maximum = 0.0
-    for a, b in zip(*values, strict=True):
-        delta = abs(a - b)
-        if delta > 1e-2 + 1e-3 * abs(b):
-            raise ValueError("fresh reload logits exceed fixed tolerance")
-        maximum = max(maximum, delta)
-    if not math.isclose(maximum, evidence.max_absolute_difference, rel_tol=1e-6, abs_tol=1e-7):
-        raise ValueError("reported probe difference mismatch")
-    return before.adapter_tensors
+    if before.model_dump(exclude={"process_id"}) != after.model_dump(exclude={"process_id"}):
+        raise ValueError("fresh reload produced different output")
 
 
-def _verify_adapter_tensors(path, hashes):
-    """Read safe tensor framing and FP32 bytes; never deserialize executable model objects."""
-    import hashlib
-    import struct
+def verify_adapter_file(path):
+    """Read safetensors framing only; never deserialize an executable model object."""
+    from active_ocr.integrations.factory_model import adapter_summary
 
-    from active_ocr.integrations.qwen import canonical, strict_json
-
-    raw = path.read_bytes()
-    if len(raw) < 8:
-        raise ValueError("truncated adapter")
-    size = struct.unpack("<Q", raw[:8])[0]
-    if not 2 <= size <= 1024 * 1024 or size + 8 > len(raw):
-        raise ValueError("invalid adapter header")
-    header = strict_json(raw[8 : 8 + size])
-    header.pop("__metadata__", None)
-    shapes = adapter_shapes()
-    if set(header) != set(shapes):
-        raise ValueError("adapter tensor inventory mismatch")
-    intervals = []
-    for name, shape in shapes.items():
-        entry = header[name]
-        start, end = entry["data_offsets"]
-        if (
-            entry["dtype"] != "F32"
-            or entry["shape"] != list(shape)
-            or type(start) is not int
-            or type(end) is not int
-            or start < 0
-            or end - start != math.prod(shape) * 4
-            or end > len(raw) - size - 8
-        ):
-            raise ValueError("invalid adapter tensor framing")
-        data = raw[8 + size + start : 8 + size + end]
-        _probe_values(data)
-        actual = hashlib.sha256(
-            canonical(dict(shape=list(shape), dtype="torch.float32")) + data
-        ).hexdigest()
-        if actual != hashes[name]:
-            raise ValueError("adapter tensor differs from reload probe")
-        intervals.append((start, end))
-    cursor = 0
-    for start, end in sorted(intervals):
-        if start != cursor:
-            raise ValueError("adapter tensor overlap/gap")
-        cursor = end
-    if cursor != len(raw) - size - 8:
-        raise ValueError("unreferenced adapter bytes")
+    summary = adapter_summary(path)
+    if not summary["changed_lora_B_tensors"]:
+        raise ValueError("saved LoRA B is zero; no learned adapter change")
+    return summary
 
 
 class ModalModel:
@@ -782,7 +703,7 @@ class ModalModel:
     from active_ocr.models import RunKind
 
     kind = RunKind.REAL
-    backend = "qwen3-vl-v1"
+    backend = BACKEND
     fit_policy = "reset-fit-cumulative-v1"
 
     def __init__(self, settings: RuntimeSettings, store, transport, *, clock=None):
@@ -824,14 +745,12 @@ class ModalModel:
             raise ValueError("frozen Modal runtime settings changed")
 
     def _check_input_checkpoint(self, request):
-        from active_ocr.integrations import qwen as q
+        from active_ocr.integrations import factory_model as f
 
         if isinstance(request, BaseRequest):
             return
-        model = object.__new__(q.QwenModel)
-        model.real_config = self.real_config
         base_id = "checkpoint:sha256:" + digest(
-            q.Checkpoint(kind="base", binding=model._binding()).model_dump(mode="json")
+            f.Checkpoint(kind="base", binding=binding(self.real_config)).model_dump(mode="json")
         )
         if isinstance(request, FitRequest) or request.round_number == 0:
             if request.input_checkpoint != base_id:
@@ -1039,7 +958,7 @@ class ModalModel:
         import tempfile
         from pathlib import Path
 
-        from active_ocr.integrations.qwen import file_hash, safe_path
+        from active_ocr.integrations.artifacts import file_hash, safe_path
 
         root = self.store.artifact_root / "model-evidence"
         root.mkdir(parents=True, exist_ok=True)
@@ -1071,7 +990,8 @@ class ModalModel:
         return target
 
     def verify_response(self, response, invocation, provider_call_id):
-        from active_ocr.integrations import qwen as q
+        from active_ocr.integrations import artifacts as a
+        from active_ocr.integrations import factory_model as f
 
         response = DispatchResponse.model_validate(response.model_dump())
         result, request = response.result, invocation.request
@@ -1079,13 +999,13 @@ class ModalModel:
         if result.provider_call_id != provider_call_id:
             raise ValueError("provider call identity mismatch")
         complete = self._artifact(response.completion).read_bytes()
-        if complete != q.canonical(result.model_dump(mode="json")):
+        if complete != a.canonical(result.model_dump(mode="json")):
             raise ValueError("completion content mismatch")
         paths = {ref.key: self._artifact(ref) for ref in result.artifacts}
         manifest_raw = paths[result.worker_manifest.key].read_bytes()
-        manifest = q.WorkerManifest.model_validate(q.strict_json(manifest_raw))
+        manifest = a.WorkerManifest.model_validate(a.strict_json(manifest_raw))
         if (
-            manifest_raw != q.canonical(manifest.model_dump(mode="json"))
+            manifest_raw != a.canonical(manifest.model_dump(mode="json"))
             or manifest.source_sha != self.settings.build.source_sha
             or manifest.files != self.settings.build.code_files
             or manifest.environment != self.settings.build.environment
@@ -1094,28 +1014,27 @@ class ModalModel:
         ):
             raise ValueError("observed worker identity mismatch")
         sha = result.model_id.rsplit(":", 1)[1]
-        prefix = f"qwen/checkpoints/{sha}/"
+        prefix = f"{MODEL_NAMESPACE}/checkpoints/{sha}/"
         raw = paths[prefix + "manifest.json"].read_bytes()
-        checkpoint = q.Checkpoint.model_validate(q.strict_json(raw))
-        model = object.__new__(q.QwenModel)
-        model.real_config = self.real_config
+        checkpoint = f.Checkpoint.model_validate(a.strict_json(raw))
+        expected_binding = binding(self.real_config)
         if (
-            raw != q.canonical(checkpoint.model_dump(mode="json"))
-            or checkpoint.binding != model._binding()
+            raw != a.canonical(checkpoint.model_dump(mode="json"))
+            or checkpoint.binding != expected_binding
         ):
             raise ValueError("checkpoint recipe mismatch")
         refs = {ref.key: ref for ref in result.artifacts}
         required = {prefix + "manifest.json"}
-        for f in checkpoint.files:
-            key = prefix + f.filename
-            if refs.get(key) != ArtifactRef(key=key, bytes=f.bytes, sha256=f.sha256):
+        for entry in checkpoint.files:
+            key = prefix + entry.filename
+            if refs.get(key) != ArtifactRef(key=key, bytes=entry.bytes, sha256=entry.sha256):
                 raise ValueError("checkpoint file closure mismatch")
             required.add(key)
         if {key for key in refs if key.startswith(prefix)} != required:
             raise ValueError("extra checkpoint artifacts")
         if checkpoint.kind == "base":
             if (
-                checkpoint != q.Checkpoint(kind="base", binding=model._binding())
+                checkpoint != f.Checkpoint(kind="base", binding=expected_binding)
                 or isinstance(request, FitRequest)
                 or request.round_number
             ):
@@ -1124,11 +1043,10 @@ class ModalModel:
             if (
                 checkpoint.experiment_id != request.context.experiment_id
                 or checkpoint.round_number != request.round_number
-                or [f.filename for f in checkpoint.files]
-                != ["adapter_config.json", "adapter_model.safetensors"]
+                or [entry.filename for entry in checkpoint.files] != list(ADAPTER_FILES)
             ):
                 raise ValueError("checkpoint ownership mismatch")
-            q.check_training_record(checkpoint)
+            f.check_training_record(checkpoint)
         if isinstance(request, FitRequest):
             # Serialize only the selected TRAIN view; no oracle/source access at this boundary.
             if (
@@ -1136,11 +1054,16 @@ class ModalModel:
                 != tuple((e.page.id, e.page.image_sha256) for e in request.examples)
                 or checkpoint.seed != request.seed
                 or checkpoint.target_sha256
-                != digest([(e.page.id, q.serialize_target(e)) for e in request.examples])
+                != digest([(e.page.id, f.serialize_target(e)) for e in request.examples])
             ):
                 raise ValueError("fit checkpoint selected/seed/target mismatch")
-            hashes = verify_reload_evidence(result, paths, request)
-            _verify_adapter_tensors(paths[prefix + "adapter_model.safetensors"], hashes)
+            verify_reload_evidence(result, paths, request)
+            f.verify_adapter_config(
+                a.strict_json(paths[prefix + "adapter_config.json"].read_bytes())
+            )
+            summary = verify_adapter_file(paths[prefix + "adapter_model.safetensors"])
+            if summary["changed_lora_B_tensors"] != checkpoint.training["changed_lora_B_tensors"]:
+                raise ValueError("adapter change evidence mismatch")
         if isinstance(request, PredictRequest):
             for prediction, page in zip(result.predictions, request.pages, strict=True):
                 if prediction.status.value != "ok" and prediction.regions:
@@ -1154,11 +1077,11 @@ class ModalModel:
                     ):
                         raise ValueError("prediction geometry outside original page")
                 raw = paths[prediction.raw_output_artifact].read_bytes()
-                receipt = q.strict_json(raw)
+                receipt = a.strict_json(raw)
                 if (
-                    raw != q.canonical(receipt)
+                    raw != a.canonical(receipt)
                     or prediction.raw_output_artifact
-                    != "qwen/receipts/" + q.digest(receipt) + ".json"
+                    != f"{MODEL_NAMESPACE}/receipts/" + a.digest(receipt) + ".json"
                     or len({r.id for r in prediction.regions}) != len(prediction.regions)
                 ):
                     raise ValueError("raw prediction canonical identity/region IDs mismatch")
@@ -1181,7 +1104,7 @@ class ModalModel:
                     raise ValueError("raw prediction evidence result mismatch")
                 if (
                     prediction.status.value == "ok"
-                    and q.parse_regions(evidence["text"], page.width, page.height)
+                    and f.parse_regions(evidence["text"], page.width, page.height)
                     != prediction.regions
                 ):
                     raise ValueError("raw text and parsed prediction regions disagree")
@@ -1226,7 +1149,7 @@ def input_upload_files(bundle: InputBundle, pages, model_root):
     """Explicit verified image/model allowlist. No directory traversal or source/oracle copying."""
     from pathlib import Path
 
-    from active_ocr.integrations.qwen import file_hash, safe_path
+    from active_ocr.integrations.artifacts import file_hash, safe_path
 
     bundle = InputBundle.model_validate(bundle.model_dump())
     images = {}

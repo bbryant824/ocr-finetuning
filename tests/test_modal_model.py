@@ -10,17 +10,21 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from active_ocr.integrations import artifacts as a
+from active_ocr.integrations import factory_model as f
 from active_ocr.integrations import modal_model as m
-from active_ocr.integrations import qwen as q
 from active_ocr.models import (
     Box,
     ExpectedIdentity,
     Prediction,
     RealOCRConfig,
+    Region,
     SourcePolicy,
     SourceRegion,
     Split,
 )
+
+EMPTY_RESPONSE = '{"regions":[]}'
 
 
 def assets():
@@ -28,12 +32,12 @@ def assets():
         files=tuple(
             sorted(
                 [
-                    q.FileEntry(filename="model/" + n, bytes=size, sha256=sha)
-                    for n, (size, sha) in q.ASSETS.items()
+                    a.FileEntry(filename="model/" + n, bytes=size, sha256=sha)
+                    for n, (size, sha) in f.ASSETS.items()
                 ]
                 + [
-                    q.FileEntry(filename="images/" + "a" * 64, bytes=100, sha256="a" * 64),
-                    q.FileEntry(filename="images/" + "b" * 64, bytes=100, sha256="b" * 64),
+                    a.FileEntry(filename="images/" + "a" * 64, bytes=100, sha256="a" * 64),
+                    a.FileEntry(filename="images/" + "b" * 64, bytes=100, sha256="b" * 64),
                 ],
                 key=lambda f: f.filename,
             )
@@ -46,18 +50,25 @@ def make_settings():
     spec = m.BuildSpec(
         source_sha="c" * 40,
         code_files=tuple(
-            q.FileEntry(filename=n, bytes=1, sha256="d" * 64) for n in sorted(m.RUNTIME_CODE_FILES)
+            a.FileEntry(filename=n, bytes=1, sha256="d" * 64) for n in sorted(m.RUNTIME_CODE_FILES)
         ),
         lock_sha256="e" * 64,
-        requirements_file=q.FileEntry(filename="requirements-linux.txt", bytes=1, sha256="e" * 64),
-        cpu_test_file=q.FileEntry(filename="tests/test_qwen.py", bytes=1, sha256="f" * 64),
-        processor_manifest_sha256=q.digest(q.asset_manifest(q.PROCESSOR_FILES)),
+        requirements_file=a.FileEntry(filename="requirements-linux.txt", bytes=1, sha256="e" * 64),
+        cpu_test_file=a.FileEntry(filename="tests/test_factory_model.py", bytes=1, sha256="f" * 64),
+        recipe_file=a.FileEntry(
+            filename="experiments/recipes/read2016-llamafactory-joint.json",
+            bytes=1,
+            sha256="9" * 64,
+        ),
+        processor_manifest_sha256=a.digest(f.asset_manifest(f.PROCESSOR_FILES)),
     )
     build = m.BuildReceipt(
         build_spec_sha256=spec.sha256,
         source_sha=spec.source_sha,
         code_files=spec.code_files,
-        environment=q.Packages(python="3.11.14", packages=tuple(sorted(q.PINS.items()))),
+        environment=a.Packages(
+            python="3.11.14", packages=(("llamafactory", "0.9.5"), ("modal", "1.5.5"))
+        ),
         cpu_report=m.ArtifactRef(key="cpu-report.json", bytes=10, sha256="a" * 64),
         cpu_passed=11,
         cpu_skipped=0,
@@ -65,11 +76,11 @@ def make_settings():
     expected = ExpectedIdentity(
         source_sha=spec.source_sha,
         dependency_sha256="f" * 64,
-        model_revision=q.REVISION,
-        processor_revision=q.REVISION,
-        model_manifest_sha256=q.digest(q.asset_manifest(q.BASE_FILES)),
+        model_revision=f.REVISION,
+        processor_revision=f.REVISION,
+        model_manifest_sha256=a.digest(f.asset_manifest(f.BASE_FILES)),
         processor_manifest_sha256=spec.processor_manifest_sha256,
-        recipe_version=q.RECIPE,
+        recipe_version=f.recipe_field("recipe_version"),
         evaluator_id="page-text-nfc-v1",
         code_bundle_sha256=build.code_bundle_sha256,
         remote_dependency_sha256=build.remote_dependency_sha256,
@@ -77,14 +88,15 @@ def make_settings():
         deployment_reference="modal:main/synthetic/dispatch@im-test",
     )
     real = RealOCRConfig(
-        backend="qwen3-vl-v1",
-        recipe_version=q.RECIPE,
-        model_repository=q.REPOSITORY,
-        processor_repository=q.REPOSITORY,
-        model_revision=q.REVISION,
-        processor_revision=q.REVISION,
-        training_policy_id=q.TRAIN_POLICY,
-        decode_policy_id=q.DECODE_POLICY,
+        backend=f.BACKEND,
+        recipe_version=f.recipe_field("recipe_version"),
+        model_repository=f.REPOSITORY,
+        processor_repository=f.REPOSITORY,
+        model_revision=f.REVISION,
+        processor_revision=f.REVISION,
+        training_policy_id=f.recipe_field("training_policy_id"),
+        decode_policy_id=f.recipe_field("decode_policy_id"),
+        evaluator_id="page-text-nfc-v1",
         expected_identity=expected,
     )
     context = m.RunContext(
@@ -152,7 +164,7 @@ def test_shared_module_import_is_local_and_lightweight():
     subprocess.run(
         [sys.executable, "-c", code],
         check=True,
-        env={"PYTHONPATH": str(Path(q.__file__).parents[2])},
+        env={"PYTHONPATH": str(Path(a.__file__).parents[2])},
     )
 
 
@@ -278,14 +290,40 @@ def test_bundle_rejects_unlisted_source_and_changed_model():
         m.InputBundle.model_validate(data)
 
 
+def test_build_accepts_only_the_pinned_recipe_test_and_processor_inputs():
+    spec = make_settings().build_spec
+    for field, filename in (
+        ("cpu_test_file", "tests/test_qwen.py"),
+        ("recipe_file", "experiments/recipes/other.json"),
+    ):
+        entry = getattr(spec, field).model_copy(update={"filename": filename})
+        with pytest.raises(ValidationError):
+            m.BuildSpec.model_validate({**spec.model_dump(), field: entry.model_dump()})
+    assert spec.recipe_file.filename == "experiments/recipes/read2016-llamafactory-joint.json"
+
+
 def test_cpu_receipt_cannot_pass_with_skips_or_different_build():
     settings = make_settings()
-    with pytest.raises(ValidationError):
-        m.BuildReceipt.model_validate({**settings.build.model_dump(), "cpu_skipped": 1})
+    for field, value in (("cpu_skipped", 1), ("cpu_passed", 0)):
+        with pytest.raises(ValidationError):
+            m.BuildReceipt.model_validate({**settings.build.model_dump(), field: value})
     data = settings.model_dump()
     data["build"]["build_spec_sha256"] = "f" * 64
     with pytest.raises(ValidationError):
         m.RuntimeSettings.model_validate(data)
+
+
+def test_build_environment_pins_the_toolkit_and_stays_sorted():
+    settings = make_settings()
+    assert dict(settings.build.environment.packages)["llamafactory"] == f.recipe_field(
+        "toolkit", "version"
+    )
+    data = settings.build.model_dump()
+    data["environment"] = dict(
+        python="3.11.14", packages=[("modal", "1.5.5"), ("llamafactory", "0.9.5")]
+    )
+    with pytest.raises(ValidationError):
+        m.BuildReceipt.model_validate(data)
 
 
 @pytest.mark.parametrize("duration", [0, -1, 2401])
@@ -307,9 +345,11 @@ def test_completion_checksum_owner_and_raw_evidence():
     )
     call = invocation(request)
     worker = m.ArtifactRef(key="worker.json", bytes=1, sha256="d" * 64)
-    raw = m.ArtifactRef(key="qwen/receipts/raw.json", bytes=1, sha256="e" * 64)
+    raw = m.ArtifactRef(key=f"{m.MODEL_NAMESPACE}/receipts/raw.json", bytes=1, sha256="e" * 64)
     manifest = m.ArtifactRef(
-        key="qwen/checkpoints/" + "0" * 64 + "/manifest.json", bytes=1, sha256="0" * 64
+        key=f"{m.MODEL_NAMESPACE}/checkpoints/" + "0" * 64 + "/manifest.json",
+        bytes=1,
+        sha256="0" * 64,
     )
     result = m.OperationResult(
         operation_id=call.operation_id,
@@ -335,9 +375,9 @@ def test_completion_checksum_owner_and_raw_evidence():
         f"operations/{result.operation_id}/attempts/{result.attempt_id}/"
         f"executions/{result.execution_id}/complete.json"
     )
-    encoded = q.canonical(result.model_dump(mode="json"))
+    encoded = a.canonical(result.model_dump(mode="json"))
     completion = m.ArtifactRef(
-        key=key, bytes=len(encoded), sha256=q.digest(result.model_dump(mode="json"))
+        key=key, bytes=len(encoded), sha256=a.digest(result.model_dump(mode="json"))
     )
     m.DispatchResponse(result=result, completion=completion)
     with pytest.raises(ValidationError):
@@ -352,37 +392,46 @@ def test_completion_checksum_owner_and_raw_evidence():
         )
 
 
-def test_reload_proof_requires_fresh_process_and_full_logits():
+def probe_fields(**changes):
+    return {
+        **dict(
+            model_id="checkpoint:sha256:" + "0" * 64,
+            page_id="selected",
+            image_sha256="a" * 64,
+            original_width=100,
+            original_height=200,
+            process_id=7,
+            status="invalid_output",
+            finish_reason="stop",
+            response_tokens=3,
+            response_sha256="b" * 64,
+            regions=(),
+        ),
+        **changes,
+    }
+
+
+def test_reload_proof_requires_fresh_process_and_identical_output():
     ref = m.ArtifactRef(key="before.json", bytes=1, sha256="a" * 64)
+    evidence = dict(before=ref, after=ref, train_process_id=7, reload_process_id=8)
+    m.ReloadEvidence(**evidence, identical_output=True)
     with pytest.raises(ValidationError):
-        m.ReloadEvidence(
-            before=ref,
-            after=ref,
-            train_process_id=7,
-            reload_process_id=7,
-            max_absolute_difference=0,
-            exact_tensors_ids_status_regions=True,
-        )
-    data = dict(
-        model_id="checkpoint:sha256:" + "0" * 64,
-        page_id="selected",
-        image_sha256="a" * 64,
-        original_width=100,
-        original_height=200,
-        process_id=7,
-        generated_ids=(q.EOS,),
-        status="invalid_output",
-        regions=(),
-        finish_reason="eos",
-        adapter_tensors={k: "b" * 64 for k in q.adapter_shapes()},
-        logits=m.ArtifactRef(key="before.f32le", bytes=151936 * 4, sha256="c" * 64),
-        logits_shape=(1, 151936),
-    )
-    m.ProbeMetadata(**data)
+        m.ReloadEvidence(**{**evidence, "reload_process_id": 7}, identical_output=True)
     with pytest.raises(ValidationError):
-        m.ProbeMetadata(**{**data, "logits_shape": (2, 151936)})
-    with pytest.raises(ValidationError):
-        m.ProbeMetadata(**{**data, "adapter_tensors": {}})
+        m.ReloadEvidence(**evidence, identical_output=False)
+    m.ProbeMetadata(**probe_fields())
+    region = Region(id="line-0001", text="x", box=Box(x=0, y=0, width=1, height=1))
+    for change in (
+        {"regions": (region,)},  # A failed generation cannot also report parsed regions.
+        {"finish_reason": "eos"},
+        {"status": "refusal"},
+        {"process_id": 0},
+        {"response_tokens": f.MAX_OUTPUT_TOKENS + 1},
+    ):
+        with pytest.raises(ValidationError):
+            m.ProbeMetadata(**probe_fields(**change))
+    ok = m.ProbeMetadata(**probe_fields(status="ok", regions=(region,)))
+    assert ok.regions == (region,)
 
 
 class FakeTransport:
@@ -406,14 +455,15 @@ class FakeTransport:
         self.files[key] = data
         return m.ArtifactRef(key=key, bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
 
+    def binding(self):
+        return f.binding(self.settings.context.real_config)
+
     def base_response(self, invocation, call_id):
-        model = object.__new__(q.QwenModel)
-        model.real_config = self.settings.context.real_config
-        checkpoint = q.Checkpoint(kind="base", binding=model._binding())
-        raw = q.canonical(checkpoint.model_dump(mode="json"))
-        model_sha = q.digest(checkpoint.model_dump(mode="json"))
-        manifest = self.artifact(f"qwen/checkpoints/{model_sha}/manifest.json", raw)
-        worker = q.WorkerManifest(
+        checkpoint = f.Checkpoint(kind="base", binding=self.binding())
+        raw = a.canonical(checkpoint.model_dump(mode="json"))
+        model_sha = a.digest(checkpoint.model_dump(mode="json"))
+        manifest = self.artifact(f"{m.MODEL_NAMESPACE}/checkpoints/{model_sha}/manifest.json", raw)
+        worker = a.WorkerManifest(
             schema_version=1,
             source_sha=self.settings.build.source_sha,
             files=self.settings.build.code_files,
@@ -421,7 +471,7 @@ class FakeTransport:
             build_spec_sha256=self.settings.build_spec.sha256,
             deployment_reference=self.settings.deployment_reference,
         )
-        worker_ref = self.artifact("worker.json", q.canonical(worker.model_dump(mode="json")))
+        worker_ref = self.artifact("worker.json", a.canonical(worker.model_dump(mode="json")))
         result = m.OperationResult(
             operation_id=invocation.operation_id,
             attempt_id=invocation.attempt_id,
@@ -434,7 +484,7 @@ class FakeTransport:
         completion = self.artifact(
             f"operations/{invocation.operation_id}/attempts/{invocation.attempt_id}/"
             f"executions/{'8' * 32}/complete.json",
-            q.canonical(result.model_dump(mode="json")),
+            a.canonical(result.model_dump(mode="json")),
         )
         return m.DispatchResponse(result=result, completion=completion).model_dump(mode="json")
 
@@ -558,7 +608,7 @@ def test_unverified_receipt_never_completes(tmp_path, corruption):
             key = result["result"]["worker_manifest"]["key"]
             worker = json.loads(transport.files[key])
             worker["source_sha"] = "0" * 40
-            ref = transport.artifact(key, q.canonical(worker))
+            ref = transport.artifact(key, a.canonical(worker))
             result["result"]["worker_manifest"] = ref.model_dump()
             result["result"]["artifacts"][1] = ref.model_dump()
         elif corruption == "call":
@@ -574,7 +624,7 @@ def test_unverified_receipt_never_completes(tmp_path, corruption):
             r = m.OperationResult.model_validate(result["result"])
             completion = transport.artifact(
                 f"operations/{r.operation_id}/attempts/{r.attempt_id}/executions/{r.execution_id}/complete.json",
-                q.canonical(r.model_dump(mode="json")),
+                a.canonical(r.model_dump(mode="json")),
             )
             result = m.DispatchResponse(result=r, completion=completion).model_dump(mode="json")
         return result
@@ -641,13 +691,32 @@ def test_fit_reservation_never_persists_targets(tmp_path):
     assert "target_sha256" in record.semantic and "examples" not in record.semantic
 
 
+def synthetic_adapter():
+    """A minimal but structurally real two-tensor safetensors adapter; no Torch involved."""
+    import struct
+
+    header, content, nonzero = {}, bytearray(), 0
+    for name, data in (
+        ("base_model.model.layers.0.q_proj.lora_A.weight", bytes(8)),
+        ("base_model.model.layers.0.q_proj.lora_B.weight", b"\x2a" + bytes(7)),
+    ):
+        header[name] = dict(
+            dtype="F32",
+            shape=[2],
+            data_offsets=[len(content), len(content) + len(data)],
+        )
+        nonzero += any(data)
+        content.extend(data)
+    encoded = a.canonical(header)
+    return struct.pack("<Q", len(encoded)) + encoded + bytes(content), nonzero
+
+
 class CompleteTransport(FakeTransport):
-    """Synthetic checkpoint/logits bytes exercising the real coordinator verifier, no ML."""
+    """Synthetic checkpoint/probe bytes exercising the real coordinator verifier, no ML."""
 
     def base_response(self, invocation, call_id):
         import hashlib
         import math
-        import struct
 
         request = invocation.request
         if isinstance(request, m.BaseRequest):
@@ -660,90 +729,67 @@ class CompleteTransport(FakeTransport):
         reload = None
         predictions = ()
         if isinstance(request, m.FitRequest):
-            model = object.__new__(q.QwenModel)
-            model.real_config = self.settings.context.real_config
-            shapes = q.adapter_shapes()
-            header, content, tensors = {}, bytearray(), {}
-            for key, shape in shapes.items():
-                data = bytes(math.prod(shape) * 4)
-                header[key] = dict(
-                    dtype="F32",
-                    shape=list(shape),
-                    data_offsets=[len(content), len(content) + len(data)],
+            adapter, nonzero = synthetic_adapter()
+            cfg = a.canonical(
+                dict(
+                    peft_type="LORA",
+                    r=8,
+                    lora_alpha=16,
+                    lora_dropout=0.0,
+                    init_lora_weights=True,
+                    use_dora=False,
+                    use_rslora=False,
+                    bias="none",
+                    modules_to_save=None,
                 )
-                tensors[key] = hashlib.sha256(
-                    q.canonical(dict(shape=list(shape), dtype="torch.float32")) + data
-                ).hexdigest()
-                content.extend(data)
-            encoded = q.canonical(header)
-            adapter = struct.pack("<Q", len(encoded)) + encoded + content
-            cfg = q.canonical(dict(base_model_name_or_path=q.REPOSITORY, revision=q.REVISION))
-            files = (
-                q.FileEntry(
-                    filename="adapter_config.json",
-                    bytes=len(cfg),
-                    sha256=hashlib.sha256(cfg).hexdigest(),
-                ),
-                q.FileEntry(
-                    filename="adapter_model.safetensors",
-                    bytes=len(adapter),
-                    sha256=hashlib.sha256(adapter).hexdigest(),
-                ),
+            )
+            contents = {"adapter_config.json": cfg, "adapter_model.safetensors": adapter}
+            files = tuple(
+                a.FileEntry(
+                    filename=name,
+                    bytes=len(contents[name]),
+                    sha256=hashlib.sha256(contents[name]).hexdigest(),
+                )
+                for name in f.ADAPTER_FILES
             )
             ids = tuple(e.page.id for e in request.examples)
-            processing = {
-                i: dict(
-                    height=256,
-                    width=256,
-                    grid=[1, 16, 16],
-                    prompt_tokens=1,
-                    target_tokens=1,
-                    target_exceeds_decode_budget=False,
-                )
-                for i in ids
-            }
-            updates = 3 * math.ceil(len(ids) / 4)
             training = dict(
-                updates=updates,
-                epoch_orders=[
-                    [p for group in q.epoch_groups(ids, request.seed, e) for p in group]
-                    for e in range(3)
-                ],
+                toolkit_version=f.recipe_field("toolkit", "version"),
+                examples=len(ids),
+                epochs=f.recipe_field("training", "num_train_epochs"),
+                optimizer_steps=3 * math.ceil(len(ids) / 4),
                 losses=[0.1] * (3 * len(ids)),
-                gradient_norms=[0.1] * updates,
-                processing=processing,
-                supervised_tokens=3 * len(ids),
-                changed_tensors=1,
-                frozen_sha256="c" * 64,
+                train_runtime_seconds=1.5,
+                preflight={
+                    i: dict(prompt_tokens=1024, target_tokens=64, total_tokens=1088) for i in ids
+                },
+                changed_lora_B_tensors=nonzero,
             )
-            checkpoint = q.Checkpoint(
+            checkpoint = f.Checkpoint(
                 kind="adapter",
-                binding=model._binding(),
+                binding=self.binding(),
                 experiment_id=request.context.experiment_id,
                 round_number=request.round_number,
                 selected=tuple((e.page.id, e.page.image_sha256) for e in request.examples),
-                target_sha256=q.digest(
-                    [(e.page.id, q.serialize_target(e)) for e in request.examples]
+                target_sha256=a.digest(
+                    [(e.page.id, f.serialize_target(e)) for e in request.examples]
                 ),
                 seed=request.seed,
                 training=training,
                 files=files,
             )
-            model_sha = q.digest(checkpoint.model_dump(mode="json"))
+            model_sha = a.digest(checkpoint.model_dump(mode="json"))
             model_id = "checkpoint:sha256:" + model_sha
-            prefix = f"qwen/checkpoints/{model_sha}/"
-            artifacts += [
+            prefix = f"{m.MODEL_NAMESPACE}/checkpoints/{model_sha}/"
+            artifacts.append(
                 self.artifact(
-                    prefix + "manifest.json", q.canonical(checkpoint.model_dump(mode="json"))
-                ),
-                self.artifact(prefix + "adapter_config.json", cfg),
-                self.artifact(prefix + "adapter_model.safetensors", adapter),
-            ]
+                    prefix + "manifest.json", a.canonical(checkpoint.model_dump(mode="json"))
+                )
+            )
+            artifacts += [self.artifact(prefix + name, contents[name]) for name in f.ADAPTER_FILES]
             probes = []
             page = min((e.page for e in request.examples), key=lambda p: p.id)
-            for name, pid in (("before", 123), ("after", 124)):
-                key = f"probes/{model_sha}/{name}"
-                logits = self.artifact("qwen/" + key + ".f32le", bytes(151936 * 4))
+            for stage, pid in (("before", 123), ("after", 124)):
                 probe = m.ProbeMetadata(
                     model_id=model_id,
                     page_id=page.id,
@@ -751,35 +797,31 @@ class CompleteTransport(FakeTransport):
                     original_width=page.width,
                     original_height=page.height,
                     process_id=pid,
-                    generated_ids=(q.EOS,),
-                    status="invalid_output",
+                    status="ok",
+                    finish_reason="stop",
+                    response_tokens=7,
+                    response_sha256=hashlib.sha256(EMPTY_RESPONSE.encode()).hexdigest(),
                     regions=(),
-                    finish_reason="eos",
-                    adapter_tensors=tensors,
-                    logits=logits.model_copy(update={"key": key + ".f32le"}),
-                    logits_shape=(1, 151936),
                 )
                 ref = self.artifact(
-                    "qwen/" + key + ".json", q.canonical(probe.model_dump(mode="json"))
+                    m.probe_key(model_id, stage), a.canonical(probe.model_dump(mode="json"))
                 )
-                artifacts += [logits, ref]
+                artifacts.append(ref)
                 probes.append(ref)
             reload = m.ReloadEvidence(
                 before=probes[0],
                 after=probes[1],
                 train_process_id=123,
                 reload_process_id=124,
-                max_absolute_difference=0,
-                exact_tensors_ids_status_regions=True,
+                identical_output=True,
             )
             self.fitted_artifacts = tuple(artifacts)
         else:
             model_id = request.input_checkpoint
             model_sha = model_id.rsplit(":", 1)[1]
             previous = base.artifacts if not request.round_number else self.fitted_artifacts
-            artifacts += [
-                ref for ref in previous if ref.key.startswith(f"qwen/checkpoints/{model_sha}/")
-            ]
+            prefix = f"{m.MODEL_NAMESPACE}/checkpoints/{model_sha}/"
+            artifacts += [ref for ref in previous if ref.key.startswith(prefix)]
             receipt = dict(
                 operation="predict",
                 experiment_id=request.context.experiment_id,
@@ -790,16 +832,18 @@ class CompleteTransport(FakeTransport):
                     dict(
                         page_id=p.id,
                         image_sha256=p.image_sha256,
-                        ids=[q.EOS],
-                        text='{"regions":[]}',
-                        finish_reason="eos",
+                        text=EMPTY_RESPONSE,
+                        finish_reason="stop",
                         status="ok",
+                        prompt_tokens=1024,
+                        response_tokens=7,
                     )
                     for p in request.pages
                 ],
             )
             raw = self.artifact(
-                "qwen/receipts/" + q.digest(receipt) + ".json", q.canonical(receipt)
+                f"{m.MODEL_NAMESPACE}/receipts/" + a.digest(receipt) + ".json",
+                a.canonical(receipt),
             )
             artifacts.append(raw)
             predictions = tuple(
@@ -809,7 +853,7 @@ class CompleteTransport(FakeTransport):
                     round_number=request.round_number,
                     purpose=request.purpose,
                     model_id=model_id,
-                    finish_reason="eos",
+                    finish_reason="stop",
                     raw_output_artifact=raw.key,
                 )
                 for p in request.pages
@@ -828,7 +872,7 @@ class CompleteTransport(FakeTransport):
         completion = self.artifact(
             f"operations/{invocation.operation_id}/attempts/{invocation.attempt_id}/"
             f"executions/{'8' * 32}/complete.json",
-            q.canonical(result.model_dump(mode="json")),
+            a.canonical(result.model_dump(mode="json")),
         )
         return m.DispatchResponse(result=result, completion=completion).model_dump(mode="json")
 
@@ -862,15 +906,14 @@ def test_completed_fit_reused_after_downstream_failure_with_full_evidence(tmp_pa
     )
 
 
-@pytest.mark.parametrize("change", ["namespace", "nonfinite", "tensors", "logits", "pid"])
+@pytest.mark.parametrize("change", ["namespace", "identity", "output", "noncanonical", "pid"])
 def test_reload_evidence_rejects_mismatches(tmp_path, change):
     model, _, request = coordinator(tmp_path)
     transport = CompleteTransport(model.settings)
     model.transport = transport
     base = model.execute(request)
     fit = fit_request(model.settings).model_copy(update={"input_checkpoint": base.model_id})
-    invocation = globals()["invocation"](fit)
-    wire = transport.base_response(invocation, "fc-fit")
+    wire = transport.base_response(invocation(fit), "fc-fit")
     result = m.DispatchResponse.model_validate(wire).result
     paths = {}
     for i, ref in enumerate(result.artifacts):
@@ -880,27 +923,39 @@ def test_reload_evidence_rejects_mismatches(tmp_path, change):
     probe_path = paths[result.reload.after.key]
     probe = json.loads(probe_path.read_bytes())
     if change == "namespace":
-        probe["logits"]["key"] = "qwen/" + probe["logits"]["key"]
+        after = result.reload.after.model_copy(update={"key": "probes/after.json"})
+        paths[after.key] = probe_path
+        result = result.model_copy(
+            update={"reload": result.reload.model_copy(update={"after": after})}
+        )
+    elif change == "identity":
+        probe["page_id"] = "another-selected-page"
+    elif change == "output":
+        probe["response_sha256"] = "f" * 64
     elif change == "pid":
         probe["process_id"] = 123
-    elif change == "tensors":
-        probe["adapter_tensors"][next(iter(probe["adapter_tensors"]))] = "f" * 64
-    else:
-        import struct
-
-        key = "qwen/" + probe["logits"]["key"]
-        data = bytearray(paths[key].read_bytes())
-        data[:4] = struct.pack("<f", float("nan") if change == "nonfinite" else 1.0)
-        paths[key].write_bytes(data)
-    probe_path.write_bytes(q.canonical(probe))
+    probe_path.write_bytes(
+        json.dumps(probe).encode() if change == "noncanonical" else a.canonical(probe)
+    )
     with pytest.raises(ValueError):
         m.verify_reload_evidence(result, paths, fit)
+
+
+def test_saved_adapter_must_contain_trained_bytes(tmp_path):
+    adapter, nonzero = synthetic_adapter()
+    path = tmp_path / "adapter_model.safetensors"
+    path.write_bytes(adapter)
+    summary = m.verify_adapter_file(path)
+    assert summary["nonzero_tensors"] == nonzero == 1 and len(summary["tensors"]) == 2
+    path.write_bytes(adapter.replace(b"\x2a", b"\x00"))
+    with pytest.raises(ValueError, match="LoRA B is zero"):
+        m.verify_adapter_file(path)
 
 
 def test_worker_allowlist_imports_without_legacy_integrations(tmp_path):
     import shutil
 
-    source = Path(q.__file__).parents[2]
+    source = Path(a.__file__).parents[2]
     # Platform entrypoint is independently owned; its import is tested in the combined candidate.
     for name in m.RUNTIME_CODE_FILES:
         if name.endswith("modal_app.py"):
@@ -908,12 +963,16 @@ def test_worker_allowlist_imports_without_legacy_integrations(tmp_path):
         dest = tmp_path / name
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source / name, dest)
+    # The adapter reads its recipe from the deployed image layout beside the package.
+    recipe = tmp_path / "experiments" / "recipes" / f.recipe_path().name
+    recipe.parent.mkdir(parents=True)
+    shutil.copyfile(f.recipe_path(), recipe)
     result = subprocess.run(
         [
             sys.executable,
             "-c",
-            "import sys; from active_ocr.integrations import qwen, modal_model; "
-            "assert not any(n in sys.modules for n in ('torch','modal',"
+            "import sys; from active_ocr.integrations import artifacts, factory_model, "
+            "modal_model; assert not any(n in sys.modules for n in ('torch','modal','llamafactory',"
             "'active_ocr.integrations.storage','active_ocr.integrations.local_data'))",
         ],
         env={"PYTHONPATH": str(tmp_path)},
@@ -1023,7 +1082,7 @@ def test_real_pipeline_recovers_after_round_commit_failure_without_retraining(
     pipeline = Pipeline.for_simulation(tmp_path / "runs")
     config = SimulationConfig(
         real=settings.context.real_config,
-        backend="qwen3-vl-v1",
+        backend=f.BACKEND,
         evaluator_id="page-text-nfc-v1",
         max_rounds=1,
     )
@@ -1033,14 +1092,14 @@ def test_real_pipeline_recovers_after_round_commit_failure_without_retraining(
             sorted(
                 [f for f in settings.bundle.files if f.filename.startswith("model/")]
                 + [
-                    q.FileEntry(
+                    a.FileEntry(
                         filename="images/" + p.image_sha256,
                         sha256=p.image_sha256,
                         bytes=Path(p.image_uri).stat().st_size,
                     )
                     for p in run.dataset.pages
                 ],
-                key=lambda f: f.filename,
+                key=lambda entry: entry.filename,
             )
         )
     )
@@ -1088,27 +1147,27 @@ def test_upload_plan_contains_only_exact_images_and_pinned_model(tmp_path, monke
     model_root.mkdir()
     image = tmp_path / "image.png"
     image.write_bytes(b"synthetic-image")
-    image_sha = q.file_hash(image)
+    image_sha = a.file_hash(image)
     expected = {}
-    for name in q.ASSETS:
+    for name in f.ASSETS:
         data = name.encode()
         (model_root / name).write_bytes(data)
         expected[name] = (len(data), hashlib.sha256(data).hexdigest())
     monkeypatch.setattr(m, "ASSETS", expected)  # Synthetic pins, never staged 4B asset access.
     (model_root / "oracle.json").write_text("DO NOT UPLOAD")
     files = [
-        q.FileEntry(filename="model/" + name, bytes=size, sha256=sha)
+        a.FileEntry(filename="model/" + name, bytes=size, sha256=sha)
         for name, (size, sha) in expected.items()
     ]
     files.append(
-        q.FileEntry(filename="images/" + image_sha, bytes=image.stat().st_size, sha256=image_sha)
+        a.FileEntry(filename="images/" + image_sha, bytes=image.stat().st_size, sha256=image_sha)
     )
-    bundle = m.InputBundle(files=tuple(sorted(files, key=lambda f: f.filename)))
+    bundle = m.InputBundle(files=tuple(sorted(files, key=lambda entry: entry.filename)))
     page = SimpleNamespace(
         image_uri=str(image), image_sha256=image_sha, source_image="secret.xml", regions="secret"
     )
     plan = m.input_upload_files(bundle, (page,), model_root)
-    assert {key for _, key in plan} == {f.filename for f in files}
+    assert {key for _, key in plan} == {entry.filename for entry in files}
     assert all("oracle" not in str(path) for path, _ in plan)
     image.write_bytes(b"changed")
     with pytest.raises(ValueError, match="image bytes changed"):
@@ -1175,7 +1234,7 @@ def test_sdk_boundary_checks_observed_ids_and_never_creates_resources(monkeypatc
         ),
     )
     observed = m.DeploymentObservation(
-        settings_sha256=q.digest(settings.model_dump(mode="json")),
+        settings_sha256=a.digest(settings.model_dump(mode="json")),
         function_id="fu-observed",
         app_id="ap-observed",
     )
@@ -1183,8 +1242,24 @@ def test_sdk_boundary_checks_observed_ids_and_never_creates_resources(monkeypatc
     assert calls == []
     transport.preflight()
     assert transport.spawn({"strict": "payload"}) == "fc-observed"
-    assert list(transport.read("qwen/receipts/x.json")) == [b"verified"]
-    assert calls[-1] == "/runs/" + settings.context.experiment_id + "/qwen/receipts/x.json"
+    key = f"{m.MODEL_NAMESPACE}/receipts/x.json"
+    assert list(transport.read(key)) == [b"verified"]
+    assert calls[-1] == "/runs/" + settings.context.experiment_id + "/" + key
     Function.object_id = "fu-replaced"
     with pytest.raises(ValueError, match="Function identity changed"):
         transport.preflight()
+
+
+def test_runtime_accepts_bounded_35_minute_window():
+    settings = make_settings()
+    bounded = m.RuntimeSettings.model_validate(
+        {
+            **settings.model_dump(),
+            "aggregate_gpu_seconds": 2100,
+            "timeout_seconds": 2100,
+        }
+    )
+    assert bounded.aggregate_gpu_seconds == bounded.timeout_seconds == 2100
+    for field in ("aggregate_gpu_seconds", "timeout_seconds"):
+        with pytest.raises(ValueError):
+            m.RuntimeSettings.model_validate({**settings.model_dump(), field: 2401})

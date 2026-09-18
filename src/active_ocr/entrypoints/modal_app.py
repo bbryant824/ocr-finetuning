@@ -1,12 +1,11 @@
 """Explicit Modal bootstrap and one bounded dispatcher; import never contacts Modal.
 
-Only the child interpreter constructs QwenModel. Build/deploy helpers are operator
+Only the child interpreter constructs FactoryModel. Build/deploy helpers are operator
 entrypoints, not import-time actions. See docs/PROJECT_GUIDE.md before execution.
 """
 
 from __future__ import annotations
 
-import array
 import hashlib
 import math
 import os
@@ -24,8 +23,9 @@ from pathlib import Path
 
 from PIL import Image
 
+from active_ocr.integrations import artifacts as a
+from active_ocr.integrations import factory_model as f
 from active_ocr.integrations import modal_model as m
-from active_ocr.integrations import qwen as q
 from active_ocr.models import ExecutionTelemetry, Prediction, RevealedExample, SimulationPage
 
 BUILD_EVIDENCE_ROOT = "/build-evidence"
@@ -35,30 +35,30 @@ class WorkerError(RuntimeError):
     """Only bounded codes may cross the provider/log boundary."""
 
 
-def _read(root: Path, ref: m.ArtifactRef | q.FileEntry) -> bytes:
+def _read(root: Path, ref: m.ArtifactRef | a.FileEntry) -> bytes:
     key = ref.key if isinstance(ref, m.ArtifactRef) else ref.filename
-    path = q.safe_path(root, key)
-    if not path.is_file() or path.stat().st_size != ref.bytes or q.file_hash(path) != ref.sha256:
+    path = a.safe_path(root, key)
+    if not path.is_file() or path.stat().st_size != ref.bytes or a.file_hash(path) != ref.sha256:
         raise WorkerError("identity")
     return path.read_bytes()
 
 
 def _ref(root: Path, key: str) -> m.ArtifactRef:
-    path = q.safe_path(root, m.relative_key(key))
-    return m.ArtifactRef(key=key, bytes=path.stat().st_size, sha256=q.file_hash(path))
+    path = a.safe_path(root, m.relative_key(key))
+    return m.ArtifactRef(key=key, bytes=path.stat().st_size, sha256=a.file_hash(path))
 
 
 def _json(root: Path, key: str, model):
-    raw = q.safe_path(root, key).read_bytes()
-    value = model.model_validate(q.strict_json(raw))
-    if raw != q.canonical(value.model_dump(mode="json")):
+    raw = a.safe_path(root, key).read_bytes()
+    value = model.model_validate(a.strict_json(raw))
+    if raw != a.canonical(value.model_dump(mode="json")):
         raise WorkerError("identity")
     return value
 
 
 def _publish(root: Path, key: str, data: bytes) -> m.ArtifactRef:
     """Reserve one writer, then atomically publish; stale reservations fail closed."""
-    path = q.safe_path(root, m.relative_key(key))
+    path = a.safe_path(root, m.relative_key(key))
     path.parent.mkdir(parents=True, exist_ok=True)
     reservation = path.parent / (".publish-" + hashlib.sha256(path.name.encode()).hexdigest())
     try:
@@ -106,13 +106,13 @@ def _terminate(child) -> None:
         child.wait(timeout=5)
 
 
-def _files(root: Path, entries: tuple[q.FileEntry, ...]) -> None:
+def _files(root: Path, entries: tuple[a.FileEntry, ...]) -> None:
     for entry in entries:
-        path = q.safe_path(root, entry.filename)
+        path = a.safe_path(root, entry.filename)
         if (
             not path.is_file()
             or path.stat().st_size != entry.bytes
-            or q.file_hash(path) != entry.sha256
+            or a.file_hash(path) != entry.sha256
         ):
             raise WorkerError("identity")
 
@@ -184,17 +184,17 @@ def prepare_image(
 ):
     """Construct only; caller supplies an already observed output Volume handle."""
     sdk = _sdk(sdk)
-    checkout = q.safe_path(checkout, checkout.absolute())
+    checkout = a.safe_path(checkout, checkout.absolute())
     _files(checkout / "src", spec.code_files)
-    _files(checkout, (spec.cpu_test_file,))
-    if q.file_hash(q.safe_path(checkout, "uv.lock")) != spec.lock_sha256:
+    _files(checkout, (spec.cpu_test_file, spec.recipe_file))
+    if a.file_hash(a.safe_path(checkout, "uv.lock")) != spec.lock_sha256:
         raise WorkerError("identity")
     _files(requirements.parent, (spec.requirements_file,))
     if requirements.name != spec.requirements_file.filename:
         raise WorkerError("identity")
     _verify_export(checkout, spec, requirements)
     processor_entries = tuple(
-        q.FileEntry(**e) for e in q.asset_manifest(q.PROCESSOR_FILES)["files"]
+        a.FileEntry(**e) for e in f.asset_manifest(f.PROCESSOR_FILES)["files"]
     )
     _files(processor_root, processor_entries)
     image = sdk.Image.debian_slim(python_version="3.11").pip_install_from_requirements(
@@ -202,7 +202,8 @@ def prepare_image(
     )
     copies = [(checkout / "src" / e.filename, "/opt/ocr/" + e.filename) for e in spec.code_files]
     copies += [
-        (checkout / spec.cpu_test_file.filename, "/opt/ocr/tests/test_qwen.py"),
+        (checkout / spec.cpu_test_file.filename, "/opt/ocr/tests/test_factory_model.py"),
+        (checkout / spec.recipe_file.filename, "/opt/ocr/" + spec.recipe_file.filename),
         (checkout / "uv.lock", "/opt/ocr/uv.lock"),
         (requirements, "/opt/ocr/requirements-linux.txt"),
     ]
@@ -240,15 +241,16 @@ def prepare_image(
 
 
 def _cpu_report(junit: Path, returncode: int) -> dict:
+    """Every selected case must pass; a skipped ML case is unverified scope, not a pass."""
     cases = list(ET.parse(junit).getroot().iter("testcase"))
     names = [case.attrib["classname"] + "::" + case.attrib["name"] for case in cases]
     failures = sum(bool(list(c)) for c in cases)
-    if returncode != 0 or len(cases) != 11 or failures or len(set(names)) != 11:
+    if returncode != 0 or not cases or failures or len(set(names)) != len(names):
         raise WorkerError("model")
     return {
         "schema_version": 1,
-        "selected": 11,
-        "passed": 11,
+        "selected": len(cases),
+        "passed": len(cases),
         "skipped": 0,
         "failed": 0,
         "tests": sorted(names),
@@ -291,7 +293,7 @@ def _cpu_failure(
         "records_truncated": len(cases) > 32,
         "tests": records,
     }
-    raw = q.canonical(diagnostic)
+    raw = a.canonical(diagnostic)
     # Safe log is fallback evidence if the Volume itself is unavailable.
     print(raw.decode(), flush=True)
     stage = "publish"
@@ -301,7 +303,7 @@ def _cpu_failure(
         _sdk().Volume.from_id(volume_id).commit()
     except Exception as exc:
         print(
-            q.canonical(
+            a.canonical(
                 {
                     "code": "cpu_failure_persistence",
                     "stage": stage,
@@ -320,12 +322,12 @@ def cpu_build_gate(build_spec: dict, build_spec_sha256: str, output_volume_id: s
     root, output = Path(m.CODE_ROOT), Path(BUILD_EVIDENCE_ROOT).resolve(strict=True)
     if spec.sha256 != build_spec_sha256:
         raise WorkerError("identity")
-    _files(root, spec.code_files + (spec.cpu_test_file, spec.requirements_file))
-    if q.file_hash(root / "uv.lock") != spec.lock_sha256:
+    _files(root, spec.code_files + (spec.cpu_test_file, spec.recipe_file, spec.requirements_file))
+    if a.file_hash(root / "uv.lock") != spec.lock_sha256:
         raise WorkerError("identity")
     _files(
         root / "processor",
-        tuple(q.FileEntry(**e) for e in q.asset_manifest(q.PROCESSOR_FILES)["files"]),
+        tuple(a.FileEntry(**e) for e in f.asset_manifest(f.PROCESSOR_FILES)["files"]),
     )
     with tempfile.TemporaryDirectory(prefix="ocr-cpu-") as temporary:
         junit = Path(temporary) / "report.xml"
@@ -334,9 +336,9 @@ def cpu_build_gate(build_spec: dict, build_spec_sha256: str, output_volume_id: s
                 sys.executable,
                 "-m",
                 "pytest",
-                str(root / "tests/test_qwen.py"),
+                str(root / "tests/test_factory_model.py"),
                 "-k",
-                "test_actual_ and not staged_headers",
+                "test_actual_",
                 "--junitxml=" + str(junit),
                 "--basetemp=" + str(Path(temporary) / "tests"),
                 "-q",
@@ -344,7 +346,7 @@ def cpu_build_gate(build_spec: dict, build_spec_sha256: str, output_volume_id: s
             cwd=root,
             env={
                 **os.environ,
-                "QWEN_PROCESSOR_DIR": str(root / "processor"),
+                "ACTIVE_OCR_PROCESSOR_DIR": str(root / "processor"),
                 "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
                 "PYTHONPATH": str(root),
             },
@@ -365,13 +367,16 @@ def cpu_build_gate(build_spec: dict, build_spec_sha256: str, output_volume_id: s
         except (WorkerError, OSError, ET.ParseError):
             _cpu_failure(junit, child.returncode, "cpu_checks", spec, output, output_volume_id)
             raise WorkerError("model") from None
-    environment = q.installed_packages()
+    if report["tests"] != sorted(f.CPU_TESTS):
+        raise WorkerError("model")
+    environment = a.installed_packages()
     if (
         platform.system() != "Linux"
         or platform.machine() != "x86_64"
         or not environment.python.startswith("3.11.")
     ) or any(
-        dict(environment.packages).get(k) != v for k, v in {**q.PINS, "modal": "1.5.5"}.items()
+        dict(environment.packages).get(k) != v
+        for k, v in {"llamafactory": f.recipe_field("toolkit", "version"), "modal": "1.5.5"}.items()
     ):
         raise WorkerError("identity")
     receipt = m.BuildReceipt(
@@ -379,11 +384,11 @@ def cpu_build_gate(build_spec: dict, build_spec_sha256: str, output_volume_id: s
         source_sha=spec.source_sha,
         code_files=spec.code_files,
         environment=environment,
-        cpu_report=_publish(output, "cpu-report.json", q.canonical(report)),
-        cpu_passed=11,
+        cpu_report=_publish(output, "cpu-report.json", a.canonical(report)),
+        cpu_passed=report["passed"],
         cpu_skipped=0,
     )
-    raw = q.canonical(receipt.model_dump(mode="json"))
+    raw = a.canonical(receipt.model_dump(mode="json"))
     _publish(output, "build-receipt.json", raw)
     _publish(root, "build-receipt.json", raw)
     _sdk().Volume.from_id(output_volume_id).commit()
@@ -412,8 +417,8 @@ def build_image(
     image_id = image.object_id  # Observed only after successful eager build.
     prefix = "/builds/" + spec.sha256 + "/"
     raw = b"".join(output_volume.read_file(prefix + "build-receipt.json"))
-    receipt = m.BuildReceipt.model_validate(q.strict_json(raw))
-    if raw != q.canonical(receipt.model_dump(mode="json")) or (
+    receipt = m.BuildReceipt.model_validate(a.strict_json(raw))
+    if raw != a.canonical(receipt.model_dump(mode="json")) or (
         receipt.build_spec_sha256 != spec.sha256
         or receipt.source_sha != spec.source_sha
         or receipt.code_files != spec.code_files
@@ -426,10 +431,19 @@ def build_image(
         or hashlib.sha256(report_raw).hexdigest() != receipt.cpu_report.sha256
     ):
         raise WorkerError("identity")
-    report = q.strict_json(report_raw)
-    if report_raw != q.canonical(report) or any(
-        report.get(k) != v
-        for k, v in {"selected": 11, "passed": 11, "skipped": 0, "failed": 0}.items()
+    report = a.strict_json(report_raw)
+    if (
+        report.get("tests") != sorted(f.CPU_TESTS)
+        or report_raw != a.canonical(report)
+        or any(
+            report.get(k) != v
+            for k, v in {
+                "selected": len(f.CPU_TESTS),
+                "passed": len(f.CPU_TESTS),
+                "skipped": 0,
+                "failed": 0,
+            }.items()
+        )
     ):
         raise WorkerError("identity")
     return image_id, receipt, report
@@ -438,7 +452,7 @@ def build_image(
 def create_app(settings: m.RuntimeSettings, *, settings_file: Path, sdk=None):
     """Construct one Function; explicit operator deploy occurs outside this helper."""
     sdk = _sdk(sdk)
-    if q.safe_path(settings_file.parent, settings_file.absolute()).read_bytes() != q.canonical(
+    if a.safe_path(settings_file.parent, settings_file.absolute()).read_bytes() != a.canonical(
         settings.model_dump(mode="json")
     ):
         raise WorkerError("identity")
@@ -468,7 +482,7 @@ def create_app(settings: m.RuntimeSettings, *, settings_file: Path, sdk=None):
         buffer_containers=0,
         scaledown_window=2,
         retries=0,
-        timeout=600,
+        timeout=settings.timeout_seconds,
         startup_timeout=300,
     )(dispatch)
 
@@ -478,8 +492,8 @@ def create_app(settings: m.RuntimeSettings, *, settings_file: Path, sdk=None):
 def dispatch(payload: dict) -> dict:
     """Importable provider Function, using only independently frozen settings."""
     try:
-        q.safe_path(Path(m.CODE_ROOT), Path(__file__).absolute())
-        q.safe_path(Path(m.CODE_ROOT), Path(m.__file__).absolute())
+        a.safe_path(Path(m.CODE_ROOT), Path(__file__).absolute())
+        a.safe_path(Path(m.CODE_ROOT), Path(m.__file__).absolute())
         settings = _json(Path(m.CODE_ROOT), "runtime-settings.json", m.RuntimeSettings)
         sdk = _sdk()
         return dispatch_operation(
@@ -495,8 +509,8 @@ def dispatch(payload: dict) -> dict:
 
 
 def _page(page: m.RemotePage, context: m.RunContext, input_root: Path) -> SimulationPage:
-    path = q.safe_path(input_root, page.image_key)
-    if q.file_hash(path) != page.image_sha256:
+    path = a.safe_path(input_root, page.image_key)
+    if a.file_hash(path) != page.image_sha256:
         raise WorkerError("identity")
     with Image.open(path) as image:
         if (
@@ -514,12 +528,12 @@ def _page(page: m.RemotePage, context: m.RunContext, input_root: Path) -> Simula
     )
 
 
-def _worker(settings: m.RuntimeSettings, code_root: Path) -> q.WorkerManifest:
+def _worker(settings: m.RuntimeSettings, code_root: Path) -> a.WorkerManifest:
     build = _json(code_root, "build-receipt.json", m.BuildReceipt)
-    if build != settings.build or q.installed_packages() != build.environment:
+    if build != settings.build or a.installed_packages() != build.environment:
         raise WorkerError("identity")
     _files(code_root, build.code_files)
-    worker = q.WorkerManifest(
+    worker = a.WorkerManifest(
         schema_version=1,
         source_sha=build.source_sha,
         files=build.code_files,
@@ -527,30 +541,30 @@ def _worker(settings: m.RuntimeSettings, code_root: Path) -> q.WorkerManifest:
         build_spec_sha256=build.build_spec_sha256,
         deployment_reference=settings.deployment_reference,
     )
-    _publish(code_root, "worker.json", q.canonical(worker.model_dump(mode="json")))
+    _publish(code_root, "worker.json", a.canonical(worker.model_dump(mode="json")))
     return worker
 
 
 def _checkpoint(
     root: Path, model_id: str, request, *, base: bool = False
-) -> tuple[q.Checkpoint, list[m.ArtifactRef]]:
+) -> tuple[f.Checkpoint, list[m.ArtifactRef]]:
     sha = model_id.rsplit(":", 1)[1]
-    key = f"qwen/checkpoints/{sha}/manifest.json"
-    checkpoint = _json(root, key, q.Checkpoint)
+    key = f"{m.MODEL_NAMESPACE}/checkpoints/{sha}/manifest.json"
+    checkpoint = _json(root, key, f.Checkpoint)
     # This pure helper reads only real_config; no model instance/state is created.
-    expected_binding = q.QwenModel._binding(request.context)
+    expected_binding = f.binding(request.context.real_config)
     if _ref(root, key).sha256 != sha or checkpoint.binding != expected_binding:
         raise WorkerError("identity")
-    directory = q.safe_path(root, f"qwen/checkpoints/{sha}")
-    q.verify_checkpoint_files(
-        directory, checkpoint, q.canonical(checkpoint.model_dump(mode="json"))
+    directory = a.safe_path(root, f"{m.MODEL_NAMESPACE}/checkpoints/{sha}")
+    f.verify_checkpoint_files(
+        directory, checkpoint, a.canonical(checkpoint.model_dump(mode="json"))
     )
     if (
         base
         or isinstance(request, m.BaseRequest)
         or (isinstance(request, m.PredictRequest) and request.round_number == 0)
     ):
-        if checkpoint != q.Checkpoint(kind="base", binding=checkpoint.binding):
+        if checkpoint != f.Checkpoint(kind="base", binding=checkpoint.binding):
             raise WorkerError("identity")
     elif (
         checkpoint.kind != "adapter"
@@ -559,7 +573,7 @@ def _checkpoint(
     ):
         raise WorkerError("identity")
     else:
-        q.check_training_record(checkpoint)
+        f.check_training_record(checkpoint)
         if [f.filename for f in checkpoint.files] != [
             "adapter_config.json",
             "adapter_model.safetensors",
@@ -569,20 +583,19 @@ def _checkpoint(
             pages = tuple((e.page.id, e.page.image_sha256) for e in request.examples)
             if checkpoint.selected != pages or checkpoint.seed != request.seed:
                 raise WorkerError("identity")
-            if checkpoint.target_sha256 != q.digest(
-                [(e.page.id, q.serialize_target(e)) for e in request.examples]
+            if checkpoint.target_sha256 != a.digest(
+                [(e.page.id, f.serialize_target(e)) for e in request.examples]
             ):
                 raise WorkerError("identity")
     return checkpoint, [_ref(root, key)] + [
-        _ref(root, f"qwen/checkpoints/{sha}/{e.filename}") for e in checkpoint.files
+        _ref(root, f"{m.MODEL_NAMESPACE}/checkpoints/{sha}/{e.filename}") for e in checkpoint.files
     ]
 
 
 def _probe(
     root: Path, model_id: str, stage: str, page: m.RemotePage
-) -> tuple[m.ProbeMetadata, m.ArtifactRef, m.ArtifactRef]:
-    sha = model_id.rsplit(":", 1)[1]
-    key = f"qwen/probes/{sha}/{stage}.json"
+) -> tuple[m.ProbeMetadata, m.ArtifactRef]:
+    key = m.probe_key(model_id, stage)
     metadata = _json(root, key, m.ProbeMetadata)
     if (
         metadata.model_id,
@@ -592,49 +605,30 @@ def _probe(
         metadata.original_height,
     ) != (model_id, page.id, page.image_sha256, page.width, page.height):
         raise WorkerError("identity")
-    if metadata.logits.key != f"probes/{sha}/{stage}.f32le":
-        raise WorkerError("identity")
-    outer = metadata.logits.model_copy(update={"key": "qwen/" + metadata.logits.key})
-    _read(root, outer)
-    return metadata, _ref(root, key), outer
+    return metadata, _ref(root, key)
 
 
 def _reload(
     root: Path, model_id: str, page: m.RemotePage, pids=None
 ) -> tuple[m.ReloadEvidence, list[m.ArtifactRef]]:
-    before, before_ref, before_logits = _probe(root, model_id, "before", page)
-    after, after_ref, after_logits = _probe(root, model_id, "after", page)
+    before, before_ref = _probe(root, model_id, "before", page)
+    after, after_ref = _probe(root, model_id, "after", page)
     if pids is not None and (before.process_id, after.process_id) != tuple(pids):
         raise WorkerError("identity")
     sha = model_id.rsplit(":", 1)[1]
-    m._verify_adapter_tensors(
-        q.safe_path(root, f"qwen/checkpoints/{sha}/adapter_model.safetensors"),
-        before.adapter_tensors,
+    m.verify_adapter_file(
+        a.safe_path(root, f"{m.MODEL_NAMESPACE}/checkpoints/{sha}/adapter_model.safetensors")
     )
-    if before.model_dump(exclude={"process_id", "logits"}) != after.model_dump(
-        exclude={"process_id", "logits"}
-    ):
+    if before.model_dump(exclude={"process_id"}) != after.model_dump(exclude={"process_id"}):
         raise WorkerError("model")
-    a, b = array.array("f"), array.array("f")
-    a.frombytes(_read(root, before_logits))
-    b.frombytes(_read(root, after_logits))
-    if sys.byteorder != "little":
-        a.byteswap()
-        b.byteswap()
-    maximum = 0.0
-    for x, y in zip(a, b, strict=True):
-        if not math.isfinite(x) or not math.isfinite(y) or abs(y - x) > 0.01 + 0.001 * abs(y):
-            raise WorkerError("model")
-        maximum = max(maximum, abs(y - x))
     evidence = m.ReloadEvidence(
         before=before_ref,
         after=after_ref,
         train_process_id=before.process_id,
         reload_process_id=after.process_id,
-        max_absolute_difference=maximum,
-        exact_tensors_ids_status_regions=True,
+        identical_output=True,
     )
-    return evidence, [before_ref, after_ref, before_logits, after_logits]
+    return evidence, [before_ref, after_ref]
 
 
 def run_child(payload: dict, deadline: int) -> dict:
@@ -649,10 +643,10 @@ def run_child(payload: dict, deadline: int) -> dict:
         env={**os.environ, "PYTHONUNBUFFERED": "1"},
     )
     try:
-        stdout, _ = child.communicate(q.canonical(payload), timeout=remaining)
+        stdout, _ = child.communicate(a.canonical(payload), timeout=remaining)
         if child.returncode != 0:
             raise WorkerError("model")
-        result = q.strict_json(stdout)
+        result = a.strict_json(stdout)
         if result.get("process_id") != child.pid or result.get("status") != "ok":
             raise WorkerError("model")
         _deadline(deadline)
@@ -666,9 +660,9 @@ def _child(payload: dict) -> dict:
     """Executed only in the isolated interpreter; second stage has no examples/labels."""
     context = m.RunContext.model_validate(payload["context"])
     input_root, output_root = Path(payload["input_root"]), Path(payload["output_root"])
-    model = q.QwenModel(
+    model = f.FactoryModel(
         input_root,
-        output_root / "qwen",
+        output_root / m.MODEL_NAMESPACE,
         context.real_config,
         runtime_manifest=Path(payload["runtime_manifest"]),
         deadline_unix_seconds=payload["deadline"],
@@ -676,16 +670,13 @@ def _child(payload: dict) -> dict:
     if payload["stage"] == "reload":
         page = _page(m.RemotePage.model_validate(payload["page"]), context, input_root)
         before = m.ArtifactRef.model_validate(payload["before"])
-        logits = m.ArtifactRef.model_validate(payload["before_logits"])
         model.verify_reload(
             page,
             experiment_id=context.experiment_id,
             round_number=payload["round_number"],
             model_id=payload["model_id"],
-            before_metadata=q.safe_path(output_root, before.key),
+            before_metadata=a.safe_path(output_root, before.key),
             before_metadata_sha256=before.sha256,
-            before_logits=q.safe_path(output_root, logits.key),
-            before_logits_sha256=logits.sha256,
         )
         model_id, predictions = payload["model_id"], ()
     else:
@@ -750,10 +741,11 @@ def _validate_result(root: Path, result: m.OperationResult, invocation: m.Invoca
                     raise WorkerError("model")
             raw_key = prediction.raw_output_artifact
             raw = _read(root, refs[raw_key])
-            record = q.strict_json(raw)
+            record = a.strict_json(raw)
             if (
-                raw != q.canonical(record)
-                or raw_key != "qwen/receipts/" + hashlib.sha256(raw).hexdigest() + ".json"
+                raw != a.canonical(record)
+                or raw_key
+                != f"{m.MODEL_NAMESPACE}/receipts/" + hashlib.sha256(raw).hexdigest() + ".json"
                 or record.get("operation") != "predict"
                 or record.get("experiment_id") != invocation.request.context.experiment_id
                 or record.get("round_number") != invocation.request.round_number
@@ -773,7 +765,7 @@ def _validate_result(root: Path, result: m.OperationResult, invocation: m.Invoca
                 raise WorkerError("identity")
             if (
                 prediction.status.value == "ok"
-                and q.parse_regions(observed["text"], page.width, page.height) != prediction.regions
+                and f.parse_regions(observed["text"], page.width, page.height) != prediction.regions
             ):
                 raise WorkerError("model")
     if isinstance(invocation.request, m.FitRequest):
@@ -808,7 +800,7 @@ def dispatch_operation(
         if invocation.first_submission_unix_seconds > time.time():
             raise WorkerError("identity")
         for root in (input_root, output_root, code_root):
-            if not q.safe_path(root, root.absolute()).is_dir():
+            if not a.safe_path(root, root.absolute()).is_dir():
                 raise WorkerError("identity")
         roots = [r.absolute() for r in (input_root, output_root, code_root)]
         if any(
@@ -818,7 +810,7 @@ def dispatch_operation(
         # Admit the full frozen inventory without reading unrelated page bodies.
         # The child verifies pinned model/processor bytes before any model use.
         for entry in settings.bundle.files:
-            path = q.safe_path(input_root, entry.filename)
+            path = a.safe_path(input_root, entry.filename)
             if not path.is_file() or path.stat().st_size != entry.bytes:
                 raise WorkerError("identity")
         request = invocation.request
@@ -843,13 +835,13 @@ def dispatch_operation(
             raise WorkerError("identity")
         worker = _worker(settings, code_root)
         control = {
-            "settings_sha256": q.digest(settings.model_dump(mode="json")),
+            "settings_sha256": a.digest(settings.model_dump(mode="json")),
             "first_submission_unix_seconds": invocation.first_submission_unix_seconds,
             "deadline_unix_seconds": invocation.deadline_unix_seconds,
         }
-        _publish(output_root, "run-control.json", q.canonical(control))
+        _publish(output_root, "run-control.json", a.canonical(control))
         commit()
-        operation_root = q.safe_path(output_root, "operations/" + invocation.operation_id)
+        operation_root = a.safe_path(output_root, "operations/" + invocation.operation_id)
         completions = sorted(operation_root.glob("attempts/*/executions/*/complete.json"))
         if len(completions) > 1 or list(
             operation_root.glob("attempts/*/executions/*/failure.json")
@@ -859,7 +851,7 @@ def dispatch_operation(
             key = completions[0].relative_to(output_root).as_posix()
             result = _json(output_root, key, m.OperationResult)
             _validate_result(output_root, result, invocation)
-            if _read(output_root, result.worker_manifest) != q.canonical(
+            if _read(output_root, result.worker_manifest) != a.canonical(
                 worker.model_dump(mode="json")
             ):
                 raise WorkerError("identity")
@@ -874,9 +866,9 @@ def dispatch_operation(
             f"operations/{invocation.operation_id}/attempts/{invocation.attempt_id}/"
             f"executions/{execution_id}/"
         )
-        q.safe_path(output_root, prefix + "worker.json").parent.mkdir(parents=True, exist_ok=False)
+        a.safe_path(output_root, prefix + "worker.json").parent.mkdir(parents=True, exist_ok=False)
         worker_ref = _publish(
-            output_root, prefix + "worker.json", q.canonical(worker.model_dump(mode="json"))
+            output_root, prefix + "worker.json", a.canonical(worker.model_dump(mode="json"))
         )
         commit()  # Make the started execution durable before model work.
         request = invocation.request
@@ -887,7 +879,7 @@ def dispatch_operation(
                 request,
                 base=isinstance(request, m.FitRequest),
             )
-        (output_root / "qwen").mkdir(exist_ok=True)
+        (output_root / m.MODEL_NAMESPACE).mkdir(exist_ok=True)
         common = {
             "context": request.context.model_dump(mode="json"),
             "input_root": str(input_root),
@@ -905,7 +897,7 @@ def dispatch_operation(
         reload = None
         if isinstance(request, m.FitRequest):
             page = min((e.page for e in request.examples), key=lambda p: p.id)
-            before, before_ref, before_logits = _probe(output_root, model_id, "before", page)
+            before, before_ref = _probe(output_root, model_id, "before", page)
             if before.process_id != first["process_id"]:
                 raise WorkerError("identity")
             _deadline(execution_deadline)
@@ -917,7 +909,6 @@ def dispatch_operation(
                     "round_number": request.round_number,
                     "model_id": model_id,
                     "before": before_ref.model_dump(mode="json"),
-                    "before_logits": before_logits.model_dump(mode="json"),
                 },
                 execution_deadline,
             )
@@ -928,7 +919,7 @@ def dispatch_operation(
         predictions = []
         for value in first.get("predictions", []):
             prediction = Prediction.model_validate(value)
-            path = q.safe_path(output_root / "qwen", prediction.raw_output_artifact)
+            path = a.safe_path(output_root / m.MODEL_NAMESPACE, prediction.raw_output_artifact)
             key = path.relative_to(output_root).as_posix()
             artifacts.append(_ref(output_root, key))
             predictions.append(prediction.model_copy(update={"raw_output_artifact": key}))
@@ -949,7 +940,7 @@ def dispatch_operation(
         _validate_result(output_root, result, invocation)
         _deadline(execution_deadline)
         completion = _publish(
-            output_root, prefix + "complete.json", q.canonical(result.model_dump(mode="json"))
+            output_root, prefix + "complete.json", a.canonical(result.model_dump(mode="json"))
         )
         commit()
         return m.DispatchResponse(result=result, completion=completion).model_dump(mode="json")
@@ -971,7 +962,7 @@ def dispatch_operation(
                 _publish(
                     output_root,
                     prefix + "failure.json",
-                    q.canonical(failure.model_dump(mode="json")),
+                    a.canonical(failure.model_dump(mode="json")),
                 )
                 commit()
             except Exception:
@@ -988,9 +979,9 @@ if __name__ == "__main__":
     try:
         if sys.argv[1:] != ["--child"]:
             raise WorkerError("invalid_request")
-        result = _child(q.strict_json(sys.stdin.buffer.read()))
+        result = _child(a.strict_json(sys.stdin.buffer.read()))
         with os.fdopen(os.dup(result_fd), "wb") as stream:
-            stream.write(q.canonical(result))
+            stream.write(a.canonical(result))
     except BaseException:
         sys.exit(1)
     finally:

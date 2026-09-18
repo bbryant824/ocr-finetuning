@@ -203,7 +203,7 @@ class RealOCRConfig(Model):
     processor_revision: CommitSHA
     training_policy_id: str = Field(min_length=1)
     decode_policy_id: str = Field(min_length=1)
-    evaluator_id: Literal["page-text-nfc-v1"] = "page-text-nfc-v1"
+    evaluator_id: Literal["page-text-nfc-v1", "page-joint-nfc-iou50-v1"] = "page-text-nfc-v1"
     expected_identity: ExpectedIdentity
 
     @model_validator(mode="after")
@@ -233,6 +233,9 @@ class SimulationConfig(Model):
     source_policy: SourcePolicy = SourcePolicy.KNOWN_DOCUMENT
     strategy: Strategy = Strategy.RANDOM
     batch_size: int = Field(default=2, gt=0)
+    # A positive value adds one seeded initial-fit stage before any acquisition round. Its
+    # pages count toward page_budget but never toward max_rounds.
+    initial_batch_size: int = Field(default=0, ge=0)
     page_budget: int = Field(default=6, ge=0)
     max_rounds: int = Field(default=3, ge=0)
     seed: int = 824
@@ -259,11 +262,36 @@ class SimulationConfig(Model):
 
 
 class SimulationBaseline(Model):
+    """The zero-label, zero-shot record. It is never reused for a trained initial model."""
+
     model_id: CheckpointReference
     labelled_count: Literal[0] = 0
     validation_predictions: tuple[Prediction, ...]
     validation_metrics: dict[str, int | float]
     telemetry: ExecutionTelemetry | None = None
+
+
+class SimulationInitialFit(Model):
+    """The trained seed set: revealed labels and a fitted model, but no acquisition round."""
+
+    number: int = Field(ge=1)
+    selected_ids: tuple[str, ...]
+    revealed_ids: tuple[str, ...]
+    labelled_count: int = Field(ge=1)
+    model_id: str
+    validation_predictions: tuple[Prediction, ...] = ()
+    validation_metrics: dict[str, int | float] | None = None
+    telemetry: ExecutionTelemetry | None = None
+
+    @model_validator(mode="after")
+    def initial_membership(self) -> SimulationInitialFit:
+        if self.selected_ids != self.revealed_ids or len(set(self.selected_ids)) != len(
+            self.selected_ids
+        ):
+            raise ValueError("the initial fit reveals exactly its unique selected pages")
+        if self.labelled_count != len(self.revealed_ids):
+            raise ValueError("initial labelled count must match revealed pages")
+        return self
 
 
 class SimulationRound(Model):
@@ -280,6 +308,14 @@ class SimulationRound(Model):
     telemetry: ExecutionTelemetry | None = None
 
 
+class SimulationSelection(Model):
+    """Reserved TRAIN selection; revealed IDs remain observable when fitting fails."""
+
+    number: int = Field(ge=1)
+    selected_ids: tuple[str, ...]
+    revealed_ids: tuple[str, ...] = ()
+
+
 class SimulationRun(Model):
     """One atomic SQLite record contains frozen inputs and all committed rounds."""
 
@@ -290,6 +326,8 @@ class SimulationRun(Model):
     software_versions: tuple[tuple[str, str], ...]
     dataset: DatasetSnapshot
     baseline: SimulationBaseline | None = None
+    initial_fit: SimulationInitialFit | None = None
+    pending_selection: SimulationSelection | None = None
     rounds: tuple[SimulationRound, ...] = ()
     complete: bool = False
     stop_reason: str | None = None
@@ -305,4 +343,30 @@ class SimulationRun(Model):
                 raise ValueError("fixture runs do not have a real-contract baseline")
         elif self.config.real is None:
             raise ValueError("real/contract-test kind requires an explicit real recipe")
+        if self.initial_fit is not None and not self.config.initial_batch_size:
+            raise ValueError("an initial fit requires a positive configured initial batch")
+        if self.rounds and self.config.initial_batch_size and self.initial_fit is None:
+            raise ValueError("acquisition cannot precede the configured initial fit")
+        if self.pending_selection is not None:
+            pending = self.pending_selection
+            previous = (
+                self.rounds[-1].revealed_ids
+                if self.rounds
+                else self.initial_fit.revealed_ids
+                if self.initial_fit
+                else ()
+            )
+            available = {p.id for p in self.dataset.pages if p.split is Split.TRAIN} - set(previous)
+            selected = pending.selected_ids
+            if (
+                not self.config.initial_batch_size
+                or self.complete
+                or not selected
+                or pending.number != len(self.rounds) + (self.initial_fit is not None) + 1
+                or len(set(selected)) != len(selected)
+                or not set(selected).issubset(available)
+                or len(previous) + len(selected) > self.config.page_budget
+                or pending.revealed_ids not in ((), (*previous, *selected))
+            ):
+                raise ValueError("invalid pending TRAIN selection/accounting")
         return self

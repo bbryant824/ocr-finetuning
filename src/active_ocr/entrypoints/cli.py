@@ -32,6 +32,7 @@ def simulation_start(
     directory: Path,
     strategy: Strategy = Strategy.RANDOM,
     batch_size: int = 2,
+    initial_batch_size: int = 0,
     page_budget: int = 6,
     rounds: int = 3,
     seed: int = 824,
@@ -41,6 +42,7 @@ def simulation_start(
     config = SimulationConfig(
         strategy=strategy,
         batch_size=batch_size,
+        initial_batch_size=initial_batch_size,
         page_budget=page_budget,
         max_rounds=rounds,
         seed=seed,
@@ -77,13 +79,13 @@ app.add_typer(real_app, name="real")
 
 
 def _real_model(directory, run_id, settings, deployment=None, *, remote=False):
+    from active_ocr.integrations.artifacts import strict_json
     from active_ocr.integrations.modal_model import (
         DeploymentObservation,
         ModalModel,
         RuntimeSettings,
         SDKTransport,
     )
-    from active_ocr.integrations.qwen import strict_json
     from active_ocr.integrations.simulation import LocalOracle, check_local_identity
     from active_ocr.models import RunKind
 
@@ -109,7 +111,7 @@ def _real_model(directory, run_id, settings, deployment=None, *, remote=False):
 @real_app.command("create")
 def real_create(manifest: Path, directory: Path, configuration: Path):
     """Freeze a real configuration with observed CPU-build identity; no remote call."""
-    from active_ocr.integrations.qwen import strict_json
+    from active_ocr.integrations.artifacts import strict_json
     from active_ocr.models import RunKind
 
     config = SimulationConfig.model_validate(strict_json(configuration.read_bytes()))
@@ -202,6 +204,7 @@ def real_reconcile(
     cancel: bool = False,
 ):
     """Attach an observed call or verify completion. Never launches/retries a model operation."""
+    from active_ocr.integrations.artifacts import strict_json
     from active_ocr.integrations.modal_model import (
         REQUEST_ADAPTER,
         FitRequest,
@@ -209,7 +212,6 @@ def real_reconcile(
         RemoteExample,
         remote_page,
     )
-    from active_ocr.integrations.qwen import strict_json
     from active_ocr.integrations.simulation import LocalOracle
 
     pipeline, model = _real_model(directory, run_id, settings, deployment, remote=True)

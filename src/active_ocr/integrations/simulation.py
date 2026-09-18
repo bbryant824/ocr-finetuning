@@ -15,7 +15,7 @@ from typing import Annotated, Protocol
 from PIL import Image, ImageDraw
 from pydantic import Field, model_validator
 
-from active_ocr.evaluation import page_text_metrics
+from active_ocr.evaluation import page_localization_metrics, page_text_metrics
 from active_ocr.integrations.storage import SQLiteStore
 from active_ocr.models import (
     DatasetSnapshot,
@@ -461,6 +461,23 @@ def check_contract_identity(recipe: RealOCRConfig, model: ContractModel, kind: R
         raise ValueError("adapter recipe/expected identity mismatch")
 
 
+def _aligned_validation(
+    examples: tuple[RevealedExample, ...], predictions: tuple[Prediction, ...], name: str
+) -> list[Prediction]:
+    reference_ids = [e.page.id for e in examples]
+    ids = [p.page_id for p in predictions]
+    if (
+        len(set(reference_ids)) != len(reference_ids)
+        or len(set(ids)) != len(ids)
+        or set(ids) != set(reference_ids)
+    ):
+        raise ValueError("evaluator page coverage mismatch")
+    if any(e.page.split is not Split.VALIDATION for e in examples):
+        raise ValueError(f"{name} accepts only validation examples")
+    by_id = {p.page_id: p for p in predictions}
+    return [by_id[e.page.id] for e in examples]
+
+
 class PageTextEvaluatorV1:
     """Fixed local engineering text view; never an official benchmark/test policy."""
 
@@ -469,20 +486,38 @@ class PageTextEvaluatorV1:
     def __call__(
         self, examples: tuple[RevealedExample, ...], predictions: tuple[Prediction, ...]
     ) -> dict[str, int | float]:
-        reference_ids = [e.page.id for e in examples]
-        ids = [p.page_id for p in predictions]
-        if (
-            len(set(reference_ids)) != len(reference_ids)
-            or len(set(ids)) != len(ids)
-            or set(ids) != set(reference_ids)
-        ):
-            raise ValueError("evaluator page coverage mismatch")
-        if any(e.page.split is not Split.VALIDATION for e in examples):
-            raise ValueError("PageTextEvaluatorV1 accepts only validation examples")
-        by_id = {p.page_id: p for p in predictions}
-        ordered = [by_id[e.page.id] for e in examples]
+        ordered = _aligned_validation(examples, predictions, "PageTextEvaluatorV1")
         return page_text_metrics(
             [tuple(r.text for r in e.regions) for e in examples],
             [tuple(r.text for r in p.regions) for p in ordered],
             [p.status for p in ordered],
         )
+
+
+class PageJointEvaluatorV1:
+    """The unchanged text metrics plus separately versioned engineering localization counts."""
+
+    identifier = "page-joint-nfc-iou50-v1"
+
+    def __call__(
+        self, examples: tuple[RevealedExample, ...], predictions: tuple[Prediction, ...]
+    ) -> dict[str, int | float]:
+        ordered = _aligned_validation(examples, predictions, "PageJointEvaluatorV1")
+        statuses = [p.status for p in ordered]
+        metrics = page_text_metrics(
+            [tuple(r.text for r in e.regions) for e in examples],
+            [tuple(r.text for r in p.regions) for p in ordered],
+            statuses,
+        )
+        metrics.update(
+            page_localization_metrics(
+                [e.regions for e in examples], [p.regions for p in ordered], statuses
+            )
+        )
+        return metrics
+
+
+EVALUATORS = {
+    evaluator.identifier: evaluator
+    for evaluator in (PageTextEvaluatorV1, PageJointEvaluatorV1)
+}

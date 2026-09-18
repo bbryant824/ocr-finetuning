@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
   "pillow>=10.4,<13",
   "pydantic>=2.7,<3",
+  "rapidfuzz>=3.9,<4",
   "typer>=0.12,<1",
 ]
 
@@ -20,12 +21,22 @@ dev = [
   "pytest>=8,<10",
   "ruff>=0.6,<1",
 ]
+# LLaMA-Factory owns training/inference. Its published range caps Transformers at 5.6.0
+# and PEFT at 0.18.1, so the previous newer pins cannot be kept.
 gpu = [
-  "accelerate==1.14.0",
-  "peft==0.20.0",
-  "torch==2.14.0",
-  "torchvision==0.29.0",
-  "transformers==5.16.1",
+  "accelerate==1.11.0",
+  "datasets==4.0.0",
+  "llamafactory==0.9.5",
+  "peft==0.18.1",
+  "pyyaml>=6,<7",
+  # Upstream rejects Torch 2.9.x for Qwen3-VL Conv3D (model/loader.py).
+  "torch==2.8.0",
+  # LLaMA-Factory requires torchaudio but caps nothing; an unpinned resolve picks a build
+  # compiled against a newer Torch and fails to load its extension module.
+  "torchaudio==2.8.0",
+  "torchvision==0.23.0",
+  "transformers==5.6.0",
+  "trl==0.24.0",
 ]
 
 [project.scripts]
@@ -33,6 +44,9 @@ active-ocr = "active_ocr.entrypoints.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/active_ocr"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"experiments/recipes/read2016-llamafactory-joint.json" = "active_ocr/recipes/read2016-llamafactory-joint.json"
 
 [tool.pytest.ini_options]
 addopts = "-q"

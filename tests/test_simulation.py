@@ -448,6 +448,102 @@ def test_optional_validation_hook_isolated_and_not_used_for_acquisition(tmp_path
     assert [r.selected_ids for r in done.rounds] == [r.selected_ids for r in no_eval.rounds]
 
 
+def initial_config(**overrides):
+    config = dict(initial_batch_size=16, batch_size=8, page_budget=24, max_rounds=1, seed=824)
+    config.update(overrides)
+    return SimulationConfig(**config)
+
+
+def test_initial_fit_is_a_separate_stage_with_16_then_24_labels(tmp_path):
+    pipeline, run, _ = setup_run(tmp_path, initial_config(), train_pages=30)
+    model = SpyModel()
+    seeded = pipeline.step_simulation(run.id, model)
+    initial = seeded.initial_fit
+    assert initial is not None and seeded.baseline is None and seeded.rounds == ()
+    assert initial.number == 1 and initial.labelled_count == 16
+    assert len(set(initial.selected_ids)) == 16
+    assert initial.selected_ids == initial.revealed_ids
+    assert not seeded.complete
+    done = pipeline.run_simulation(run.id, model)
+    assert len(done.rounds) == 1
+    acquired = done.rounds[0]
+    assert acquired.number == 2 and acquired.labelled_count == 24
+    assert len(acquired.selected_ids) == 8
+    # The initial pages count toward the budget but are never re-acquired.
+    assert set(acquired.selected_ids).isdisjoint(initial.selected_ids)
+    assert acquired.revealed_ids == (*initial.revealed_ids, *acquired.selected_ids)
+    assert done.complete and done.stop_reason in {"page_budget", "round_limit"}
+    assert [len(e) for e in model.fits] == [16, 24]
+    assert tuple(e.page.id for e in model.fits[1]) == acquired.revealed_ids
+    assert all(e.page.split is Split.TRAIN for fit in model.fits for e in fit)
+
+
+def test_initial_fit_selection_is_seeded_reproducible_and_train_only(tmp_path):
+    config = initial_config()
+    pipeline, run, manifest = setup_run(tmp_path, config, train_pages=30)
+    first = pipeline.step_simulation(run.id).initial_fit
+    repeat = pipeline.create_simulation(manifest, config)
+    assert pipeline.step_simulation(repeat.id).initial_fit.selected_ids == first.selected_ids
+    train = {p.id for p in run.dataset.pages if p.split is Split.TRAIN}
+    assert set(first.selected_ids) <= train
+    other = pipeline.create_simulation(manifest, config.model_copy(update={"seed": 7}))
+    assert pipeline.step_simulation(other.id).initial_fit.selected_ids != first.selected_ids
+
+
+@pytest.mark.parametrize(
+    "train,initial,budget,rounds,initial_count,round_counts,reason",
+    [
+        (30, 16, 24, 1, 16, [24], "page_budget"),
+        (20, 16, 24, 3, 16, [20], "pool_exhausted"),
+        (30, 16, 16, 3, 16, [], "page_budget"),
+        (10, 16, 24, 1, 10, [], "pool_exhausted"),
+        (30, 16, 24, 0, 16, [], "round_limit"),
+    ],
+)
+def test_initial_fit_budget_and_pool_boundaries(
+    tmp_path, train, initial, budget, rounds, initial_count, round_counts, reason
+):
+    config = initial_config(initial_batch_size=initial, page_budget=budget, max_rounds=rounds)
+    pipeline, run, _ = setup_run(tmp_path, config, train_pages=train)
+    done = pipeline.run_simulation(run.id)
+    assert done.initial_fit.labelled_count == initial_count
+    assert [r.labelled_count for r in done.rounds] == round_counts
+    assert done.stop_reason == reason
+    revealed = done.rounds[-1].revealed_ids if done.rounds else done.initial_fit.revealed_ids
+    assert len(set(revealed)) == len(revealed) <= budget
+
+
+def test_failed_initial_fit_preserves_revealed_labels_and_does_not_reselect(tmp_path):
+    class BrokenFit(FixtureModel):
+        def fit(self, examples, **kwargs):
+            raise RuntimeError("interrupted fit")
+
+    pipeline, run, _ = setup_run(tmp_path, initial_config(), train_pages=30)
+    with pytest.raises(RuntimeError, match="fit"):
+        pipeline.step_simulation(run.id, BrokenFit())
+    pending = pipeline.get_simulation(run.id).pending_selection
+    assert len(pending.selected_ids) == len(pending.revealed_ids) == 16
+    assert pipeline.get_simulation(run.id).initial_fit is None
+    recovered = pipeline.step_simulation(run.id)
+    assert recovered.initial_fit.labelled_count == 16
+    assert recovered.initial_fit.selected_ids == pending.selected_ids
+    assert recovered.pending_selection is None
+
+
+def test_initial_fit_export_reports_its_own_record_type(tmp_path):
+    pipeline, run, _ = setup_run(tmp_path, initial_config(), train_pages=30)
+    done = pipeline.run_simulation(run.id)
+    pipeline.export_simulation(run.id, tmp_path / "export")
+    with (tmp_path / "export/rounds.csv").open() as stream:
+        rows = list(csv.DictReader(stream))
+    assert [r["record_type"] for r in rows] == ["initial_fit", "round"]
+    assert [r["labelled_pages"] for r in rows] == ["16", "24"]
+    assert [r["round"] for r in rows] == ["1", "2"]
+    assert json.loads((tmp_path / "export/results.json").read_text()) == json.loads(
+        done.model_dump_json()
+    )
+
+
 def test_validation_failure_is_atomic(tmp_path):
     class BrokenEvaluator:
         identifier = "broken-test-v1"
@@ -461,3 +557,34 @@ def test_validation_failure_is_atomic(tmp_path):
     with pytest.raises(ValueError, match="finite"):
         pipeline.step_simulation(run.id, evaluator=BrokenEvaluator())
     assert pipeline.get_simulation(run.id) == run
+
+
+def test_selection_is_durable_before_reveal_and_acquisition_failure(tmp_path, monkeypatch):
+    import active_ocr.pipeline as module
+
+    pipeline, run, _ = setup_run(tmp_path, initial_config(), train_pages=30)
+    original = LocalOracle.reveal
+
+    def reveal(oracle, ids):
+        pending = pipeline.get_simulation(run.id).pending_selection
+        assert pending is not None
+        assert set(pending.selected_ids).issubset(ids)
+        return original(oracle, ids)
+
+    monkeypatch.setattr(LocalOracle, "reveal", reveal)
+    first = pipeline.step_simulation(run.id)
+
+    class Broken(FixtureModel):
+        def fit(self, examples, **kwargs):
+            raise RuntimeError("preflight overflow")
+
+    with pytest.raises(RuntimeError, match="overflow"):
+        pipeline.step_simulation(run.id, Broken())
+    state = pipeline.get_simulation(run.id)
+    assert state.initial_fit == first.initial_fit and state.rounds == ()
+    pending = state.pending_selection
+    assert len(pending.revealed_ids) == 24 and len(pending.selected_ids) == 8
+    monkeypatch.setattr(module, "select_pages", lambda *a, **kw: pytest.fail("reselected"))
+    done = pipeline.step_simulation(run.id)
+    assert done.complete and done.rounds[0].revealed_ids == pending.revealed_ids
+    assert done.pending_selection is None

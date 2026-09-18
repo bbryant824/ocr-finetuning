@@ -9,8 +9,10 @@ labels, fine-tuned, reloaded its checkpoint, evaluated, committed, resumed and e
 and CER/WER 100%. This verifies execution, not an active-learning benefit.
 See [the dated run evidence](experiments/EXP-003.md).
 
-The current code keeps only the fixture and Modal paths. Recipe v2 fixes the training/generation
-capacity mismatch with a shared 4,096-token limit; a new GPU quality result is not yet established.
+The current code keeps only the fixture and Modal paths. The custom Qwen runtime has been
+replaced by LLaMA-Factory v0.9.5, which now owns training and inference behind one thin adapter;
+the coordinator now tracks a separate initial fit and consumed labels on failed fits. The migration is implemented
+and locally tested, but **no CPU image, GPU job or OCR result exists for it yet**.
 
 ## Try the local fixture
 

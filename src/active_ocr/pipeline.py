@@ -14,9 +14,9 @@ from pydantic import RootModel
 
 from active_ocr.active_learning import select_pages
 from active_ocr.integrations.simulation import (
+    EVALUATORS,
     FixtureModel,
     LocalOracle,
-    PageTextEvaluatorV1,
     SimulationModel,
     ValidationEvaluator,
     check_contract_identity,
@@ -31,8 +31,10 @@ from active_ocr.models import (
     RunKind,
     SimulationBaseline,
     SimulationConfig,
+    SimulationInitialFit,
     SimulationRound,
     SimulationRun,
+    SimulationSelection,
     SourcePolicy,
     Split,
     Strategy,
@@ -92,15 +94,46 @@ class Pipeline:
         return run
 
     @staticmethod
+    def _revealed(run: SimulationRun) -> tuple[str, ...]:
+        """Cumulative labelled pages, including the initial fit before any acquisition."""
+        if run.rounds:
+            return run.rounds[-1].revealed_ids
+        if run.initial_fit is not None:
+            return run.initial_fit.revealed_ids
+        return ()
+
+    @staticmethod
+    def _stage_number(run: SimulationRun) -> int:
+        """Round zero is the baseline; the initial fit and each acquired round follow in order."""
+        return len(run.rounds) + (run.initial_fit is not None) + 1
+
+    @staticmethod
+    def _round_seed(run: SimulationRun) -> int:
+        return run.config.seed + len(run.rounds) + (run.initial_fit is not None)
+
+    @staticmethod
+    def _initial_pending(run: SimulationRun) -> bool:
+        return bool(run.config.initial_batch_size) and run.initial_fit is None
+
+    @staticmethod
     def _simulation_stop(run: SimulationRun) -> str | None:
-        if run.kind is not RunKind.FIXTURE and run.baseline is None:
+        if (
+            run.kind is not RunKind.FIXTURE
+            and not run.config.initial_batch_size
+            and run.baseline is None
+        ):
             return None
-        revealed = run.rounds[-1].revealed_ids if run.rounds else ()
+        if run.pending_selection is not None:
+            return None
+        revealed = Pipeline._revealed(run)
+        train = [p for p in run.dataset.pages if p.split is Split.TRAIN]
+        if Pipeline._initial_pending(run) and run.config.page_budget and train:
+            return None  # An unfinished initial fit is not a completed run.
         if len(revealed) >= run.config.page_budget:
             return "page_budget"
         if len(run.rounds) >= run.config.max_rounds:
             return "round_limit"
-        if not any(p.split is Split.TRAIN and p.id not in revealed for p in run.dataset.pages):
+        if not any(p.id not in revealed for p in train):
             return "pool_exhausted"
         return None
 
@@ -192,7 +225,10 @@ class Pipeline:
             if getattr(model, "kind", None) != run.kind:
                 raise ValueError("adapter kind differs from frozen run kind")
             check_contract_identity(run.config.real, model, run.kind)
-            evaluator = PageTextEvaluatorV1() if evaluator is None else evaluator
+            if evaluator is None:
+                if run.config.evaluator_id not in EVALUATORS:
+                    raise ValueError(f"unsupported evaluator: {run.config.evaluator_id}")
+                evaluator = EVALUATORS[run.config.evaluator_id]()
             if run.kind is RunKind.REAL:
                 from active_ocr.integrations.modal_model import ModalModel
 
@@ -206,7 +242,11 @@ class Pipeline:
         validation = self._validation_pages(run.config, run.dataset.pages)
         if run.complete:
             return run
-        if run.kind is not RunKind.FIXTURE and run.baseline is None:
+        if (
+            run.kind is not RunKind.FIXTURE
+            and not run.config.initial_batch_size
+            and run.baseline is None
+        ):
             model_id = model.load_base(experiment_id=run.id)
             self._validate_simulation_model_id(run, model_id)
             check_contract_identity(run.config.real, model, run.kind)
@@ -237,25 +277,31 @@ class Pipeline:
             )
             updated = run.model_copy(update={"baseline": baseline})
             return self._commit_simulation_step(run, updated, model)
-        previous = run.rounds[-1] if run.rounds else None
-        revealed = previous.revealed_ids if previous else ()
         train = {p.id: p for p in run.dataset.pages if p.split is Split.TRAIN}
+        if self._initial_pending(run):
+            return self._initial_fit_step(run, model, evaluator, oracle, train, validation)
+        previous = run.rounds[-1] if run.rounds else None
+        revealed = self._revealed(run)
         remaining = tuple(sorted(set(train) - set(revealed)))
         strategy = run.config.strategy if previous else Strategy.RANDOM
         if previous and strategy is not Strategy.RANDOM:
             self._validate_simulation_predictions(
                 previous.predictions, remaining, run, previous.number, previous.model_id
             )
-        selected = select_pages(
-            remaining,
-            strategy,
-            min(run.config.batch_size, run.config.page_budget - len(revealed)),
-            run.config.seed + len(run.rounds),
-            predictions=previous.predictions if previous else (),
+        selected = (
+            run.pending_selection.selected_ids
+            if run.pending_selection
+            else select_pages(
+                remaining,
+                strategy,
+                min(run.config.batch_size, run.config.page_budget - len(revealed)),
+                self._round_seed(run),
+                predictions=previous.predictions if previous else (),
+            )
         )
+        run, selected, examples = self._reveal_selection(run, selected, revealed, oracle)
         cumulative = (*revealed, *selected)
-        examples = oracle.reveal(cumulative)
-        number = len(run.rounds) + 1
+        number = self._stage_number(run)
         model_id = model.fit(
             examples, seed=run.config.seed, experiment_id=run.id, round_number=number
         )
@@ -313,8 +359,104 @@ class Pipeline:
             validation_metrics=metrics,
             telemetry=getattr(model, "telemetry", None) if run.config.real is not None else None,
         )
-        updated = run.model_copy(update={"rounds": (*run.rounds, record)})
+        updated = run.model_copy(
+            update={"rounds": (*run.rounds, record), "pending_selection": None}
+        )
         return self._commit_simulation_step(run, updated, model)
+
+    def _initial_fit_step(
+        self, run: SimulationRun, model, evaluator, oracle, train, validation
+    ) -> SimulationRun:
+        """Select, reveal and fit the seed set once; this is labelled work, not a baseline."""
+        size = min(run.config.initial_batch_size, run.config.page_budget, len(train))
+        if size <= 0:
+            raise ValueError("initial fit requires budget and available TRAIN pages")
+        selected = (
+            run.pending_selection.selected_ids
+            if run.pending_selection
+            else select_pages(tuple(sorted(train)), Strategy.RANDOM, size, self._round_seed(run))
+        )
+        run, selected, examples = self._reveal_selection(run, selected, (), oracle)
+        number = self._stage_number(run)
+        model_id = model.fit(
+            examples, seed=run.config.seed, experiment_id=run.id, round_number=number
+        )
+        self._validate_simulation_model_id(run, model_id)
+        if run.config.real is not None:
+            check_contract_identity(run.config.real, model, run.kind)
+        validation_predictions = ()
+        metrics = None
+        if evaluator is not None:
+            validation_predictions = self._validate_simulation_predictions(
+                tuple(
+                    model.predict(
+                        validation,
+                        experiment_id=run.id,
+                        round_number=number,
+                        model_id=model_id,
+                        purpose=PredictionPurpose.VALIDATION,
+                    )
+                ),
+                tuple(p.id for p in validation),
+                run,
+                number,
+                model_id,
+                require_scores=False,
+                purpose=PredictionPurpose.VALIDATION,
+            )
+            metrics = oracle.evaluate_validation(
+                validation_predictions, evaluator, tuple(p.id for p in validation)
+            )
+        record = SimulationInitialFit(
+            number=number,
+            selected_ids=selected,
+            revealed_ids=selected,
+            labelled_count=len(selected),
+            model_id=model_id,
+            validation_predictions=validation_predictions,
+            validation_metrics=metrics,
+            telemetry=getattr(model, "telemetry", None) if run.config.real is not None else None,
+        )
+        updated = run.model_copy(update={"initial_fit": record, "pending_selection": None})
+        return self._commit_simulation_step(run, updated, model)
+
+    def _reveal_selection(self, run, selected, previous, oracle):
+        # Preserve historical atomic fixture semantics. New initial-fit runs reserve their
+        # selection before revealing, and retain consumed labels even if preflight/fit fails.
+        if not run.config.initial_batch_size:
+            return run, selected, oracle.reveal((*previous, *selected))
+        pending = run.pending_selection
+        if pending is None:
+            pending = SimulationSelection(number=self._stage_number(run), selected_ids=selected)
+            updated = run.model_copy(update={"pending_selection": pending})
+            self.store.compare_and_swap(
+                "simulation",
+                run.id,
+                RootModel(run.model_dump(mode="json", exclude_unset=True)),
+                updated,
+            )
+            run = self.get_simulation(run.id)
+        selected = pending.selected_ids
+        cumulative = (*previous, *selected)
+        if pending.number != self._stage_number(run) or (
+            pending.revealed_ids and pending.revealed_ids != cumulative
+        ):
+            raise ValueError("pending selection differs from the current stage")
+        examples = oracle.reveal(cumulative)
+        if not pending.revealed_ids:
+            updated = run.model_copy(
+                update={
+                    "pending_selection": pending.model_copy(update={"revealed_ids": cumulative})
+                }
+            )
+            self.store.compare_and_swap(
+                "simulation",
+                run.id,
+                RootModel(run.model_dump(mode="json", exclude_unset=True)),
+                updated,
+            )
+            run = self.get_simulation(run.id)
+        return run, selected, examples
 
     @staticmethod
     def _validation_pages(config, pages):
@@ -381,6 +523,19 @@ class Pipeline:
             "failed_pages",
             "cer",
             "wer",
+            "localization_pages",
+            "box_reference_boxes",
+            "box_predicted_boxes",
+            "box_matched_boxes",
+            "box_precision_defined",
+            "box_recall_defined",
+            "box_precision",
+            "box_recall",
+            "box_f1",
+            "matched_line_char_edits",
+            "matched_line_reference_chars",
+            "matched_line_cer",
+            "matched_line_coverage",
         )
         writer.writerow(
             [
@@ -415,9 +570,15 @@ class Pipeline:
                 *metric_columns,
             ]
         )
-        records = ([run.baseline] if run.baseline is not None else []) + list(run.rounds)
+        records = (
+            ([run.baseline] if run.baseline is not None else [])
+            + ([run.initial_fit] if run.initial_fit is not None else [])
+            + list(run.rounds)
+        )
+        train_pages = sum(p.split is Split.TRAIN for p in run.dataset.pages)
         for record in records:
             is_baseline = isinstance(record, SimulationBaseline)
+            is_round = isinstance(record, SimulationRound)
             metrics = record.validation_metrics or {}
             writer.writerow(
                 [
@@ -429,15 +590,13 @@ class Pipeline:
                     json.dumps(()) if is_baseline else json.dumps(record.selected_ids),
                     json.dumps(()) if is_baseline else json.dumps(record.revealed_ids),
                     record.labelled_count,
-                    sum(p.split is Split.TRAIN for p in run.dataset.pages)
-                    if is_baseline
-                    else record.remaining_count,
+                    record.remaining_count
+                    if is_round
+                    else train_pages - (0 if is_baseline else record.labelled_count),
                     "",
                     record.model_id,
                     json.dumps(
-                        []
-                        if is_baseline
-                        else [p.model_dump(mode="json") for p in record.predictions]
+                        [p.model_dump(mode="json") for p in record.predictions] if is_round else []
                     ),
                     run.config.model_dump_json(),
                     run.dataset.manifest_sha256,
@@ -447,7 +606,7 @@ class Pipeline:
                     run.code_revision,
                     json.dumps([p.model_dump(mode="json") for p in record.validation_predictions]),
                     json.dumps(record.validation_metrics),
-                    "baseline" if is_baseline else "round",
+                    "baseline" if is_baseline else ("round" if is_round else "initial_fit"),
                     PredictionPurpose.BASELINE_VALIDATION
                     if is_baseline
                     else (PredictionPurpose.VALIDATION if record.validation_predictions else ""),

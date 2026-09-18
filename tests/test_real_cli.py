@@ -64,9 +64,9 @@ def test_cli_real_create_preflight_reconcile_resume_export_with_fake_transport(
 
     from test_modal_model import CompleteTransport, make_settings
 
+    from active_ocr.integrations import artifacts as a
+    from active_ocr.integrations import factory_model, simulation
     from active_ocr.integrations import modal_model as m
-    from active_ocr.integrations import qwen as q
-    from active_ocr.integrations import simulation
 
     settings = make_settings()
     identity = settings.context.real_config.expected_identity
@@ -78,7 +78,7 @@ def test_cli_real_create_preflight_reconcile_resume_export_with_fake_transport(
     manifest = create_fixture(tmp_path / "data", train_pages=3)
     cfg = SimulationConfig(
         real=settings.context.real_config,
-        backend="qwen3-vl-v1",
+        backend=factory_model.BACKEND,
         evaluator_id="page-text-nfc-v1",
         max_rounds=1,
         validation_page_ids=("page-3",),
@@ -104,7 +104,7 @@ def test_cli_real_create_preflight_reconcile_resume_export_with_fake_transport(
             sorted(
                 [f for f in settings.bundle.files if f.filename.startswith("model/")]
                 + [
-                    q.FileEntry(
+                    a.FileEntry(
                         filename="images/" + p.image_sha256,
                         sha256=p.image_sha256,
                         bytes=Path(p.image_uri).stat().st_size,
@@ -128,11 +128,11 @@ def test_cli_real_create_preflight_reconcile_resume_export_with_fake_transport(
         }
     )
     settings_file = tmp_path / "runtime.json"
-    settings_file.write_bytes(q.canonical(settings.model_dump(mode="json")))
+    settings_file.write_bytes(a.canonical(settings.model_dump(mode="json")))
     deployment_file = tmp_path / "deployment.json"
     deployment_file.write_text(
         m.DeploymentObservation(
-            settings_sha256=q.digest(settings.model_dump(mode="json")),
+            settings_sha256=a.digest(settings.model_dump(mode="json")),
             function_id="fu-SYNTHETIC",
             app_id="ap-SYNTHETIC",
         ).model_dump_json()

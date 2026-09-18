@@ -16,6 +16,13 @@ Acceptance is recorded in [EXP-003](../experiments/EXP-003.md) and the
 v2. That local correction has not been validated by a new GPU run; the v1 results below remain
 unchanged. Old runs retain their exact source identity and frozen execution checkout.
 
+**Migration implemented, not yet executed:** [PLAN-007](../plans/PLAN-007-framework-adoption.md) replaced the
+custom Qwen runtime with LLaMA-Factory v0.9.5. `integrations/qwen.py` is deleted; training now runs through
+`llamafactory-cli train` and inference through the toolkit's native HuggingFace `ChatModel`. The small AL
+coordinator, oracle, durable state and full-page predicted boxes/text are unchanged. **No new CPU image,
+GPU job or OCR result exists for this migration**; local tests and upstream source inspection are the only
+evidence so far. The measured v1 results in sections 9 and 10 remain the last actual execution.
+
 ## Contents
 
 1. [Purpose and current stage](#1-purpose-and-current-stage)
@@ -23,7 +30,7 @@ unchanged. Old runs retain their exact source identity and frozen execution chec
 3. [How the components connect](#3-how-the-components-connect)
 4. [Data preparation and label isolation](#4-data-preparation-and-label-isolation)
 5. [Active-learning lifecycle](#5-active-learning-lifecycle)
-6. [Qwen model and fine-tuning](#6-qwen-model-and-fine-tuning)
+6. [Model runtime: LLaMA-Factory](#6-model-runtime-llama-factory)
 7. [Modal execution, persistence and recovery](#7-modal-execution-persistence-and-recovery)
 8. [Setup and operating procedure](#8-setup-and-operating-procedure)
 9. [The completed real round](#9-the-completed-real-round)
@@ -46,7 +53,7 @@ to manually label this corpus or build a labeling frontend for the present study
 | Stage 3: useful OCR and research experiments — next | Calibrate output format and decode capacity; establish an adequate initial adaptation recipe; define grouping/evaluation and real uncertainty; compare equal budgets across seeds, then datasets/models. |
 
 The implemented real path currently supports **random acquisition only**. Least-confidence
-and entropy selectors exist and work with fixture/test scores, but Qwen does not yet produce
+and entropy selectors exist and work with fixture/test scores, but the model does not yet produce
 reviewed acquisition scores. The two-page real run is an engineering smoke test, not an
 uncertainty-strategy comparison or a sufficient initial fine-tuning campaign.
 
@@ -74,9 +81,10 @@ ocr-finetuning/
 │   ├── integrations/
 │   │   ├── __init__.py               explicit imports; local tools avoid loading ML packages
 │   │   ├── storage.py                SQLite records, atomic updates, hashed artifacts
-│   │   ├── simulation.py             normalized source, oracle, fixture, evaluator, identity
+│   │   ├── simulation.py             normalized source, oracle, fixture, evaluators, identity
 │   │   ├── public_dataset.py         pinned READ2016 conversion and provenance verification
-│   │   ├── qwen.py                   actual load/predict/reset-fit/checkpoint/reload boundary
+│   │   ├── artifacts.py              shared file inventory, hashes and environment provenance
+│   │   ├── factory_model.py          LLaMA-Factory adapter: data, train, predict, checkpoint
 │   │   └── modal_model.py            remote contract, coordinator, operation journal/recovery
 │   └── entrypoints/
 │       ├── __init__.py
@@ -90,8 +98,7 @@ ocr-finetuning/
 │   ├── test_evaluation_counts.py     text normalization, errors and undefined rates
 │   ├── test_public_dataset.py        READ conversion and provenance
 │   ├── test_read2016_independent.py  independent READ source checks
-│   ├── test_qwen.py                  model helpers and actual processor/tiny-model CPU cases
-│   ├── test_qwen_independent.py      independent Qwen/checkpoint checks
+│   ├── test_factory_model.py         recipe, dataset rows, checkpoints and actual template cases
 │   ├── test_modal_model.py           transport, identities, journal and artifact validation
 │   ├── test_modal_app.py             build and worker contracts
 │   ├── test_modal_independent.py     independent worker/transport/recovery checks
@@ -109,7 +116,8 @@ ocr-finetuning/
 │   ├── README.md / TEMPLATE.md       small reproducibility record convention
 │   ├── EXP-001.md / EXP-002.md       preserved earlier unsuccessful execution attempts
 │   ├── EXP-003.md                    accepted completed real round
-│   └── assets/read2016-qwen3vl4b.json published source/file identities and staging evidence
+│   ├── assets/read2016-qwen3vl4b.json published source/file identities and staging evidence
+│   └── recipes/read2016-llamafactory-joint.json  the one validated execution recipe
 ├── research/
 │   ├── README.md / TEMPLATE.md
 │   └── RES-002-real-ocr-pilot.md      dated source-backed dataset/model recommendation
@@ -149,7 +157,7 @@ flowchart TD
     F --> D
     D --> G[modal_model: checked request and durable journal]
     G --> H[modal_app: one sequential GPU dispatcher]
-    H --> I[qwen: base model and LoRA fit or prediction]
+    H --> I[factory_model: LLaMA-Factory LoRA fit or ChatModel prediction]
     I --> J[Immutable checkpoints and output receipts]
     J --> G
     G --> D
@@ -168,9 +176,10 @@ flowchart TD
 | `Pipeline` | Frozen config, oracle, model adapter and store | Baseline/round transitions, validation, budgets and exports. No model-specific training logic. |
 | `select_pages` | Available TRAIN IDs, seed and permitted pool scores | Unique selected IDs; deterministic ordering/tie handling. No labels or validation metrics. |
 | `ModalModel` | Run context and explicit load/fit/predict request | Verified remote checkpoint/predictions; operation journal and known-call reconciliation. |
-| `modal_app.dispatch` | Label-free metadata except selected fit examples | Fresh Qwen child execution, hashed evidence and completion receipt. |
-| `QwenModel` | Pinned files, verified images, selected training targets when fitting | Actual base/adapter checkpoint, structured predictions, training and reload diagnostics. |
+| `modal_app.dispatch` | Label-free metadata except selected fit examples | Fresh adapter child execution, hashed evidence and completion receipt. |
+| `FactoryModel` | Pinned files, verified images, selected training targets when fitting | Upstream dataset rows and YAML, `llamafactory-cli train`, native adapter checkpoint, `ChatModel` predictions and reload diagnostics. |
 | `PageTextEvaluatorV1` | Validation predictions and validation truth locally | Aggregate text edit counts, CER/WER and explicit failed-page counts. |
+| `PageJointEvaluatorV1` | The same inputs | Those unchanged text counts plus separately versioned IoU-0.5 localization counts. |
 | `SQLiteStore` | Validated complete state and artifact bytes | Durable JSON records and content-addressed files; compare-and-swap commit. |
 
 One orchestrator and direct adapters keep the design shallow. There is no separate queue,
@@ -227,10 +236,14 @@ duplicate identities, malformed order and unsupported source structures are reje
 | Modal input Volume | Pinned model/processor files and content-addressed images; no oracle, XML, source manifest, DB or label dataset. |
 | Final test | Not used by this completed run; final evaluation is deferred. |
 
-Selected fit targets travel transiently through the remote request and first child's stdin.
-They are not printed, cached as a trainer dataset or stored in the operation journal. The
-second reload child receives image/checkpoint metadata, not labels. These interfaces prevent
-accidental leakage; they are not a security sandbox against malicious authorized local code.
+Selected fit targets travel through the remote request and the first child's stdin. They are
+never printed and never enter the operation journal, which keeps only a target digest. The
+toolkit reads a real file, so `fit` does write a `train.jsonl` containing exactly those revealed
+targets into the operation's own output directory on the output Volume. That directory is not
+part of the artifact inventory returned to the coordinator, and no revealed label reaches a
+prediction request, the input Volume or Git. The second reload child receives image/checkpoint
+metadata, not labels. These interfaces prevent accidental leakage; they are not a security
+sandbox against malicious authorized local code.
 
 Freeze records manifest/ground-truth/image/provenance hashes, membership, seed, configuration,
 model/processor revisions, code and dependency identities. Resume rechecks frozen inputs and
@@ -244,24 +257,31 @@ dataset migration or standalone cloud backup.
 2. **Zero-label baseline.** For a real/contract run, load the pinned base, predict the fixed
    validation images, evaluate locally and commit a separate round-0 baseline. No training
    labels are revealed. The fixture path has no baseline unless a separate contract is used.
-3. **Select.** Choose an available TRAIN batch within remaining page budget. The first batch
+3. **Initial fit (optional, `initial_batch_size > 0`).** Select a seeded random TRAIN seed set,
+   reveal its labels, fit it and evaluate. This is a separate persisted `initial_fit` record, not
+   the zero-label baseline: `SimulationBaseline.labelled_count` stays literally zero. Its pages
+   count toward `page_budget` but not toward `max_rounds`.
+4. **Select.** Choose an available TRAIN batch within remaining page budget. The first batch
    is seeded random. Subsequent supported fixture strategies use the prior round's pool scores.
-4. **Simulate annotation.** The oracle reveals the selected pages' existing line boxes/text.
-   Previously selected IDs remain part of the cumulative labeled set.
-5. **Reset-fit.** Begin from the pinned base and train a fresh adapter on all labels revealed
+5. **Simulate annotation.** The oracle reveals the selected pages' existing line boxes/text.
+   Previously selected IDs, including the initial seed set, stay in the cumulative labeled set.
+6. **Reset-fit.** Begin from the pinned base and train a fresh adapter on all labels revealed
    so far. This is cumulative training data, not warm-starting the previous round's adapter.
-6. **Predict and evaluate.** Fixture uncertainty strategies score the remaining TRAIN pool.
+7. **Predict and evaluate.** Fixture uncertainty strategies score the remaining TRAIN pool.
    Random skips pool scoring unless explicitly requested in the fixture. The current real
    recipe requires random with no pool reporting; it always evaluates its fixed validation subset.
-7. **Commit.** After source/identity/result validation, atomically store the entire new round.
+8. **Commit.** After source/identity/result validation, atomically store the entire new round.
    A stale concurrent writer must reload. A failed step leaves the previous committed round.
-8. **Continue or stop.** Stop at page budget, round limit or exhausted pool. Completed resume
+   A failed fit does not erase selection or revealed-label accounting and never reselects.
+9. **Continue or stop.** Stop at page budget, round limit or exhausted pool. Completed resume
    validates inputs and returns without training again. Export reads one committed snapshot.
 
 Selection uses sorted unique candidates, a local seeded random generator, and deterministic
-page-ID ties for uncertainty ranking. The round seed is `seed + number_of_committed_rounds`;
-the baseline does not shift acquisition. An initial batch counts toward the label budget.
-For example, batch 3 with a five-page budget produces batches of 3 and 2.
+page-ID ties for uncertainty ranking. Stage numbers are baseline 0, initial fit 1 where present,
+then acquired rounds; the acquisition seed is `seed + committed_rounds + (1 if initial_fit)`, so
+the initial fit and the first acquired round cannot draw the same order. An initial batch counts
+toward the label budget. For example, batch 3 with a five-page budget produces batches of 3 and 2,
+and an initial 16 with batch 8 and a 24-page budget produces 16 labels then 24.
 
 Predictions must match the exact requested page set and run/round/checkpoint/purpose.
 Purposes distinguish `pool`, `baseline_validation` and `validation`. Validation output cannot
@@ -273,57 +293,100 @@ NFC on a copy, and preserves case, punctuation and spacing. It sums per-page Lev
 before dividing by reference characters or whitespace-separated words. Undefined denominators
 have separate defined flags; rates can exceed 1. Failed predictions count as empty hypotheses
 with separate failure counts. This is an engineering text view, not official layout-aware
-benchmark scoring. IoU and curve helpers exist separately but were not the real run's metrics.
+benchmark scoring. Edit distance now comes from RapidFuzz; the counting semantics are unchanged.
 
-## 6. Qwen model and fine-tuning
+`page-joint-nfc-iou50-v1` adds separately versioned engineering localization counts
+(`page-boxes-iou50-v1`) on top of those unchanged text metrics. Reference and predicted boxes are
+matched one-to-one, greedily in descending IoU at threshold 0.5, with ties broken by reference
+then prediction index. Unmatched predictions and unmatched references both count as errors, and a
+failed page contributes zero accepted boxes, so its reference lines stay unmatched. Reported
+`matched_line_cer` always travels with `matched_line_coverage`, so omitted lines cannot inflate
+apparent quality. This is engineering reporting, not a final-test benchmark protocol.
 
-**Current correction (18 September, local verification):** the supported target and generated output now share a
-4,096-token limit including EOS. The old v1 runtime could train on up to 4,096 target tokens
-but generate only 2,048, making sufficiently long targets impossible to reproduce. A single
-shared limit now controls training admission, generation, truncation detection, checkpoint
-bindings and reload/probe validation. The new IDs are `qwen3-vl-read-engineering-v2` and
-`qwen3-vl-page-greedy-v2`; the training policy is unchanged. Over-capacity targets fail clearly.
-Strict JSON parsing remains unchanged: malformed outputs are still failures, not repaired or
-reported as successful OCR. This fixes capacity consistency; it does not establish model quality.
+## 6. Model runtime: LLaMA-Factory
 
-The table below documents the **historical v1 GPU run**, not new v2 runtime measurements.
+`integrations/factory_model.py` is the only supported real-model path. It is a thin adapter: the
+toolkit owns optimization, batching, loss masking, model loading and checkpoint serialization.
+The adapter owns exactly four things — converting revealed examples to upstream rows, rendering
+one YAML from the recipe, invoking the toolkit, and mapping raw responses onto the existing
+`Prediction` contract. The deleted `qwen.py` was 1,567 lines; the adapter plus the shared
+`artifacts.py` helper is roughly half that, and none of it reimplements a trainer.
 
-The actual adapter uses `Qwen/Qwen3-VL-4B-Instruct`, model and processor revision
+### The one validated recipe
+
+`experiments/recipes/read2016-llamafactory-joint.json` is the single source of execution settings.
+The native YAML is rendered from it per operation, so there is no second configuration that can
+disagree. Its digest travels inside every checkpoint binding, and the coordinator recomputes that
+binding locally, so a worker running a different recipe cannot produce an accepted result.
+
+| Setting | Value |
+| --- | --- |
+| Version IDs | `read2016-llamafactory-joint-v1`; `llamafactory-lora-sft-v1`; `llamafactory-hf-greedy-v1`; evaluator `page-joint-nfc-iou50-v1` |
+| Toolkit | LLaMA-Factory 0.9.5, template `qwen3_vl_nothink` for training and inference, `infer_backend=huggingface` |
+| Model task | Ordered line text and boxes as strict JSON; coordinates normalized to 0–1000 relative to the original page |
+| Image view | Full page; the toolkit resizes by pixel budget, `image_max_pixels` 1,048,576 and `image_min_pixels` 65,536, identical in training and inference |
+| Sequence limits | Prompt ≤2,048; target ≤4,096 including EOS; total ≤6,144; `cutoff_len` is set to 6,144 |
+| Trainable adapter | BF16 LoRA rank 8, alpha 16, dropout 0 on language `q,k,v,o` projections; vision tower frozen |
+| Optimization | 3 epochs, batch 1, accumulation 4, AdamW, learning rate 3e-5, linear schedule, warmup ratio 0.05, gradient checkpointing, no packing, no automatic validation split |
+| Decoding | Greedy, ≤4,096 new tokens |
+| Key pins | llamafactory 0.9.5, Transformers 5.6.0, PEFT 0.18.1, Accelerate 1.11.0, TRL 0.24.0, Torch 2.8.0; exact resolution in `uv.lock` |
+
+The upstream range caps Transformers at 5.6.0 and PEFT at 0.18.1, so the project's previous newer
+pins were lowered rather than forced. The native CLI check also exposed the upstream
+Torch 2.9.x/Conv3D rejection; Torch/TorchAudio 2.8.0 and TorchVision 0.23.0 avoid that guard. These are engineering settings, not claimed optimal
+hyperparameters, and no GPU run has yet measured them.
+
+### Length preflight is mandatory
+
+The upstream supervised processor silently truncates anything longer than `cutoff_len`. Before any
+optimizer step, `fit` encodes every selected example through the actual toolkit template and
+tokenizer and records `prompt_tokens`, `target_tokens` and `total_tokens` per page. A page over the
+limits raises and the fit fails; nothing is truncated, dropped or substituted, and a needed recipe
+correction must be recorded before execution rather than applied mid-run. Those measured lengths
+are persisted in the checkpoint's training record. Preflight also executes the upstream SFT
+processor and checks its full token IDs and labels: only the complete response, EOS and native
+trailing newline are supervised. The target limit conservatively includes that newline.
+
+### Known upstream decoding limitation
+
+LLaMA-Factory's HuggingFace engine decodes generated text with
+`clean_up_tokenization_spaces=True`, which rewrites `" ."`, `" ,"`, `" ?"`, `" !"` and a few English
+contraction patterns. References are not rewritten, so measured CER slightly penalizes
+transcriptions containing those sequences. This is recorded in the recipe's `known_limitations`
+and is a measurement caveat, not a repaired prediction.
+
+### Assets
+
+The pinned assets are unchanged: `Qwen/Qwen3-VL-4B-Instruct`, model and processor revision
 `ebb281ec70b05090aa6165b016eac8ec08e71b17`. Its two weight shards are approximately
 8.875 GB. Publisher metadata declares Apache 2.0; the pinned repository had no LICENSE file,
 so the staging record distinguishes publisher metadata from separately retained Apache text.
 Model files are downloaded and checksum-verified separately; they are never committed to Git.
 
-| Setting | Executed engineering recipe |
-| --- | --- |
-| Version IDs | `qwen3-vl-read-engineering-v1`; `qwen3-vl-page-lora-v1`; `qwen3-vl-page-greedy-v1` |
-| Image view | Full page, aspect-preserving CPU bicubic resize, longest side ≤1,024, 32-pixel grid, area floor 65,536 and aspect-dependent ceiling; no crop/tiling |
-| Model task | Ordered line text and boxes as strict JSON; coordinates normalized to 0–1000 relative to original page |
-| Training target | Literal JSON, escaped special text, target plus EOS supervised; prompt labels masked with `-100` |
-| Sequence limits | Prompt ≤2,048; target ≤4,096; total ≤6,144; greedy generation ≤2,048 new tokens |
-| Trainable adapter | Rank 16, alpha 32, dropout 0; language self-attention q/v in 36 layers: 72 modules, 144 FP32 tensors |
-| Trainable parameters | 5,898,240; base/vision weights frozen |
-| Optimization | Three epochs, batch 1, accumulation 4 with actual partial-group denominator |
-| AdamW | Learning rate 0.0001, betas 0.9/0.999, epsilon 1e-8, weight decay 0, gradient clip 1; no scheduler |
-| Execution | Native BF16, Flash SDPA, nonreentrant gradient checkpointing; no GradScaler |
-| Key pins | Torch 2.14.0, torchvision 0.29.0, Transformers 5.16.1, PEFT 0.20.0, Accelerate 1.14.0; exact resolution in `uv.lock` |
+### Operations
 
-`QwenModel.load_base` verifies pinned files and publishes a base checkpoint manifest.
-`fit` validates actual trainable topology, frozen base, finite training and changed adapter
-tensors, then saves immutable weights/configuration/manifest. Checkpoint IDs are content hashes.
-The saved configuration retains the full verified 72 target-module names even though PEFT may
-compress them to suffixes internally; the strict reader still validates all expected tensors.
+`load_base` verifies pinned files and publishes a base
+checkpoint manifest. `fit` writes `train.jsonl` and a minimal `dataset_info.json` into a unique
+per-operation directory, renders `resolved.yaml`, runs the CLI as a subprocess argument array
+with captured exit status and log, then records the native adapter plus a manifest holding base
+and processor revisions, recipe and environment identity, selected page IDs and source hashes,
+measured preflight lengths, the toolkit's own optimizer-step and loss summary, and artifact
+hashes. Upstream demo datasets and automatic validation splitting are excluded. A finite, nonzero LoRA B tensor is required under the verified native default initialization,
+where B starts at zero. Random nonzero LoRA A alone does not count as training. Checkpoint IDs are content hashes and reload uses
+ordinary upstream adapter support; there is no checkpoint-config rewriting and no hard-coded
+tensor topology check.
 
-Prediction parses only the specified JSON structure and validates original-pixel geometry.
-It preserves raw generated evidence and records a failure instead of inventing regions or
-confidence. The implementation's generic interfaces allow future adapters, but this real runtime
-and recipe are deliberately pinned; another model needs its own reviewed implementation/config.
+Prediction parses only the specified JSON structure and validates original-pixel geometry. It
+preserves raw generated output and the finish reason, and records `truncated` or `invalid_output`
+instead of inventing regions or confidence. `ChatModel.get_scores()` is a reward-model interface
+and is deliberately not used as OCR confidence, so real acquisition still supports random only.
+One loaded model is reused across the pages of a single operation.
 
-Remote fitting includes one pre-save probe and one probe after loading the saved adapter in a
-fresh interpreter. The same selected TRAIN page is diagnostic, not independent evaluation.
-The check compares all adapter tensor hashes, generated IDs/status/regions and up to eight
-full-vocabulary FP32 logit rows. Tolerances are rtol 0.001 / atol 0.01. This proves checkpoint
-consistency for the probe; it cannot prove transcription quality or future-run determinism.
+Remote fitting writes one probe after training, then loads the published adapter in a second
+fresh interpreter and writes a second probe. Greedy decoding must reproduce the first probe's
+status, finish reason, response length, response digest and parsed regions exactly, from two
+distinct process IDs. The same selected TRAIN page is a diagnostic, not independent evaluation:
+this proves the native checkpoint reloads consistently, not that the transcription is correct.
 
 ## 7. Modal execution, persistence and recovery
 
@@ -337,7 +400,7 @@ Pipeline + LocalOracle
   │ selected-only fit / image-only predict
 ModalModel + SQLite operation journal ──► one dispatch Function
   ▲                                      │ checks identity, deadline and files
-  │ verified results/artifacts             ├─ fresh child: Qwen operation
+  │ verified results/artifacts             ├─ fresh child: toolkit operation
   │                                       └─ fit only: second child reload probe
   └─────────────────────────────────────── immutable completion and hashed artifacts
 
@@ -346,15 +409,17 @@ Output Volume: /outputs (one run's checkpoints, probes, receipts and control)
 ```
 
 The two Volumes are distinct. Mounts expose only `/bundles/<bundle-hash>` and `/runs/<run-uuid>`.
-Only an explicit seven-file runtime allowlist, small processor assets and synthetic CPU tests
+Only an explicit eight-file runtime allowlist, the recipe, small processor assets and synthetic CPU tests
 enter the image build; no repository-directory upload or real label dataset is used.
 The input inventory checks every allowed path/size and hashes requested images when consumed.
 The model child independently checks pinned model/processor bytes before use.
 
 The worker requests one L40S, 2 CPU and 32 GiB, with max 1/min 0/buffer 0 containers, retries 0,
-600-second execution timeout and 300-second startup timeout. The coordinator persists a
-40-minute absolute run window before first submission. Children share the earlier of this
-deadline and a 590-second invocation window. These bounds reduce exposure; they are not a
+an execution timeout bounded by 2,400 seconds and a 300-second startup timeout. The
+coordinator persists the configured absolute run window before first submission. For the
+migration pilot, set both `aggregate_gpu_seconds` and `timeout_seconds` to 2,100 (35 minutes);
+the former has a hard maximum of 2,400. Children share the earlier of the run deadline and
+the invocation timeout minus a ten-second shutdown margin. These bounds reduce exposure; they are not a
 hard dollar cap. Queue/startup, billing lag and storage need separate accounting.
 
 The parent never holds a Torch/CUDA model. Each operation uses a fresh child; fitting then
@@ -409,6 +474,15 @@ uv run --frozen active-ocr simulation status /tmp/ocr-runs "$RUN_ID"
 uv run --frozen active-ocr simulation export /tmp/ocr-runs "$RUN_ID" /tmp/ocr-export
 ```
 
+`--initial-batch-size N` adds the separate seeded initial-fit stage before acquisition. With
+`--initial-batch-size 16 --batch-size 8 --page-budget 24 --rounds 1` the run commits an
+`initial_fit` record at 16 labels and then one acquired round at 24, and `rounds.csv` reports
+`record_type` `initial_fit` then `round`. Leaving it at the default 0 preserves the old lifecycle.
+New initial-fit runs skip zero-shot inference. Selection is persisted before oracle reveal;
+`pending_selection.revealed_ids` retains the cumulative consumed-label count on a failed fit.
+Reopening retries the same selection. Successful stages clear the pending record. Stage numbers
+are 1 and 2, while acquired-round count is `len(rounds)`, zero then one.
+
 ### READ conversion
 
 Stage the archive and model files from the URLs and hashes in the
@@ -449,12 +523,13 @@ These are explicit operator inputs; the CLI does not invent provider IDs or boot
    ```
 
 2. Form `BuildSpec` from that source SHA, `RUNTIME_CODE_FILES`, lock, exported requirements,
-   `tests/test_qwen.py` and pinned small processor manifest. Resolve the reviewed App and two
+   `tests/test_factory_model.py`, `experiments/recipes/read2016-llamafactory-joint.json` and the
+   pinned small processor manifest. Resolve the reviewed App and two
    Volume names; record actual distinct IDs. Reuse a verified input bundle where available;
    otherwise `input_upload_files` / `upload_input_bundle` verify and upload the explicit allowlist.
 3. `entrypoints.modal_app.build_image` performs the actual CPU build. It requires checkout,
    exported requirements, processor root, observed App and output Volume. The build runs
-   `tests/test_qwen.py -k 'test_actual_ and not staged_headers'`: exactly 11 passes, no skips
+   `tests/test_factory_model.py -k test_actual_`: every selected case must pass, with no skips
    or failures. It returns observed image ID, `BuildReceipt` and report. Retain and independently
    verify receipt/report bytes and actual package inventory; a cached image without evidence
    is not accepted. The CPU build has no GPU or real image/label/4B-weight payload.
@@ -487,13 +562,13 @@ python -m active_ocr.entrypoints.cli real resume "$RUNS" "$RUN_ID" "$SETTINGS" "
 python -m active_ocr.entrypoints.cli real export "$RUNS" "$RUN_ID" "$EXPORT"
 ```
 
-`real run --one-round` performs one orchestration step: on a new run this is the baseline,
-not necessarily an acquired training round. `real run` without it continues until configured
+`real run --one-round` performs one orchestration step: an initial fit when
+`initial_batch_size` is positive, otherwise the historical zero-shot baseline. `real run` without it continues until configured
 completion. `real reconcile ... OPERATION_SHA --call-id OBSERVED_CALL_ID` attaches known work;
 `--completion` verifies saved completion evidence, and `--cancel` requests cancellation.
 None is a blind in-place retry command. Read `--help` for exact positional arguments.
 
-Exports are `results.json` (full committed run), `rounds.csv` (baseline plus rounds), and
+Exports are `results.json` (full committed run), `rounds.csv` (baseline when present, initial fit when present, then acquired rounds), and
 `validation.json` (fixed membership/count). Use a new export directory. A completed real resume
 still checks exact source/dependencies: run it from its frozen execution checkout, even when
 current main differs only in documentation.
@@ -606,12 +681,21 @@ alone does not contain the private local run store or downloaded checkpoints.
 
 ## 10. Engineering verification and resolved problems
 
-Current maintenance candidate `4925b720ebfb585e2befad60660dda5a663bfaa8` removed 13 legacy files
-and corrected the output-capacity mismatch. Development's one full suite passed 718 cases with
-11 explicit ML skips. Independent review passed 26 focused checks, including fixture lifecycle,
-real CLI boundaries, label isolation, full-capacity EOS/truncation, strict malformed JSON rejection,
-probe limits and old-recipe refusal. No packages were added/upgraded; seven obsolete packages
-were removed from the lock. No new CPU image or GPU quality result is claimed for this revision.
+**LLaMA-Factory migration status.** The toolkit adoption is implemented and locally tested. Every
+upstream contract it relies on was read from the v0.9.5 source tree rather than from moving `main`
+documentation: the released `examples/train_lora/qwen3vl_lora_sft.yaml`, the `qwen3_vl_nothink`
+template registration, `ChatModel.chat(..., images=...)` and its `Response` fields, the sharegpt
+multimodal `dataset_info.json` schema, and the supervised processor's silent `cutoff_len`
+truncation. Actual local CPU checks exercise the pinned processor/template and native PEFT
+initialization/update/save plus the actual toolkit CLI and fresh-process native adapter reload
+on a tiny random Qwen3-VL; these do not establish Linux or GPU
+compatibility. The image build requires every named CPU check with zero skips. No Linux CPU
+image, 4B GPU job, checkpoint or OCR measurement exists for this recipe yet.
+
+The preceding maintenance candidate `4925b720ebfb585e2befad60660dda5a663bfaa8` removed 13 legacy
+files and corrected the output-capacity mismatch. Its full suite passed 718 cases with 11 explicit
+ML skips, and independent review passed 26 focused checks. Those statements apply to that SHA and
+to the now-removed runtime.
 
 Verification progressed from cheap local checks to actual execution. Scope matters: a fixture
 pass is not a GPU pass, and an engineering pass is not a scientific finding.
@@ -620,7 +704,7 @@ pass is not a GPU pass, and an engineering pass is not a scientific finding.
 | --- | --- |
 | Local contracts | Atomic baseline/rounds, selection/label isolation, identity checks, failure cases, resume/export and exact metric counts; [review](verification/local-contract-review.md). |
 | Actual source | All 400 pages / 9,410 lines converted, 804 original files checked, full freeze and fresh-process reopen; [review](verification/read2016-converter-review.md). |
-| Qwen offline | Processor/target/mask/geometry, trainable topology, strict checkpoint/reload and rejection behavior; [review](verification/qwen-runtime-review.md). |
+| Qwen offline (superseded) | Processor/target/mask/geometry, trainable topology, strict checkpoint/reload and rejection behavior for the removed runtime; [review](verification/qwen-runtime-review.md). |
 | Modal integration | Operation ownership, deadline/preflight ordering, label-free boundaries, artifact verification and recovery; [review](verification/modal-runtime-review.md). |
 | Actual Linux CPU image | All 11 processor/tiny-model cases passed with zero skips/failures on the accepted image; [CPU review](verification/modal-cpu-review.md). |
 | Final adapter fix | Independent 16-case focused review plus actual 36-layer export regression within the same 11-case CPU gate. |
@@ -689,7 +773,7 @@ the existing boundaries without adding speculative infrastructure.
 | Manager | Priorities, releases, source/evidence reconciliation, integration and user-facing project state. |
 | Research | Source-backed corpus/model recommendation and methodological limitations; later interpretation. |
 | Planning | Concrete data/model/runtime contracts and acceptance plan, now implemented for Stage 2. |
-| Development | Local simulation, converter, Qwen model and coordinator/CLI implementation and fixes. |
+| Development | Local simulation, converter, model adapter and coordinator/CLI implementation and fixes. |
 | Testing & Code Quality | Independent checks of exact candidates, actual source/CPU evidence and completed run artifacts. |
 | Experiment & Platform | Modal build/worker boundary, staged assets, bounded execution, receipts and provisional cost observations. |
 | QA & Understand | Independent explanations, documentation and mentor slides with clear visuals and qualified results. |

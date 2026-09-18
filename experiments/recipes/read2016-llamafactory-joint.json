@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "recipe_version": "read2016-llamafactory-joint-v1",
+  "backend": "llamafactory-qwen3vl-v1",
+  "training_policy_id": "llamafactory-lora-sft-v1",
+  "decode_policy_id": "llamafactory-hf-greedy-v1",
+  "evaluator_id": "page-joint-nfc-iou50-v1",
+  "toolkit": {
+    "package": "llamafactory",
+    "version": "0.9.5",
+    "train_command": "llamafactory-cli",
+    "infer_backend": "huggingface",
+    "template": "qwen3_vl_nothink"
+  },
+  "assets": {
+    "repository": "Qwen/Qwen3-VL-4B-Instruct",
+    "revision": "ebb281ec70b05090aa6165b016eac8ec08e71b17",
+    "base_files": [
+      "config.json",
+      "generation_config.json",
+      "model.safetensors.index.json",
+      "model-00001-of-00002.safetensors",
+      "model-00002-of-00002.safetensors"
+    ],
+    "processor_files": [
+      "chat_template.json",
+      "config.json",
+      "merges.txt",
+      "preprocessor_config.json",
+      "tokenizer.json",
+      "tokenizer_config.json",
+      "video_preprocessor_config.json",
+      "vocab.json"
+    ]
+  },
+  "task": {
+    "prompt": "Transcribe every text line in reading order, including headings, page numbers and marginalia.\nReturn only JSON with exactly this shape: {\"regions\":[{\"text\":\"...\",\"bbox\":[x1,y1,x2,y2]}]}.\nPreserve spelling, punctuation, spacing and empty text. Give one box per line. Coordinates are\nnumbers from 0 to 1000 relative to the original full page, with x2>x1 and y2>y1. Do not explain.",
+    "target_format": "ordered-regions-original-1000-escaped-less-than-v1"
+  },
+  "limits": {
+    "max_prompt_tokens": 2048,
+    "max_output_tokens": 4096,
+    "max_sequence_tokens": 6144
+  },
+  "image": {
+    "image_max_pixels": 1048576,
+    "image_min_pixels": 65536
+  },
+  "training": {
+    "stage": "sft",
+    "finetuning_type": "lora",
+    "lora_rank": 8,
+    "lora_alpha": 16,
+    "lora_dropout": 0.0,
+    "lora_target": "q_proj,k_proj,v_proj,o_proj",
+    "freeze_vision_tower": true,
+    "per_device_train_batch_size": 1,
+    "gradient_accumulation_steps": 4,
+    "num_train_epochs": 3.0,
+    "optim": "adamw_torch",
+    "learning_rate": 3e-05,
+    "lr_scheduler_type": "linear",
+    "warmup_ratio": 0.05,
+    "bf16": true,
+    "gradient_checkpointing": true,
+    "packing": false,
+    "val_size": 0.0
+  },
+  "decode": {
+    "do_sample": false,
+    "temperature": 0.0,
+    "top_p": 1.0,
+    "top_k": 0,
+    "repetition_penalty": 1.0,
+    "max_new_tokens": 4096,
+    "skip_special_tokens": true
+  },
+  "pilot": {
+    "comment": "Frozen engineering pilot budget; the run configuration remains authoritative.",
+    "seed": 824,
+    "initial_batch_size": 16,
+    "batch_size": 8,
+    "page_budget": 24,
+    "max_rounds": 1,
+    "validation_pages": 8
+  },
+  "known_limitations": [
+    "The LLaMA-Factory HuggingFace engine decodes with clean_up_tokenization_spaces=True, which rewrites ' .', ' ,', ' ?', ' !' and a few English contractions in generated transcriptions. References are not rewritten, so measured CER slightly penalizes those patterns.",
+    "cutoff_len equals max_sequence_tokens because the upstream supervised processor truncates silently; every selected target is preflighted against the limits above before training starts."
+  ]
+}

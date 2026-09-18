@@ -830,3 +830,17 @@ def test_validation_subset_rejects_train_and_missing_on_create_and_resume(tmp_pa
         pipeline.store.save("simulation", run.id, invalid)
         with pytest.raises(ValueError, match="only frozen validation"):
             pipeline.step_simulation(run.id, Adapter())
+
+
+def test_initial_fit_skips_zero_shot_and_completed_resume_makes_no_calls(tmp_path):
+    pipeline, run, _ = setup(
+        tmp_path, train=30, initial_batch_size=16, batch_size=8, page_budget=24, max_rounds=1
+    )
+    model = Adapter()
+    done = pipeline.run_simulation(run.id, model)
+    assert done.baseline is None
+    assert [call[0] for call in model.calls] == ["fit", "predict", "fit", "predict"]
+    assert done.initial_fit.labelled_count == 16 and done.rounds[0].labelled_count == 24
+    assert len(done.rounds) == 1
+    assert pipeline.run_simulation(run.id, model) == done
+    assert len(model.calls) == 4
