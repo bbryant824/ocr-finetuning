@@ -61,13 +61,13 @@ def worker(tmp_path):
     )
     config = RealOCRConfig(
         backend="qwen3-vl-v1",
-        recipe_version="qwen3-vl-read-engineering-v1",
+        recipe_version=q.RECIPE,
         model_repository="Qwen/Qwen3-VL-4B-Instruct",
         processor_repository="Qwen/Qwen3-VL-4B-Instruct",
         model_revision="ebb281ec70b05090aa6165b016eac8ec08e71b17",
         processor_revision="ebb281ec70b05090aa6165b016eac8ec08e71b17",
         training_policy_id="qwen3-vl-page-lora-v1",
-        decode_policy_id="qwen3-vl-page-greedy-v1",
+        decode_policy_id=q.DECODE_POLICY,
         expected_identity=ExpectedIdentity(
             source_sha="1" * 40,
             dependency_sha256="2" * 64,
@@ -197,10 +197,10 @@ def test_invalid_decode_retains_raw_without_repairs(raw):
 
 
 def test_nested_invalid_json_is_page_failure_not_operation_error():
-    # A syntactically nested but schema-invalid response, within the 2048-token cap.
+    # A syntactically nested but schema-invalid response, within the output-token cap.
     raw = '{"regions":' + "[" * 1000 + "]" * 1000 + "}"
     ids = tokens(raw)
-    assert len(ids) < 2048
+    assert len(ids) < q.MAX_OUTPUT_TOKENS
     status, regions, evidence, reason = q.decode_result(ids, CharacterTokenizer(), 101, 1237)
     assert status is PredictionStatus.INVALID_OUTPUT and not regions
     assert evidence.endswith("<|im_end|>") and reason == "eos"

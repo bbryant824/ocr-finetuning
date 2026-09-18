@@ -5,7 +5,7 @@ from __future__ import annotations
 import unicodedata
 from collections.abc import Sequence
 
-from active_ocr.models import Annotation, Box, PredictionStatus
+from active_ocr.models import Box, PredictionStatus
 
 
 def intersection_over_union(left: Box, right: Box) -> float:
@@ -26,12 +26,6 @@ def character_error_rate(reference: str, prediction: str) -> float:
     if not reference:
         return 0.0 if not prediction else 1.0
     return edit_count(reference, prediction) / len(reference)
-
-
-def total_annotation_seconds(annotations: Sequence[Annotation]) -> float:
-    """Sum available annotation durations."""
-
-    return sum(annotation.seconds or 0 for annotation in annotations)
 
 
 def area_under_learning_curve(points: Sequence[tuple[int, float]]) -> float:

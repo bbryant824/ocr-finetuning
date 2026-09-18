@@ -326,7 +326,7 @@ class DecodeTokenizer:
 
 
 def test_decode_cap_and_control_evidence():
-    assert q.decode_result([7] * 2048, DecodeTokenizer(), 1, 1)[:2] == (
+    assert q.decode_result([7] * q.MAX_OUTPUT_TOKENS, DecodeTokenizer(), 1, 1)[:2] == (
         PredictionStatus.TRUNCATED,
         (),
     )
@@ -335,6 +335,58 @@ def test_decode_cap_and_control_evidence():
     assert status is PredictionStatus.INVALID_OUTPUT and not regions and raw
     with pytest.raises(RuntimeError):
         q.decode_result([7], DecodeTokenizer(), 1, 1)
+
+
+def test_decode_capacity_covers_supported_targets_and_reload_metadata(worker, monkeypatch):
+    from active_ocr.integrations.modal_model import ProbeMetadata
+
+    monkeypatch.setitem(
+        sys.modules, "transformers", SimpleNamespace(GenerationConfig=SimpleNamespace)
+    )
+    prompt, target = [1] * 2048, [7] * 4095
+    ids, _ = q.training_span(prompt, prompt + target + [q.EOS, 9], target, [9], {q.EOS})
+    capacity = len(ids) - len(prompt)
+    assert q.generation_config().max_new_tokens == capacity == 4096
+    assert worker._binding()["limits"]["new"] == capacity
+    assert q.decode_result(target + [q.EOS], DecodeTokenizer(), 1, 1)[0] is PredictionStatus.OK
+    assert q.decode_result([7] * capacity, DecodeTokenizer(), 1, 1)[0] is PredictionStatus.TRUNCATED
+    probe = ProbeMetadata(
+        model_id="checkpoint:sha256:" + "a" * 64,
+        page_id="selected-train",
+        image_sha256="b" * 64,
+        original_width=1,
+        original_height=1,
+        process_id=1,
+        generated_ids=target + [q.EOS],
+        status="ok",
+        regions=(),
+        finish_reason="eos",
+        adapter_tensors={name: "c" * 64 for name in q.adapter_shapes()},
+        logits=dict(key="probe.f32le", bytes=8 * 151936 * 4, sha256="d" * 64),
+        logits_shape=(8, 151936),
+    )
+    with pytest.raises(ValueError):
+        ProbeMetadata.model_validate({**probe.model_dump(), "generated_ids": [7] * (capacity + 1)})
+    with pytest.raises(ValueError, match="target.*4096"):
+        q.training_span(prompt, prompt + [7] * capacity + [q.EOS, 9], [7] * capacity, [9], {q.EOS})
+    assert q.RECIPE != "qwen3-vl-read-engineering-v1"
+    assert q.DECODE_POLICY != "qwen3-vl-page-greedy-v1"
+    old_recipe = worker.real_config.model_copy(
+        update={
+            "recipe_version": "qwen3-vl-read-engineering-v1",
+            "decode_policy_id": "qwen3-vl-page-greedy-v1",
+            "expected_identity": worker.identity.model_copy(
+                update={"recipe_version": "qwen3-vl-read-engineering-v1"}
+            ),
+        }
+    )
+    with pytest.raises(ValueError, match="recipe"):
+        q.QwenModel(
+            worker.input_root,
+            worker.output_root,
+            old_recipe,
+            runtime_manifest=worker.runtime_manifest,
+        )
 
 
 @pytest.mark.parametrize("n,updates", [(2, 3), (10, 9), (20, 15)])
@@ -914,7 +966,7 @@ def test_actual_partial_accumulation_matches_manual_adam(processor):
 def test_actual_generation_defaults(processor):
     config = q.generation_config()
     assert config.do_sample is False and config.num_beams == config.num_return_sequences == 1
-    assert config.max_new_tokens == 2048 and config.eos_token_id == q.EOS
+    assert config.max_new_tokens == q.MAX_OUTPUT_TOKENS and config.eos_token_id == q.EOS
     assert config.pad_token_id == q.PAD and config.repetition_penalty == 1
     assert config.no_repeat_ngram_size == 0
     assert config.forced_eos_token_id is None and config.forced_bos_token_id is None

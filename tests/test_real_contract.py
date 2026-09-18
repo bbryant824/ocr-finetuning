@@ -572,7 +572,7 @@ def test_old_fixture_json_remains_readable_and_resumable(tmp_path):
         for prediction in record["predictions"] + record["validation_predictions"]:
             for key in ("purpose", "status", "raw_output_artifact", "finish_reason"):
                 prediction.pop(key)
-    with sqlite3.connect(pipeline.settings.database) as connection:
+    with sqlite3.connect(pipeline.store.database_path) as connection:
         connection.execute(
             "UPDATE records SET payload=? WHERE key=?",
             (json.dumps(raw, separators=(",", ":")), run.id),
@@ -710,36 +710,6 @@ def test_no_local_contract_can_start_with_unknown_or_dirty_source(tmp_path, monk
     with pytest.raises(ValueError, match="identity"):
         pipeline.create_simulation(manifest, config(), kind=RunKind.CONTRACT_TEST)
     assert pipeline.store.list("simulation", SimulationRun) == ()
-
-
-def test_legacy_gpu_job_rejects_baseline_result_without_publishing(tmp_path, monkeypatch):
-    from test_pipeline import make_pipeline
-
-    from active_ocr.models import Stage, Strategy
-
-    pipeline, _, gpu = make_pipeline(tmp_path)
-    experiment = pipeline.create_experiment("legacy", Strategy.RANDOM, batch_size=1, rounds=1)
-    experiment = experiment.model_copy(
-        update={"stage": Stage.SCORING, "job_id": "job", "model_id": CHECKPOINT}
-    )
-    pipeline.store.save("experiment", experiment.id, experiment)
-    predictions = [
-        Prediction(
-            page_id=f"page-{i}",
-            experiment_id=experiment.id,
-            model_id=CHECKPOINT,
-            round_number=0,
-            purpose=PredictionPurpose.BASELINE_VALIDATION,
-        ).model_dump()
-        for i in range(1, 4)
-    ]
-    monkeypatch.setattr(
-        gpu, "job", lambda _: {"status": "succeeded", "result": {"predictions": predictions}}
-    )
-    with pytest.raises(ValueError, match="ownership"):
-        pipeline.poll_job(experiment.id)
-    assert pipeline.get_experiment(experiment.id) == experiment
-    assert pipeline.store.list("prediction", Prediction) == ()
 
 
 @pytest.mark.parametrize("baseline", [True, False])

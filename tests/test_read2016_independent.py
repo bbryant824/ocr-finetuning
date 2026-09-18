@@ -17,7 +17,6 @@ import pytest
 from PIL import Image
 
 from active_ocr.integrations import public_dataset as converter
-from active_ocr.integrations.local_data import load_image_pages
 from active_ocr.integrations.simulation import (
     FixtureModel,
     LocalOracle,
@@ -159,18 +158,6 @@ def test_image_validation_does_not_silently_transform(fault):
         data = data[: len(data) // 2]
     with pytest.raises((OSError, ValueError)):
         converter.validate_image(data, 31 if fault == "dimensions" else 32, 32)
-
-
-@pytest.mark.parametrize("document", [None, "missing"])
-def test_legacy_importer_does_not_admit_unknown_documents(tmp_path, document):
-    manifest = tmp_path / "legacy.jsonl"
-    row = {"path": "image.JPG"}
-    if document is None:
-        row["document_id"] = None
-    manifest.write_text(json.dumps(row) + "\n")
-    with pytest.raises(ValueError, match="document_id"):
-        load_image_pages(manifest, document_root=tmp_path / "documents")
-    assert not (tmp_path / "documents").exists()
 
 
 def test_original_bytes_determinism_and_explicit_admission(synthetic_source, prepared, tmp_path):
@@ -464,7 +451,7 @@ p.step_simulation(r.id); print(r.id)
     )
     run_id = child.stdout.strip()
     pipeline = Pipeline.for_simulation(tmp_path / "state")
-    with sqlite3.connect(pipeline.settings.database) as db:
+    with sqlite3.connect(pipeline.store.database_path) as db:
         payload = db.execute("SELECT payload FROM records WHERE key=?", (run_id,)).fetchone()[0]
     assert "source_policy" not in payload
     done = pipeline.run_simulation(run_id)

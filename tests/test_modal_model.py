@@ -923,15 +923,6 @@ def test_worker_allowlist_imports_without_legacy_integrations(tmp_path):
     assert result.returncode == 0, result.stderr
 
 
-def test_legacy_lazy_exports_preserve_public_objects():
-    from active_ocr.integrations import GPUClient, LabelStudioClient, SQLiteStore, load_image_pages
-    from active_ocr.integrations.gpu_client import GPUClient as ExpectedGPU
-    from active_ocr.integrations.storage import SQLiteStore as ExpectedStore
-
-    assert GPUClient is ExpectedGPU and SQLiteStore is ExpectedStore
-    assert callable(load_image_pages) and LabelStudioClient.__name__ == "LabelStudioClient"
-
-
 def test_resume_reattaches_persisted_running_call_without_new_spawn(tmp_path):
     model, transport, request = coordinator(tmp_path)
     control = model._control()
