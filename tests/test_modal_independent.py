@@ -1922,8 +1922,8 @@ def test_real_cli_with_unmocked_clean_local_identity(tmp_path):
     root = Path(fm.__file__).parents[3]
     checkout = tmp_path / "checkout"
     subprocess.run(["git", "clone", "--quiet", "--no-local", str(root), str(checkout)], check=True)
-    # The migration under review is not committed yet. Synchronize the reviewed working tree
-    # into this throwaway clone and record it, so the CLI measures a clean checkout identity.
+    # Snapshot the reviewed tree in a throwaway clone for clean CLI identity. An already
+    # committed candidate needs no content changes, so an empty snapshot commit is allowed.
     for relative in ("src", "tests", "experiments/recipes"):
         shutil.rmtree(checkout / relative, ignore_errors=True)
         shutil.copytree(
@@ -1943,6 +1943,7 @@ def test_real_cli_with_unmocked_clean_local_identity(tmp_path):
             "user.name=Independent Review",
             "commit",
             "--quiet",
+            "--allow-empty",
             "--message=reviewed working tree",
         ],
         check=True,
