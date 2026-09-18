@@ -16,19 +16,15 @@ import tarfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
-from types import SimpleNamespace
 
 import pytest
 
 import active_ocr.integrations.simulation as integration
-from active_ocr.config import Settings
 from active_ocr.evaluation import page_text_metrics
-from active_ocr.integrations.storage import SQLiteStore
 from active_ocr.models import (
     Box,
     ExecutionTelemetry,
     ExpectedIdentity,
-    Page,
     Prediction,
     PredictionPurpose,
     PredictionStatus,
@@ -37,8 +33,6 @@ from active_ocr.models import (
     RunKind,
     SimulationConfig,
     Split,
-    Stage,
-    Strategy,
 )
 from active_ocr.pipeline import Pipeline
 
@@ -152,45 +146,12 @@ def test_failed_nonfinite_geometry_cannot_publish_unreadable_state(tmp_path, acq
         pipeline.export_simulation(run.id, tmp_path / "export")
 
 
-def legacy_pipeline(root):
-    settings = Settings(database=root / "legacy.sqlite3", artifacts=root / "artifacts")
-    gpu = SimpleNamespace(job=lambda _: None)
-    pipeline = Pipeline(settings, SQLiteStore(settings.database, settings.artifacts), None, gpu)
-    pipeline.setup()
-    page = Page(id="train", document_id="doc", image_uri="synthetic.png", width=1, height=1)
-    pipeline.store.save("page", page.id, page)
-    run = pipeline.create_experiment("purpose", Strategy.ENTROPY, batch_size=1, rounds=2)
-    run = run.model_copy(update={"stage": Stage.SCORING, "job_id": "job", "model_id": "model"})
-    pipeline.store.save("experiment", run.id, run)
-    return pipeline, run, gpu
-
-
-def test_legacy_scoring_rejects_validation_purpose_before_publication(tmp_path):
-    pipeline, run, gpu = legacy_pipeline(tmp_path)
-    prediction = Prediction(
-        page_id="train",
-        experiment_id=run.id,
-        round_number=1,
-        model_id="model",
-        purpose=PredictionPurpose.VALIDATION,
-        entropy=0.8,
-    )
-    gpu.job = lambda _: {
-        "status": "succeeded",
-        "result": {"predictions": [prediction.model_dump()]},
-    }
-    with pytest.raises(ValueError):
-        pipeline.poll_job(run.id)
-    assert pipeline.get_experiment(run.id) == run
-    assert pipeline.store.list("prediction", Prediction) == ()
-
-
 @pytest.mark.parametrize("acquired", [False, True])
 def test_actual_sqlite_abort_rolls_back_and_retry_roundtrips(tmp_path, acquired):
     pipeline, run, _, witness = setup_case(tmp_path, page_budget=2)
     if acquired:
         run = pipeline.step_simulation(run.id, witness)
-    with sqlite3.connect(pipeline.settings.database) as db:
+    with sqlite3.connect(pipeline.store.database_path) as db:
         db.execute(
             "CREATE TRIGGER abort_update AFTER UPDATE ON records "
             "BEGIN SELECT RAISE(ABORT, 'independent storage abort'); END"
@@ -199,7 +160,7 @@ def test_actual_sqlite_abort_rolls_back_and_retry_roundtrips(tmp_path, acquired)
         pipeline.step_simulation(run.id, witness)
     reopened = Pipeline.for_simulation(tmp_path / "state")
     assert reopened.get_simulation(run.id) == run
-    with sqlite3.connect(pipeline.settings.database) as db:
+    with sqlite3.connect(pipeline.store.database_path) as db:
         db.execute("DROP TRIGGER abort_update")
     retried = reopened.step_simulation(run.id, Witness(run.config.real))
     assert reopened.get_simulation(run.id) == retried
@@ -498,62 +459,3 @@ def test_correction_finite_failure_preserves_evidence(tmp_path, acquired, status
     assert json.loads((tmp_path / "export/results.json").read_text()) == committed.model_dump(
         mode="json"
     )
-
-
-@pytest.mark.parametrize("last_purpose", ["validation", "pool", None])
-def test_correction_mixed_batch_has_no_partial_publication(tmp_path, last_purpose):
-    pipeline, run, gpu = legacy_pipeline(tmp_path)
-    for page_id in ("train2", "train3"):
-        page = Page(id=page_id, document_id=page_id, image_uri="synthetic.png", width=1, height=1)
-        pipeline.store.save("page", page.id, page)
-    output = [
-        Prediction(
-            page_id=page_id, experiment_id=run.id, round_number=1, model_id="model", entropy=0.2
-        ).model_dump(mode="json")
-        for page_id in ("train", "train2", "train3")
-    ]
-    if last_purpose is None:
-        for prediction in output:
-            prediction.pop("purpose")
-    else:
-        output[-1]["purpose"] = last_purpose
-    gpu.job = lambda _: {"status": "succeeded", "result": {"predictions": output}}
-    if last_purpose == "validation":
-        with pytest.raises(ValueError):
-            pipeline.poll_job(run.id)
-        assert pipeline.get_experiment(run.id) == run
-        assert pipeline.store.list("prediction", Prediction) == ()
-    else:
-        updated = pipeline.poll_job(run.id)
-        assert updated.stage is Stage.READY and updated.round_number == 1
-        assert len(pipeline._predictions_for(updated)) == 3
-
-
-def test_correction_stored_purpose_filters_before_acquisition(tmp_path):
-    pipeline, run, _ = legacy_pipeline(tmp_path)
-    run = run.model_copy(update={"stage": Stage.READY, "round_number": 1, "job_id": None})
-    pipeline.store.save("experiment", run.id, run)
-    output = Prediction(
-        page_id="train",
-        experiment_id=run.id,
-        round_number=1,
-        model_id="model",
-        entropy=0.9,
-        purpose=PredictionPurpose.VALIDATION,
-    )
-    pipeline.store.save("prediction", output.storage_key, output)
-    assert pipeline._predictions_for(run) == ()
-    with pytest.raises(ValueError, match="missing prediction"):
-        pipeline.prepare_batch(run.id)
-    assert pipeline.get_experiment(run.id) == run
-    # Write actual purpose-omitted JSON, then use the normal acquisition API.
-    legacy = output.model_dump(mode="json")
-    legacy.pop("purpose")
-    with sqlite3.connect(pipeline.settings.database) as db:
-        db.execute(
-            "UPDATE records SET payload=? WHERE kind='prediction' AND key=?",
-            (json.dumps(legacy), output.storage_key),
-        )
-    assert len(pipeline._predictions_for(run)) == 1
-    selected = pipeline.prepare_batch(run.id)
-    assert selected.current_batch == ("train",)

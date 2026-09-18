@@ -29,15 +29,6 @@ class Strategy(StrEnum):
     ENTROPY = "entropy"
 
 
-class Stage(StrEnum):
-    READY = "ready"
-    ANNOTATING = "annotating"
-    TRAINING = "training"
-    SCORING = "scoring"
-    COMPLETE = "complete"
-    ERROR = "error"
-
-
 class Box(Model):
     """Axis-aligned line box in image pixels."""
 
@@ -73,14 +64,6 @@ class Page(Model):
     split: Split = Split.TRAIN
 
 
-class Annotation(Model):
-    """Validated human transcription and boxes for one page."""
-
-    page_id: str = Field(min_length=1)
-    regions: tuple[Region, ...]
-    seconds: float | None = Field(default=None, ge=0)
-
-
 class PredictionPurpose(StrEnum):
     POOL = "pool"
     VALIDATION = "validation"
@@ -114,41 +97,6 @@ class Prediction(Model):
     def validate_purpose(self) -> Prediction:
         if (self.round_number == 0) != (self.purpose is PredictionPurpose.BASELINE_VALIDATION):
             raise ValueError("round zero is reserved for baseline_validation purpose")
-        return self
-
-    @property
-    def storage_key(self) -> str:
-        return f"{self.experiment_id}:{self.round_number}:{self.page_id}"
-
-
-class Experiment(Model):
-    """State for one reproducible strategy run."""
-
-    id: str = Field(min_length=1)
-    name: str = Field(min_length=1)
-    strategy: Strategy
-    batch_size: int = Field(gt=0)
-    max_rounds: int = Field(gt=0)
-    seed: int
-    round_number: int = Field(default=0, ge=0)
-    stage: Stage = Stage.READY
-    labelled_page_ids: tuple[str, ...] = ()
-    current_batch: tuple[str, ...] = ()
-    external_batch_id: str | None = None
-    job_id: str | None = None
-    model_id: str | None = None
-    error: str | None = None
-
-    @model_validator(mode="after")
-    def validate_state(self) -> Experiment:
-        if self.round_number > self.max_rounds:
-            raise ValueError("round_number cannot exceed max_rounds")
-        if len(set(self.labelled_page_ids)) != len(self.labelled_page_ids):
-            raise ValueError("labelled page IDs must be unique")
-        if len(set(self.current_batch)) != len(self.current_batch):
-            raise ValueError("current batch page IDs must be unique")
-        if self.stage is Stage.ERROR and not self.error:
-            raise ValueError("an error stage requires an error message")
         return self
 
 

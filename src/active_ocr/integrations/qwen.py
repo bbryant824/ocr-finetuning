@@ -46,9 +46,13 @@ from active_ocr.models import (
 
 REPOSITORY = "Qwen/Qwen3-VL-4B-Instruct"
 REVISION = "ebb281ec70b05090aa6165b016eac8ec08e71b17"
-RECIPE = "qwen3-vl-read-engineering-v1"
+RECIPE = "qwen3-vl-read-engineering-v2"
 TRAIN_POLICY = "qwen3-vl-page-lora-v1"
-DECODE_POLICY = "qwen3-vl-page-greedy-v1"
+DECODE_POLICY = "qwen3-vl-page-greedy-v2"
+MAX_PROMPT_TOKENS = 2048
+# Includes EOS, both for supported training targets and generated continuations.
+MAX_OUTPUT_TOKENS = 4096
+MAX_SEQUENCE_TOKENS = MAX_PROMPT_TOKENS + MAX_OUTPUT_TOKENS
 EOS, PAD, IMAGE = 151645, 151643, 151655
 PROMPT = "\n".join(
     (
@@ -362,7 +366,11 @@ def training_span(
     if full != prompt + target + [EOS] + newline:
         raise ValueError("prompt/full prefix or assistant framing mismatch")
     p, t = len(prompt), len(target) + 1
-    if p > 2048 or t > 4096 or p + t > 6144:
+    if t > MAX_OUTPUT_TOKENS:
+        raise ValueError(
+            f"training target overflow: {t} tokens including EOS; limit is {MAX_OUTPUT_TOKENS}"
+        )
+    if p > MAX_PROMPT_TOKENS or p + t > MAX_SEQUENCE_TOKENS:
         raise ValueError("training token overflow")
     ids = full[: p + t]
     return ids, [-100] * p + ids[p:]
@@ -377,7 +385,7 @@ def generation_config():
         num_return_sequences=1,
         repetition_penalty=1.0,
         no_repeat_ngram_size=0,
-        max_new_tokens=2048,
+        max_new_tokens=MAX_OUTPUT_TOKENS,
         eos_token_id=EOS,
         pad_token_id=PAD,
         bos_token_id=None,
@@ -389,11 +397,13 @@ def generation_config():
 
 
 def decode_result(ids: list[int], tokenizer, width: int, height: int):
+    if len(ids) > MAX_OUTPUT_TOKENS:
+        raise RuntimeError("generation exceeded the supported output token limit")
     # Preserve all control tokens in the evidence; strip only a terminal EOS for parsing.
     raw = tokenizer.decode(ids, skip_special_tokens=False, clean_up_tokenization_spaces=False)
     terminated = bool(ids) and ids[-1] == EOS
     if not terminated:
-        if len(ids) == 2048:
+        if len(ids) == MAX_OUTPUT_TOKENS:
             return PredictionStatus.TRUNCATED, (), raw, "length"
         raise RuntimeError("generation stopped without EOS or declared token limit")
     content = ids[:-1]
@@ -476,7 +486,7 @@ def encode_page(processor, image: Image.Image, target: str | None = None):
     grid = prompt["image_grid_thw"].tolist()
     if grid != [[1, h // 16, w // 16]] or pids.count(IMAGE) != h * w // 1024:
         raise ValueError("actual image grid/token count mismatch")
-    if len(pids) > 2048 or len(pids) + 2048 > 6144:
+    if len(pids) > MAX_PROMPT_TOKENS or len(pids) + MAX_OUTPUT_TOKENS > MAX_SEQUENCE_TOKENS:
         raise ValueError("prompt token overflow")
     receipt = {
         "height": h,
@@ -511,7 +521,8 @@ def encode_page(processor, image: Image.Image, target: str | None = None):
     full["labels"] = full["input_ids"].new_tensor([labels])
     full["labels"][full["attention_mask"] == 0] = -100
     receipt.update(
-        target_tokens=len(target_ids) + 1, target_exceeds_decode_budget=len(target_ids) + 1 > 2048
+        target_tokens=len(target_ids) + 1,
+        target_exceeds_decode_budget=len(target_ids) + 1 > MAX_OUTPUT_TOKENS,
     )
     return dict(full), receipt
 
@@ -686,10 +697,10 @@ def check_training_record(checkpoint: Checkpoint) -> None:
             or max(h, w) > 1024
             or h * w < 65536
             or record["grid"] != [1, h // 16, w // 16]
-            or not 1 <= p <= 2048
-            or not 1 <= t <= 4096
-            or p + t > 6144
-            or record["target_exceeds_decode_budget"] is not (t > 2048)
+            or not 1 <= p <= MAX_PROMPT_TOKENS
+            or not 1 <= t <= MAX_OUTPUT_TOKENS
+            or p + t > MAX_SEQUENCE_TOKENS
+            or record["target_exceeds_decode_budget"] is not (t > MAX_OUTPUT_TOKENS)
         ):
             raise ValueError("invalid processing geometry/token limits")
     if training["supervised_tokens"] != 3 * sum(r["target_tokens"] for r in processing.values()):
@@ -993,7 +1004,12 @@ class QwenModel:
             "recipe": self.real_config.model_dump(mode="json"),
             "prompt": PROMPT,
             "target_format": "ordered-regions-original-1000-escaped-less-than-v1",
-            "limits": {"prompt": 2048, "target": 4096, "total": 6144, "new": 2048},
+            "limits": {
+                "prompt": MAX_PROMPT_TOKENS,
+                "target": MAX_OUTPUT_TOKENS,
+                "total": MAX_SEQUENCE_TOKENS,
+                "new": MAX_OUTPUT_TOKENS,
+            },
             "training": {
                 "epochs": 3,
                 "accumulation": 4,
@@ -1501,7 +1517,7 @@ class QwenModel:
             or type(before["process_id"]) is not int
             or before["process_id"] <= 0
             or before["process_id"] == os.getpid()
-            or not 1 <= len(ids) <= 2048
+            or not 1 <= len(ids) <= MAX_OUTPUT_TOKENS
             or any(type(i) is not int or i < 0 for i in ids)
             or before["logits_shape"] != [rows, 151936]
             or before["logits"]

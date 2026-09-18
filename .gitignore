@@ -4,7 +4,6 @@ var/
 # Local configuration and secrets
 .env
 .env.*
-!.env.example
 
 # Python environments and generated files
 .venv/

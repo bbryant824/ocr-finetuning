@@ -1619,7 +1619,8 @@ import sys, pathlib
 import active_ocr.entrypoints.modal_app as worker
 import active_ocr.integrations as integration
 assert pathlib.Path(worker.__file__).resolve().is_relative_to(pathlib.Path(sys.argv[1]).resolve())
-assert set(integration.__all__)=={'GPUClient','LabelStudioClient','SQLiteStore','load_image_pages'}
+removed = ('GPUClient','LabelStudioClient','load_image_pages')
+assert not any(hasattr(integration, name) for name in removed)
 assert not any(k.split('.')[0] in {'modal','torch','transformers','peft'} for k in sys.modules)
 legacy = ('storage', 'label_studio', 'gpu_client', 'local_data')
 assert not any('active_ocr.integrations.'+k in sys.modules for k in legacy)

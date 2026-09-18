@@ -11,7 +11,12 @@ from active_ocr.pipeline import Pipeline
 
 
 def test_real_help_lists_complete_operator_commands():
-    result = CliRunner().invoke(cli.app, ["real", "--help"])
+    runner = CliRunner()
+    root = runner.invoke(cli.app, ["--help"])
+    assert root.exit_code == 0 and "simulation" in root.output and "real" in root.output
+    for removed in ("setup", "import", "experiment", "tick"):
+        assert runner.invoke(cli.app, [removed]).exit_code == 2
+    result = runner.invoke(cli.app, ["real", "--help"])
     assert result.exit_code == 0
     for name in ("create", "preflight", "run", "resume", "status", "export", "reconcile"):
         assert name in result.output

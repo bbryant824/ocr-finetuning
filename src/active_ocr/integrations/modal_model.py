@@ -14,6 +14,7 @@ from pydantic import Field, TypeAdapter, field_validator, model_validator
 
 from active_ocr.integrations.qwen import (
     ASSETS,
+    MAX_OUTPUT_TOKENS,
     PROCESSOR_FILES,
     FileEntry,
     Packages,
@@ -412,7 +413,7 @@ class ProbeMetadata(Model):
     original_height: PositiveInt
     process_id: PositiveInt
     generated_ids: tuple[Annotated[int, Field(strict=True, ge=0)], ...] = Field(
-        min_length=1, max_length=2048
+        min_length=1, max_length=MAX_OUTPUT_TOKENS
     )
     status: Literal["ok", "invalid_output", "truncated"]
     regions: tuple[Region, ...]
