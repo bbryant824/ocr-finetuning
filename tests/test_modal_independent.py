@@ -441,7 +441,7 @@ def test_bundle_has_no_extra_file_channel(settings, path):
         m.InputBundle.model_validate(data)
 
 
-@pytest.mark.parametrize("duration", [0, -1, 2401])
+@pytest.mark.parametrize("duration", [0, -1, 7201])
 def test_deadlines_are_bounded_records(settings, duration):
     data = invoke(fit(settings)).model_dump(mode="json")
     data["deadline_unix_seconds"] = 1000 + duration

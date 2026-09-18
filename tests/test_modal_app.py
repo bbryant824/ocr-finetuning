@@ -599,7 +599,15 @@ class FakeSDK:
         raise AssertionError("construction must not commit")
 
 
-def test_sdk_runtime_construction_has_exact_limits_and_two_mounts(runtime):
+@pytest.mark.parametrize("duration", [2400, 7200])
+def test_sdk_runtime_construction_has_exact_limits_and_two_mounts(runtime, duration):
+    runtime.settings = m.RuntimeSettings.model_validate(
+        {
+            **runtime.settings.model_dump(),
+            "aggregate_gpu_seconds": duration,
+            "timeout_seconds": duration,
+        }
+    )
     sdk = FakeSDK()
     a._publish(
         runtime.code, "settings.json", art.canonical(runtime.settings.model_dump(mode="json"))
@@ -614,7 +622,7 @@ def test_sdk_runtime_construction_has_exact_limits_and_two_mounts(runtime):
         min_containers=0,
         buffer_containers=0,
         retries=0,
-        timeout=2400,
+        timeout=duration,
         startup_timeout=300,
         scaledown_window=2,
         include_source=False,

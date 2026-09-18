@@ -45,6 +45,7 @@ OUTPUT_ROOT = "/outputs"
 CODE_ROOT = "/opt/ocr"
 # The adapter owns this subtree; transport keys are relative to the run output root.
 MODEL_NAMESPACE = "factory"
+MAX_RUN_SECONDS = 7200  # Explicit opt-in ceiling; defaults and persisted deadlines stay unchanged.
 
 
 def relative_key(value: str) -> str:
@@ -312,8 +313,14 @@ class Invocation(Model):
 
     @model_validator(mode="after")
     def bounded_deadline(self) -> Invocation:
-        if not 0 < self.deadline_unix_seconds - self.first_submission_unix_seconds <= 2400:
-            raise ValueError("run-wide wall-clock envelope must not exceed 2400 seconds")
+        if (
+            not 0
+            < self.deadline_unix_seconds - self.first_submission_unix_seconds
+            <= MAX_RUN_SECONDS
+        ):
+            raise ValueError(
+                f"run-wide wall-clock envelope must not exceed {MAX_RUN_SECONDS} seconds"
+            )
         return self
 
     @property
@@ -340,14 +347,14 @@ class RuntimeSettings(Model):
     gpu: Literal["L40S"] = "L40S"
     cpu: Literal[2] = 2
     memory_mib: Literal[32768] = 32768
-    timeout_seconds: int = Field(default=2400, strict=True, gt=10, le=2400)
+    timeout_seconds: int = Field(default=2400, strict=True, gt=10, le=MAX_RUN_SECONDS)
     startup_timeout_seconds: Literal[300] = 300
     max_containers: Literal[1] = 1
     min_containers: Literal[0] = 0
     buffer_containers: Literal[0] = 0
     retries: Literal[0] = 0
     scaledown_seconds: Literal[2] = 2
-    aggregate_gpu_seconds: int = Field(default=2400, strict=True, gt=0, le=2400)
+    aggregate_gpu_seconds: int = Field(default=2400, strict=True, gt=0, le=MAX_RUN_SECONDS)
     cancellation_tail_seconds: Literal[300] = 300
 
     @property

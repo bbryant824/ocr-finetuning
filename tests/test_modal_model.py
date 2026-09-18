@@ -326,7 +326,7 @@ def test_build_environment_pins_the_toolkit_and_stays_sorted():
         m.BuildReceipt.model_validate(data)
 
 
-@pytest.mark.parametrize("duration", [0, -1, 2401])
+@pytest.mark.parametrize("duration", [0, -1, 7201])
 def test_deadline_envelope(duration):
     data = invocation(fit_request()).model_dump()
     data["deadline_unix_seconds"] = data["first_submission_unix_seconds"] + duration
@@ -1250,16 +1250,68 @@ def test_sdk_boundary_checks_observed_ids_and_never_creates_resources(monkeypatc
         transport.preflight()
 
 
-def test_runtime_accepts_bounded_35_minute_window():
+@pytest.mark.parametrize("duration", [2100, 2400, 6000, 7200])
+def test_runtime_accepts_explicit_bounded_window(duration):
     settings = make_settings()
     bounded = m.RuntimeSettings.model_validate(
         {
             **settings.model_dump(),
-            "aggregate_gpu_seconds": 2100,
-            "timeout_seconds": 2100,
+            "aggregate_gpu_seconds": duration,
+            "timeout_seconds": duration,
         }
     )
-    assert bounded.aggregate_gpu_seconds == bounded.timeout_seconds == 2100
+    assert bounded.aggregate_gpu_seconds == bounded.timeout_seconds == duration
     for field in ("aggregate_gpu_seconds", "timeout_seconds"):
         with pytest.raises(ValueError):
-            m.RuntimeSettings.model_validate({**settings.model_dump(), field: 2401})
+            m.RuntimeSettings.model_validate({**settings.model_dump(), field: 7201})
+
+
+def test_runtime_defaults_and_existing_deadline_remain_immutable(tmp_path):
+    model, transport, request = coordinator(tmp_path)
+    assert model.settings.aggregate_gpu_seconds == model.settings.timeout_seconds == 2400
+    control = model._control()
+    extended = m.RuntimeSettings.model_validate(
+        {
+            **model.settings.model_dump(),
+            "aggregate_gpu_seconds": 7200,
+            "timeout_seconds": 7200,
+        }
+    )
+    resumed = m.ModalModel(extended, model.store, transport, clock=lambda: 1001)
+    with pytest.raises(ValueError, match="frozen Modal runtime settings changed"):
+        resumed.execute(request)
+    assert transport.payloads == []
+    assert (
+        model.store.load("model-control", model.settings.context.experiment_id, m.RunControl)
+        == control
+    )
+    assert control.deadline_unix_seconds == 3400
+
+
+@pytest.mark.parametrize("duration", [2100, 2400, 6000, 7200])
+def test_configured_duration_binds_submission_envelope(tmp_path, duration):
+    model, transport, request = coordinator(tmp_path)
+    settings = m.RuntimeSettings.model_validate(
+        {
+            **model.settings.model_dump(),
+            "aggregate_gpu_seconds": duration,
+            "timeout_seconds": duration,
+        }
+    )
+    model = m.ModalModel(settings, model.store, transport, clock=lambda: 1000)
+    control = model._control()
+    call = m.Invocation(
+        request=request,
+        attempt_id="a" * 32,
+        first_submission_unix_seconds=control.first_submission_unix_seconds,
+        deadline_unix_seconds=control.deadline_unix_seconds,
+    )
+    settings.check_invocation(call)
+    assert call.deadline_unix_seconds == 1000 + duration
+    # Existing durable control rejects a mutated deadline even when globally in range.
+    changed = control.model_copy(
+        update={"deadline_unix_seconds": control.deadline_unix_seconds - 1}
+    )
+    model.store.compare_and_swap("model-control", settings.context.experiment_id, control, changed)
+    with pytest.raises(ValueError, match="frozen Modal runtime settings changed"):
+        model._control()
