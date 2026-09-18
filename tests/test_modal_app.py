@@ -698,8 +698,11 @@ def test_cpu_report_accepts_the_measured_passing_count_without_transcript(tmp_pa
 
 
 @pytest.mark.parametrize("mount_symlink", [False, True])
+@pytest.mark.parametrize(
+    "child_mode", ["synthetic", "real_pytest", "wrong_name", "wrong_module", "missing", "extra"]
+)
 def test_cpu_build_writes_measured_receipt_and_commits_only_output(
-    runtime, monkeypatch, mount_symlink
+    runtime, monkeypatch, mount_symlink, child_mode
 ):
     import shutil
 
@@ -713,6 +716,8 @@ def test_cpu_build_writes_measured_receipt_and_commits_only_output(
         mount.symlink_to(evidence, target_is_directory=True)
     monkeypatch.setattr(a, "BUILD_EVIDENCE_ROOT", str(mount if mount_symlink else evidence))
 
+    real_popen = subprocess.Popen
+
     class Child:
         returncode = 0
 
@@ -720,16 +725,28 @@ def test_cpu_build_writes_measured_receipt_and_commits_only_output(
             assert timeout == 850
 
     def popen(args, **kwargs):
+        assert "--rootdir=" + str(runtime.code / "tests") in args
+        if child_mode == "real_pytest":
+            return real_popen(args, **kwargs)
         assert kwargs["start_new_session"] is True
         assert kwargs["stdout"] == subprocess.DEVNULL
         assert kwargs["stderr"] == subprocess.DEVNULL
         assert str(runtime.code / CPU_TEST_KEY) in args
         path = Path(next(v.split("=", 1)[1] for v in args if v.startswith("--junitxml=")))
+        names = list(fm.CPU_TESTS)
+        if child_mode == "wrong_name":
+            names[0] = "test_factory_model::test_actual_unreviewed"
+        elif child_mode == "wrong_module":
+            names = ["tests." + name for name in names]
+        elif child_mode == "missing":
+            names.pop()
+        elif child_mode == "extra":
+            names.append("test_factory_model::test_actual_extra")
         path.write_text(
             "<testsuite>"
             + "".join(
-                f'<testcase classname="test_factory_model" name="{name.split("::")[1]}"/>'
-                for name in fm.CPU_TESTS
+                f'<testcase classname="{name.split("::")[0]}" name="{name.split("::")[1]}"/>'
+                for name in names
             )
             + "</testsuite>"
         )
@@ -750,6 +767,23 @@ def test_cpu_build_writes_measured_receipt_and_commits_only_output(
     monkeypatch.setattr(a.platform, "system", lambda: "Linux")
     monkeypatch.setattr(a.platform, "machine", lambda: "x86_64")
     spec = runtime.settings.build_spec
+    if child_mode == "real_pytest":
+        # Real pytest/JUnit discovery in the copied worker layout, without ML execution.
+        (runtime.code / CPU_TEST_KEY).write_text(
+            "\n\n".join("def " + name.split("::")[1] + "():\n    pass" for name in fm.CPU_TESTS)
+        )
+        spec = spec.model_copy(update={"cpu_test_file": entry(runtime.code, CPU_TEST_KEY)})
+    if child_mode not in {"synthetic", "real_pytest"}:
+        with pytest.raises(a.WorkerError, match="model"):
+            a.cpu_build_gate(spec.model_dump(mode="json"), spec.sha256, "vo-output")
+        diagnostics = list((evidence / "failures").glob("*.json"))
+        assert len(diagnostics) == 1 and observed == ["commit"]
+        record = art.strict_json(diagnostics[0].read_bytes())
+        assert record["code"] == "cpu_checks" and record["returncode"] == 0
+        assert record["reported_cases"] == len(record["tests"])
+        assert all(t["status"] == "passed" for t in record["tests"])
+        assert not (evidence / "build-receipt.json").exists()
+        return
     a.cpu_build_gate(spec.model_dump(mode="json"), spec.sha256, "vo-output")
     assert observed == ["commit"]
     receipt = m.BuildReceipt.model_validate_json((evidence / "build-receipt.json").read_bytes())
@@ -814,6 +848,9 @@ def test_cpu_build_requires_pinned_toolkit_and_recipe(runtime, monkeypatch, dama
     with pytest.raises(a.WorkerError, match="identity"):
         a.cpu_build_gate(spec.model_dump(mode="json"), spec.sha256, "vo-output")
     assert not (evidence / "build-receipt.json").exists()
+    if damage == "package":
+        diagnostic = next((evidence / "failures").glob("*.json"))
+        assert art.strict_json(diagnostic.read_bytes())["code"] == "cpu_identity"
 
 
 @pytest.mark.parametrize("damage", [None, "missing", "report", "receipt"])

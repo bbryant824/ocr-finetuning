@@ -337,6 +337,8 @@ def cpu_build_gate(build_spec: dict, build_spec_sha256: str, output_volume_id: s
                 "-m",
                 "pytest",
                 str(root / "tests/test_factory_model.py"),
+                # Fix JUnit class names independently of cwd/ancestor pytest configuration.
+                "--rootdir=" + str(root / "tests"),
                 "-k",
                 "test_actual_",
                 "--junitxml=" + str(junit),
@@ -364,21 +366,36 @@ def cpu_build_gate(build_spec: dict, build_spec_sha256: str, output_volume_id: s
             raise WorkerError("model") from None
         try:
             report = _cpu_report(junit, child.returncode)
-        except (WorkerError, OSError, ET.ParseError):
-            _cpu_failure(junit, child.returncode, "cpu_checks", spec, output, output_volume_id)
-            raise WorkerError("model") from None
-    if report["tests"] != sorted(f.CPU_TESTS):
-        raise WorkerError("model")
-    environment = a.installed_packages()
-    if (
-        platform.system() != "Linux"
-        or platform.machine() != "x86_64"
-        or not environment.python.startswith("3.11.")
-    ) or any(
-        dict(environment.packages).get(k) != v
-        for k, v in {"llamafactory": f.recipe_field("toolkit", "version"), "modal": "1.5.5"}.items()
-    ):
-        raise WorkerError("identity")
+            if report["tests"] != sorted(f.CPU_TESTS):
+                raise WorkerError("model")
+            environment = a.installed_packages()
+            if (
+                platform.system() != "Linux"
+                or platform.machine() != "x86_64"
+                or not environment.python.startswith("3.11.")
+            ) or any(
+                dict(environment.packages).get(k) != v
+                for k, v in {
+                    "llamafactory": f.recipe_field("toolkit", "version"),
+                    "modal": "1.5.5",
+                }.items()
+            ):
+                raise WorkerError("identity")
+        except (WorkerError, OSError, ET.ParseError) as error:
+            code = (
+                "identity"
+                if isinstance(error, WorkerError) and str(error) == "identity"
+                else "model"
+            )
+            _cpu_failure(
+                junit,
+                child.returncode,
+                "cpu_identity" if code == "identity" else "cpu_checks",
+                spec,
+                output,
+                output_volume_id,
+            )
+            raise WorkerError(code) from None
     receipt = m.BuildReceipt(
         build_spec_sha256=spec.sha256,
         source_sha=spec.source_sha,
