@@ -117,7 +117,7 @@ def test_recipe_is_the_single_validated_source_of_settings():
     assert recipe["toolkit"]["template"] == "qwen3_vl_nothink" == f.TEMPLATE
     assert recipe["toolkit"]["infer_backend"] == "huggingface"
     assert f.REVISION == "ebb281ec70b05090aa6165b016eac8ec08e71b17"
-    assert (f.MAX_PROMPT_TOKENS, f.MAX_OUTPUT_TOKENS, f.MAX_SEQUENCE_TOKENS) == (3072, 4096, 7168)
+    assert (f.MAX_PROMPT_TOKENS, f.MAX_OUTPUT_TOKENS, f.MAX_SEQUENCE_TOKENS) == (3072, 1536, 4608)
     assert f.MAX_PROMPT_TOKENS + f.MAX_OUTPUT_TOKENS == f.MAX_SEQUENCE_TOKENS
     assert set(f.BASE_FILES) | set(f.PROCESSOR_FILES) == set(f.ASSETS)
     training = recipe["training"]
@@ -132,7 +132,7 @@ def test_rendered_yaml_matches_the_recipe_and_overrides_the_demo_cutoff(tmp_path
     config = f.training_yaml(tmp_path / "model", tmp_path / "data", tmp_path / "out", 824)
     training = f.recipe_field("training")
     # The upstream demo truncates at 2,048 tokens; silently losing a target is unacceptable.
-    assert config["cutoff_len"] == f.MAX_SEQUENCE_TOKENS == 7168
+    assert config["cutoff_len"] == f.MAX_SEQUENCE_TOKENS == 4608
     assert config["template"] == f.TEMPLATE
     assert config["dataset"] == "selected_train"
     assert config["dataset_dir"] == str(tmp_path / "data")
@@ -216,16 +216,14 @@ def test_validation_targets_are_never_serialized(tmp_path):
 @pytest.mark.parametrize(
     "raw",
     [
-        "",
-        "not json",
-        '{"regions":[],"extra":1}',
-        '{"regions":{}}',
-        '{"regions":[{"text":"a"}]}',
-        '{"regions":[{"text":1,"bbox":[0,0,1,1]}]}',
-        '{"regions":[{"text":"a","bbox":[0,0,0,1]}]}',
-        '{"regions":[{"text":"a","bbox":[0,0,1001,1]}]}',
-        '{"regions":[{"text":"a","bbox":[0,0,1]}]}',
-        '{"regions":[{"text":"a","bbox":[0,0,1,1],"extra":2}]}',
+        "not a box row",
+        '0,0,1,1|unquoted',
+        '0,0,0,1|"a"',
+        '0,0,1001,1|"a"',
+        '0,0,1|"a"',
+        '0,0,1,1|1',
+        '0,0,1,1|"a"\nwrong',
+        '0,0,1,1|"a"\n0,0,1,1|',
     ],
 )
 def test_malformed_output_is_rejected_rather_than_repaired(raw):
@@ -296,8 +294,8 @@ def test_training_record_rejects_inconsistent_summaries(overrides):
     "preflight",
     [
         {"prompt_tokens": 3073, "target_tokens": 10, "total_tokens": 3083},
-        {"prompt_tokens": 10, "target_tokens": 4097, "total_tokens": 4107},
-        {"prompt_tokens": 3072, "target_tokens": 4096, "total_tokens": 7168 + 1},
+        {"prompt_tokens": 10, "target_tokens": 1537, "total_tokens": 1547},
+        {"prompt_tokens": 3072, "target_tokens": 1536, "total_tokens": 4608 + 1},
         {"prompt_tokens": 10, "target_tokens": 10, "total_tokens": 21},
     ],
 )
@@ -533,7 +531,7 @@ def test_actual_template_supervises_the_whole_target_and_masks_the_prompt(toolki
         skip_special_tokens=False,
         clean_up_tokenization_spaces=False,
     )
-    assert json.loads(decoded) == json.loads(target)
+    assert decoded == target
     assert len(input_ids) <= f.MAX_SEQUENCE_TOKENS
 
 

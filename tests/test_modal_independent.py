@@ -732,7 +732,7 @@ class ByteTransport:
                         image_sha256=p.image_sha256,
                         status="ok",
                         finish_reason="stop",
-                        text='{"regions":[]}',
+                        text='',
                     )
                     for p in req.pages
                 ],
@@ -1029,24 +1029,19 @@ class FullByteTransport(ByteTransport):
         return call_id
 
     def target(self, example):
-        """Reproduce the literal training target independently of the adapter helper."""
-        regions = []
+        """Reproduce compact box/text rows independently of the adapter helper."""
+        rows = []
         for region in example.regions:
             b, p = region.box, example.page
-            regions.append(
-                dict(
-                    text=region.text,
-                    bbox=[
-                        1000 * b.x / p.width,
-                        1000 * b.y / p.height,
-                        1000 * (b.x + b.width) / p.width,
-                        1000 * (b.y + b.height) / p.height,
-                    ],
-                )
+            coords = (
+                round(1000 * b.x / p.width),
+                round(1000 * b.y / p.height),
+                round(1000 * (b.x + b.width) / p.width),
+                round(1000 * (b.y + b.height) / p.height),
             )
-        return json.dumps(dict(regions=regions), ensure_ascii=False, separators=(",", ":")).replace(
-            "<", r"\u003c"
-        )
+            text = json.dumps(region.text, ensure_ascii=False).replace("<", r"\u003c")
+            rows.append(",".join(map(str, coords)) + "|" + text)
+        return "\n".join(rows)
 
     def make_result(self, invocation, call_id):
         request = invocation.request
@@ -1164,7 +1159,7 @@ class FullByteTransport(ByteTransport):
                         image_sha256=p.image_sha256,
                         status="ok",
                         finish_reason="stop",
-                        text='{"regions":[]}',
+                        text='',
                     )
                     for p in request.pages
                 ],

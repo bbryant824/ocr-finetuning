@@ -430,7 +430,7 @@ def probe(runtime, model_id, stage, pid, **overrides):
         status="ok",
         finish_reason="stop",
         response_tokens=6,
-        response_sha256=hashlib.sha256(b'{"regions":[]}').hexdigest(),
+        response_sha256=hashlib.sha256(b'').hexdigest(),
         regions=(),
     )
     meta = m.ProbeMetadata(**{**fields, **overrides})
@@ -978,7 +978,7 @@ def test_prediction_completion_checks_geometry_and_raw_closure(runtime, damage):
 
     def runner(payload, deadline):
         runtime.payloads.append(payload)
-        text = '{"regions":[]}'
+        text = ''
         regions = ()
         status = "ok"
         if damage in {"geometry", "failed_regions"}:
@@ -1007,7 +1007,7 @@ def test_prediction_completion_checks_geometry_and_raw_closure(runtime, damage):
         if damage == "raw_owner":
             raw["experiment_id"] = "9" * 32
         if damage == "raw_text":
-            raw["pages"][0]["text"] = '{"regions":[{"text":"extra","bbox":[0,0,10,10]}]}'
+            raw["pages"][0]["text"] = '0,0,10,10|"extra"'
         raw_key = f"{m.MODEL_NAMESPACE}/receipts/" + art.digest(raw) + ".json"
         a._publish(runtime.outputs, raw_key, art.canonical(raw))
         prediction = Prediction(

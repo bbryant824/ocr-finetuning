@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "recipe_version": "read2016-llamafactory-joint-v2",
+  "recipe_version": "read2016-llamafactory-joint-v3",
   "backend": "llamafactory-qwen3vl-v1",
   "training_policy_id": "llamafactory-lora-sft-v1",
-  "decode_policy_id": "llamafactory-hf-greedy-v1",
+  "decode_policy_id": "llamafactory-hf-greedy-v2",
   "evaluator_id": "page-joint-nfc-iou50-v1",
   "toolkit": {
     "package": "llamafactory",
@@ -34,13 +34,13 @@
     ]
   },
   "task": {
-    "prompt": "Transcribe every text line in reading order, including headings, page numbers and marginalia.\nReturn only JSON with exactly this shape: {\"regions\":[{\"text\":\"...\",\"bbox\":[x1,y1,x2,y2]}]}.\nPreserve spelling, punctuation, spacing and empty text. Give one box per line. Coordinates are\nnumbers from 0 to 1000 relative to the original full page, with x2>x1 and y2>y1. Do not explain.",
-    "target_format": "ordered-regions-original-1000-escaped-less-than-v1"
+    "prompt": "Read every handwritten text line on this full page in reading order. For each detected line output one row: x1,y1,x2,y2|\"transcription\". Coordinates are integers from 0 to 1000 relative to the original full page; x2>x1 and y2>y1. Quote the text as a JSON string, preserving spelling, punctuation and empty text. Use a vertical bar as the separator and exactly one row per line, with no header, prose, code fence or outer JSON.",
+    "target_format": "ordered-box-text-pipe-1000-json-quoted-v1"
   },
   "limits": {
     "max_prompt_tokens": 3072,
-    "max_output_tokens": 4096,
-    "max_sequence_tokens": 7168
+    "max_output_tokens": 1536,
+    "max_sequence_tokens": 4608
   },
   "image": {
     "image_max_pixels": 2097152,
@@ -72,7 +72,7 @@
     "top_p": 1.0,
     "top_k": 0,
     "repetition_penalty": 1.0,
-    "max_new_tokens": 4096,
+    "max_new_tokens": 1536,
     "skip_special_tokens": true
   },
   "known_limitations": [

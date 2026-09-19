@@ -182,11 +182,11 @@ def asset_manifest(names) -> dict:
 
 
 def serialize_target(example: RevealedExample) -> str:
-    """Literal JSON target. Escaping `<` keeps `<image>` placeholders out of the response."""
+    """One full-page detected line per row; JSON quotes preserve arbitrary transcription text."""
     if example.page.split is not Split.TRAIN:
         raise ValueError("targets must be selected TRAIN")
     width, height = example.page.width, example.page.height
-    regions = []
+    rows = []
     seen = set()
     for region in example.regions:
         if region.id in seen:
@@ -202,63 +202,51 @@ def serialize_target(example: RevealedExample) -> str:
         ):
             raise ValueError("target outside original page")
         region.text.encode("utf-8", errors="strict")
-        regions.append(
-            {
-                "text": region.text,
-                "bbox": [
-                    1000 * x / width,
-                    1000 * y / height,
-                    1000 * (x + w) / width,
-                    1000 * (y + h) / height,
-                ],
-            }
+        x1, y1, x2, y2 = (
+            round(1000 * x / width),
+            round(1000 * y / height),
+            round(1000 * (x + w) / width),
+            round(1000 * (y + h) / height),
         )
-    return json.dumps(
-        {"regions": regions}, ensure_ascii=False, allow_nan=False, separators=(",", ":")
-    ).replace("<", r"\u003c")
+        if x2 <= x1 or y2 <= y1:
+            raise ValueError("normalized target box collapsed")
+        quoted = json.dumps(region.text, ensure_ascii=False).replace("<", r"\u003c")
+        rows.append(f"{x1},{y1},{x2},{y2}|{quoted}")
+    return "\n".join(rows)
 
 
 def parse_regions(raw: str, width: int, height: int) -> tuple[Region, ...]:
-    """Ordinary strict parsing plus semantic validation; never repair a malformed response."""
+    """Strictly parse ordered box/text rows without silently repairing model output."""
     raw.encode("utf-8", errors="strict")
-    try:
-        data = strict_json(raw)
-    except RecursionError as exc:
-        raise ValueError("generated JSON nesting exceeds parser depth") from exc
-    if not isinstance(data, dict) or set(data) != {"regions"}:
-        raise ValueError("expected only regions")
-    if not isinstance(data["regions"], list):
-        raise ValueError("regions must be an array")
+    if not raw:
+        return ()
     result = []
-    for i, region in enumerate(data["regions"], 1):
-        if not isinstance(region, dict) or set(region) != {"text", "bbox"}:
-            raise ValueError("expected only text and bbox")
-        if not isinstance(region["text"], str):
-            raise ValueError("text must be a string")
-        region["text"].encode("utf-8", errors="strict")
-        box = region["bbox"]
+    for i, line in enumerate(raw.splitlines(), 1):
+        coordinates, separator, quoted = line.partition("|")
+        parts = coordinates.split(",")
         if (
-            not isinstance(box, list)
-            or len(box) != 4
-            or any(
-                type(v) not in (int, float) or not math.isfinite(v) or not 0 <= v <= 1000
-                for v in box
-            )
+            not separator
+            or len(parts) != 4
+            or any(not p.isascii() or not p.isdecimal() for p in parts)
         ):
+            raise ValueError("expected four integer coordinates and JSON-quoted text")
+        x1, y1, x2, y2 = map(int, parts)
+        if not (0 <= x1 < x2 <= 1000 and 0 <= y1 < y2 <= 1000):
             raise ValueError("invalid normalized box")
-        x1, y1, x2, y2 = box
-        if x2 <= x1 or y2 <= y1:
-            raise ValueError("degenerate box")
+        text = strict_json(quoted)
+        if not isinstance(text, str):
+            raise ValueError("transcription must be a JSON string")
+        text.encode("utf-8", errors="strict")
         result.append(
             Region(
                 id=f"line-{i:04d}",
-                text=region["text"],
+                text=text,
                 illegible=False,
                 box=Box(
                     x=x1 * width / 1000,
                     y=y1 * height / 1000,
-                    width=x2 * width / 1000 - x1 * width / 1000,
-                    height=y2 * height / 1000 - y1 * height / 1000,
+                    width=(x2 - x1) * width / 1000,
+                    height=(y2 - y1) * height / 1000,
                 ),
             )
         )

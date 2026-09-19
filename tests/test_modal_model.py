@@ -24,7 +24,7 @@ from active_ocr.models import (
     Split,
 )
 
-EMPTY_RESPONSE = '{"regions":[]}'
+EMPTY_RESPONSE = ''
 
 
 def assets():
@@ -618,7 +618,7 @@ def test_unverified_receipt_never_completes(tmp_path, corruption):
         else:
             key = result["result"]["artifacts"][0]["key"]
             transport.files[key] = transport.files[key].replace(
-                b"ordered-regions", b"changed-regions"
+                b"ordered-box-text-pipe", b"changed-box-text-pipe"
             )
         if corruption in ("worker", "call", "attempt"):
             r = m.OperationResult.model_validate(result["result"])
