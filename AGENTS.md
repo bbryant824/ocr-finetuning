@@ -20,10 +20,11 @@ currently supports random only. Current assignments and budget state are in igno
   splits, checkpoints and failed runs. Record source/data/model/recipe identities, seeds and costs.
 - Compare strategies only at equal annotation budgets with documented controls and leakage checks.
   Do not tune on final test or infer scientific benefit from one engineering run.
-- Apply Ponytail/YAGNI throughout this project: do only what is needed now; reuse existing code,
-  standard libraries and native tools before adding dependencies, abstractions or coordination.
-  Choose the smallest correct change. Keep checks proportionate; never simplify away research
-  integrity, data isolation, recovery or required approval.
+- Use the installed Ponytail plugin for this entire FYP. Manager and specialists should follow
+  `engineering-suite-ponytail:entry-ponytail` and its `ponytail` workflow when available. Do only
+  what is needed now; reuse existing code and tools before adding dependencies or coordination.
+  Choose the smallest correct change without sacrificing research integrity, data isolation,
+  recovery or required approval.
 - Search first; read only relevant files/sections and reuse unchanged evidence. Test affected
   behavior first; broaden only for a concrete risk. Paid GPU work needs a bounded approved run.
 - Never commit secrets, raw private labels, large assets/checkpoints or generated runtime output.
