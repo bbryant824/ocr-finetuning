@@ -1,0 +1,5 @@
+# Research results for readers
+
+This folder holds short, permanent reports for the student and professor. The [project guide](../docs/PROJECT_GUIDE.md) tracks current progress; [experiments/](../experiments/) retains detailed run recipes, attempts and evidence. Start with [EXP-009](EXP-009.md), the first three-round page-text recognition control.
+
+For **every full active-learning experiment**, add `results/EXP-ID.md` alongside its technical `experiments/EXP-ID.md` record. In this order, explain: the question and purpose; the original-model baseline and round setup; what each metric means; **every round's results and equal-budget controls**; the intuitive interpretation; what cannot yet be concluded; and a link to technical provenance and raw evidence. State whether the run used validation or a final test. Keep unknowns explicit and never claim an active-learning advantage from a random-only control. Update the report when final numbers are verified, and link it from the project entry point. No separate status log or copy of raw data is needed.

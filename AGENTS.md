@@ -31,6 +31,9 @@ engineering run and quality failure. Current assignments and resource decisions 
   recovery or required approval.
 - Search first; read only relevant files/sections and reuse unchanged evidence. Test affected
   behavior first; broaden only for a concrete risk. Paid GPU work needs a bounded approved run.
+- For every full active-learning run, publish a concise reader-facing `results/EXP-ID.md`
+  with purpose, metric meanings, all rounds, interpretation, limits and a link to the separate
+  technical `experiments/EXP-ID.md` evidence. Follow [results/README.md](results/README.md).
 - Never commit secrets, raw private labels, large assets/checkpoints or generated runtime output.
   Put concise reproducible methods/results in the existing guide, plan or experiment record.
 - Preserve the small boundary: `active_learning.py` selects, `pipeline.py` coordinates,

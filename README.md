@@ -1,8 +1,9 @@
 # Active learning for historical OCR
 
 A small pipeline for full-page OCR active-learning research. Page images are acquired as units;
-existing source labels simulate human annotation. See the [project guide](docs/PROJECT_GUIDE.md)
-for the repository map, component connections, setup, results and research limits.
+existing source labels simulate human annotation. Read the [research results](results/README.md)
+for concise explanations, starting with [EXP-009](results/EXP-009.md). The
+[project guide](docs/PROJECT_GUIDE.md) tracks structure, setup and current progress.
 
 The current recognition study uses [LightOnOCR-2-1B-base](https://huggingface.co/lightonai/LightOnOCR-2-1B-base), Hugging Face Trainer/PEFT and Modal. [EXP-009](experiments/EXP-009.md) records the original-model baseline and three 64-page random-acquisition rounds on READ2016: untouched VAL42 page-text CER fell from 0.781 to 0.216. The maintained [runner](experiments/run_lighton_read2016.py) keeps selected TRAIN labels local until each fit; validation truth stays in the evaluator. This is a page-text result, with no line-box detection or strategy-advantage claim.
 
