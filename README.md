@@ -4,15 +4,9 @@ A small pipeline for full-page OCR active-learning research. Page images are acq
 existing source labels simulate human annotation. See the [project guide](docs/PROJECT_GUIDE.md)
 for the repository map, component connections, setup, results and research limits.
 
-The supported runtime is LLaMA-Factory v0.9.5 on Modal. It owns training and inference; our code
-retains selection, source-label reveal, joint OCR metrics and durable run state. Legacy Label
-Studio/HTTP workflows and the custom Qwen trainer are removed.
+The current recognition study uses [LightOnOCR-2-1B-base](https://huggingface.co/lightonai/LightOnOCR-2-1B-base), Hugging Face Trainer/PEFT and Modal. [EXP-009](experiments/EXP-009.md) records the original-model baseline and three 64-page random-acquisition rounds on READ2016: untouched VAL42 page-text CER fell from 0.781 to 0.216. The maintained [runner](experiments/run_lighton_read2016.py) keeps selected TRAIN labels local until each fit; validation truth stays in the evaluator. This is a page-text result, with no line-box detection or strategy-advantage claim.
 
-**Migration complete.** [EXP-005](experiments/EXP-005.md) trained on 16 initial pages, acquired
-8 more, fit on all 24, reloaded checkpoints, evaluated, committed, resumed without extra model
-calls and exported matching results. Independent artifact review passed.
-**OCR readiness failed:** final CER 99.95%, box F1 zero. This verifies engineering, not an
-active-learning benefit. Historical runs remain in the experiment records.
+The earlier LLaMA-Factory/Qwen joint box-and-text pipeline remains as historical engineering evidence in [EXP-005](experiments/EXP-005.md) and [EXP-008](experiments/EXP-008.md). Legacy Label Studio/HTTP workflows and the custom Qwen trainer are removed.
 
 ## Try the local fixture
 

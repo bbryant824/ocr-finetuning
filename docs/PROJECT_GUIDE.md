@@ -1,18 +1,8 @@
 # OCR active-learning project — engineering report and guide
 
-**Status: 19 September 2026. The connected real pipeline works, but useful OCR is still blocked.**
-[EXP-005](../experiments/EXP-005.md) verified a complete 16+8-page engineering round and
-recovery/export. [EXP-006](../experiments/EXP-006.md), [EXP-007](../experiments/EXP-007.md) and
-[EXP-008](../experiments/EXP-008.md) then diagnosed the Qwen full-page OCR failure. EXP-008
-predicted with the untouched model, fit on 64 and then 128 cumulative pages, and found 0/8 valid
-VAL pages, CER 1.0 and box F1 zero after both fits. Its planned third round was stopped. There
-is no useful-OCR or active-learning advantage claim.
+**Status: 19 September 2026. The recognition pipeline now produces a measured three-round learning curve.** [EXP-009](../experiments/EXP-009.md) uses the original LightOnOCR model before training, then three 64-page random acquisitions and cumulative fits. On 42 untouched official VAL pages, page-text CER fell from 0.781 to 0.216. This resolves the earlier zero-valid-output blocker for **page text**, while line-box localization and a model-informed selection advantage remain unverified. READ2016 document grouping is unknown, so this is engineering validation.
 
-This is the maintained document for the repository, component connections and operation.
-LLaMA-Factory v0.9.5 owns CLI training and native HuggingFace `ChatModel` inference. Our code
-retains selection, selected-only source-label reveal, joint evaluation and durable run accounting.
-The parent local suite passed 677 cases without skips; focused corrections received independent
-review, and five actual toolkit checks passed in the final Linux image.
+This is the maintained repository and operations guide. The current recognition entry point is [experiments/run_lighton_read2016.py](../experiments/run_lighton_read2016.py): existing source run and local oracle → selected TRAIN labels only → Hugging Face Trainer/PEFT on Modal → raw predictions → local `page-text-nfc-v1` evaluator. The earlier LLaMA-Factory v0.9.5/Qwen joint-OCR path and its recovery/export checks are documented below as historical engineering evidence in [EXP-005](../experiments/EXP-005.md) and [EXP-008](../experiments/EXP-008.md).
 
 Historical [EXP-003](../experiments/EXP-003.md) records the earlier custom-runtime round.
 [EXP-004](../experiments/EXP-004.md) preserves the incomplete short-window migration attempt.
@@ -46,12 +36,10 @@ to manually label this corpus or build a labeling frontend for the present study
 | --- | --- |
 | Stage 1: local foundation | Image import, shared models, selectors, metrics, SQLite/artifacts, CLI, deterministic simulation, source-label oracle and isolated evaluator. |
 | Stage 2: connected real execution — complete | Pinned READ2016 conversion, verified assets, real Qwen LoRA runtime, Modal dispatch/recovery, initial baseline, one actual acquired training round, fresh-process checkpoint reload, exports and independent verification. |
-| Stage 3: useful OCR and research experiments — next | Verify an OCR-specific page pipeline and VLM recognizer; then complete the fixed three-round acquisition run and define grouping/evaluation before comparative claims. |
+| Stage 3: page-text recognition control — measured | LightOnOCR baseline and three 64-page random-acquisition fits; untouched VAL42 learning curve in EXP-009. Next: model-informed strategy at equal budgets and document-grouped evaluation. |
+| Stage 4: joint OCR localization — open | Line-box detection and joint box/text quality were not validated by the page-text run. |
 
-The implemented real path currently supports **random acquisition only**. Least-confidence
-and entropy selectors exist and work with fixture/test scores, but the model does not yet produce
-reviewed acquisition scores. The two-page real run is an engineering smoke test, not an
-uncertainty-strategy comparison or a sufficient initial fine-tuning campaign.
+The measured LightOnOCR path currently uses **random acquisition only**. Least-confidence and entropy selectors exist for fixtures, but no reviewed model-informed acquisition scores or equal-budget strategy comparison have been run.
 
 ## 2. Complete repository map
 
@@ -112,6 +100,8 @@ ocr-finetuning/
 │   ├── README.md / TEMPLATE.md       small reproducibility record convention
 │   ├── EXP-001.md / EXP-002.md       preserved earlier unsuccessful execution attempts
 │   ├── EXP-003.md                    accepted completed real round
+│   ├── EXP-009.md                    current page-text recognition results
+│   ├── run_lighton_read2016.py       current three-round recognition runner
 │   ├── assets/read2016-qwen3vl4b.json published source/file identities and staging evidence
 │   └── recipes/read2016-llamafactory-joint.json  the one validated execution recipe
 ├── research/
@@ -142,6 +132,10 @@ presentation drafts/visuals; `.agent-local/` shared private task/decision/ops re
 Cloud input/output Volumes are external artifacts, not repository folders.
 
 ## 3. How the components connect
+
+The current EXP-009 path is: frozen READ2016 source run → `LocalOracle` reveals only selected TRAIN texts → 64 new random pages per round → LightOnOCR LoRA on Modal → raw eight-page VAL predictions → local `PageTextEvaluatorV1`. The original model predicts before any fit. Each of the three fits starts from the original weights and uses all labels acquired so far; the run stops after round three, without a metric-based early stop. The 42-page untouched VAL check is a separate archived evaluation of the saved adapters. [The runner](../experiments/run_lighton_read2016.py) and [result record](../experiments/EXP-009.md) define this path.
+
+The following diagram and component table document the earlier LLaMA-Factory/Qwen joint-OCR path retained for reproducibility:
 
 ```mermaid
 flowchart TD
@@ -301,7 +295,9 @@ apparent quality. This is engineering reporting, not a final-test benchmark prot
 
 ## 6. Model runtime: LLaMA-Factory
 
-`integrations/factory_model.py` is the only supported real-model path. It is a thin adapter: the
+This section documents the earlier Qwen joint-OCR path. The current page-text recognition runner is [run_lighton_read2016.py](../experiments/run_lighton_read2016.py), with exact model, training and evaluation settings in [EXP-009](../experiments/EXP-009.md).
+
+`integrations/factory_model.py` was the supported joint-OCR model path. It is a thin adapter: the
 toolkit owns optimization, batching, loss masking, model loading and checkpoint serialization.
 The adapter owns exactly four things — converting revealed examples to upstream rows, rendering
 one YAML from the recipe, invoking the toolkit, and mapping raw responses onto the existing
@@ -311,7 +307,7 @@ training and loading to upstream; this migration does not halve the whole runtim
 
 ### The one validated recipe
 
-`experiments/recipes/read2016-llamafactory-joint.json` is the single source of execution settings.
+`experiments/recipes/read2016-llamafactory-joint.json` was the source of the historical Qwen execution settings.
 The native YAML is rendered from it per operation, so there is no second configuration that can
 disagree. Its digest travels inside every checkpoint binding, and the coordinator recomputes that
 binding locally, so a worker running a different recipe cannot produce an accepted result.
@@ -446,6 +442,20 @@ of the evidence for a completed run.
 
 ## 8. Setup and operating procedure
 
+### Current LightOnOCR recognition run
+
+With the frozen READ2016 source run, staged image Volume, built Modal image and authenticated Modal SDK already present in this workspace, run from the repository root:
+
+```sh
+PYTHONPATH=src .venv/bin/python experiments/run_lighton_read2016.py \
+  .local/verification/exp-011/attempt-1/runs \
+  781d319efaa94b68bdd8027a2ae4e01c \
+  .local/verification/exp-012/attempt-1/new-lighton-run --prepare-only
+# Remove --prepare-only to predict with the original model, then fit and evaluate 64/128/192 pages.
+```
+
+Use a new result-directory basename for a new run; the runner binds its recipe and resumes completed stages from saved receipts. The first invocation needs Modal access and the pinned local source/Volume assets; `--prepare-only` uses neither GPU nor remote calls. This command is specific to the recorded READ2016 engineering setup, not a dataset-independent benchmark.
+
 ### Local fixture: immediately runnable without cloud services
 
 Use Python 3.11 and `uv`, from the repository root:
@@ -569,7 +579,7 @@ None is a blind in-place retry command. Read `--help` for exact positional argum
 Exports are `results.json` (full committed run), `rounds.csv` (baseline when present, initial fit when present, then acquired rounds), and
 `validation.json` (fixed membership/count). Use a new export directory. A completed real resume
 still checks exact source/dependencies: run it from its frozen execution checkout, even when
-current main differs only in documentation.
+at that point main differed only in documentation.
 
 ### Supported commands and removed services
 
@@ -584,7 +594,7 @@ execution checkouts are still used to inspect or resume runs requiring their ori
 
 ## 9. The completed real round
 
-### Current LLaMA-Factory run — EXP-005
+### Earlier LLaMA-Factory run — EXP-005
 
 Run `cdc42baf72544791b6cdba6e6ca31066` used READ2016 full pages and the pinned Qwen3-VL-4B.
 Initial 16 and acquired 8 TRAIN pages were unique; only those 24 labels were revealed. The same
@@ -766,15 +776,7 @@ That note is rationale and proposals, not the current execution status or an app
 comparative methodology. READ/Qwen was a feasibility choice; historical-handwriting accuracy
 and lack of pretraining overlap were never assumed.
 
-**The immediate research blocker is useful OCR, not pipeline connectivity.** EXP-008
-established that a compact box/text format and 128 selected pages still leave all eight fixed
-VAL outputs truncated. Do not interpret the planned 192-page ceiling as a completed three-round
-result. Verify an OCR-specific page pipeline and VLM recognizer on the engineering slice first;
-keep page-level acquisition and selected-only text labels. If that baseline works, integrate its
-maintained training interface, run 0-label baseline then three 64-page rounds, and only then
-compare selection strategies at equal budgets. Document grouping remains unknown, so current
-READ2016 results are engineering-only. Do not tune on final TEST, repair model outputs silently or
-claim annotation savings from these failed runs.
+[EXP-009](../experiments/EXP-009.md) completed a page-text recognition control with a working 0/64/128/192-page learning curve on untouched official VAL pages. The current runner keeps the same page acquisition and selected-only label boundary. Next, compare a model-informed strategy against random at equal budgets and seeds, and establish document grouping and pretraining-overlap evidence before scientific generalization claims. The recognition result does not score original line boxes; joint localization remains open. Keep final TEST isolated and do not infer annotation savings from one control.
 
 ## 12. Team responsibilities and documentation policy
 
