@@ -1,144 +1,49 @@
-# Using the FYP agents
+# FYP agent protocol
 
-Protocol: 3
+Protocol: 3. Manager works by default; specialists are used only when their expertise or an
+independent review materially improves the result. The seven existing Codex tasks are registered
+in ignored `.agent-local/TEAM.md`. A task message starts work; a file edit does not.
 
-Use **Manager** for project control and **QA & Understand** for explanations, documentation and mentor presentations.
-A Codex task is the agent; its Skill is the playbook. Native task messages deliver work.
-Keep each change to one owner and one result handoff; request one independent review for significant
-changes. Research/Planning are consulted only when needed, not mandatory stops for routine fixes.
-Read relevant current sections, avoid ACK/status loops, and do not repeat successful checks without
-a new change or concrete concern. The token-efficiency rules in AGENTS apply to every role.
-The existing seven tasks and worktrees remain; this protocol does not create a daemon or scheduler.
+## Active state and evidence
 
-## What goes to GitHub
+Read `AGENTS.md` and `.agent-local/PROJECT.md` first. Consult TEAM, the assigned task,
+the relevant role Skill and source/experiment evidence only as needed. PROJECT is the sole
+current local summary; TEAM maps verified task IDs/worktrees; `tasks/ID.md` holds a released
+specialist assignment and result. Historical local setup/decision/ops records are retained in
+ignored `.local/coordination-history/`, outside routine context. Public methods and
+measured runs belong in `plans/`, `research/` and `experiments/`. A fresh clone needs no private
+memory to run application code; missing local memory blocks agent dispatch, not ordinary work.
 
-| Keep in Git | Keep local and ignored |
-| --- | --- |
-| Code, tests, dependency locks and safe example configuration | Secrets, environments, datasets, checkpoints and raw runtime outputs |
-| AGENTS.md, seven Skills, this guide and reusable templates/checks | `.agent-local/`: task IDs, machine paths, assignments, routine progress, setup history and ops inventory |
-| Substantive research notes, reviewed plans, small experiment metadata and analysis | `.local/`: scratch notes and downloads |
+Keep one writer per file. Manager controls releases, acceptance and integration; specialists
+write only their assigned result/artifacts. QA has standing authorization for requested teaching,
+documents and slides; it does not change code or Manager state. Do not infer authorization from a
+stale task header or private cross-task conversation.
 
-Commit outputs selectively after inspecting the diff. Record scientific methodology and accepted
-changes in the relevant plan, research note, experiment record or PR so GitHub remains reproducible.
-Do not publish `.agent-local`, old setup/archive branches, all refs, raw local reports or credentials.
-`.gitignore` does not remove already tracked files or erase earlier commits. Before first publication,
-inspect all outgoing commits. Push the intended public branch explicitly; never use `--all` or `--mirror`.
+## When a specialist is needed
 
-## Shared local memory
+1. Manager checks evidence, names one owner and sends one scoped native message to the verified
+   TEAM ID. Create/update a task record and TEAM pointer only for sustained work that needs durable
+   assignment state. State owned outputs, limits and acceptance; include relevant source SHA and
+   task-file SHA-256 when a task file changes. No message to every role or ACK loop.
+2. The specialist reads the message and any assigned task, works in its worktree or explicitly
+   assigned checkout, runs proportionate checks, and returns one concise result with exact
+   SHA/commands, observations, limits and links. Record it in the task only when one exists.
+3. Manager verifies the returned evidence, uses independent Testing only for significant/risky
+   scope, integrates accepted work and updates PROJECT when priorities change. Reuse unchanged
+   checks. An uncertain or failed provider call must be reconciled before another paid run.
 
-The canonical checkout contains `.agent-local/`; specialist worktrees have an ignored symlink to
-that same directory. This avoids copying or merging private task records. Read it directly:
+States are BACKLOG, READY, IN_PROGRESS, BLOCKED, WAITING_REVIEW, DONE and CANCELLED. A dependent
+task is not released just because its prerequisite finished; Manager checks and releases it.
+Technical PASS, completed execution and scientific support have different meanings. Task IDs and
+experiment IDs are separate; preserve run UUIDs and failed attempts.
 
-```text
-.agent-local/
-  PROJECT.md       current priorities, roadmap and blockers (Manager)
-  TEAM.md          verified task IDs, paths, branches and assignments (Manager)
-  DECISIONS.md     local authorization and coordination decisions (Manager)
-  HISTORY.md       setup evidence and local recovery references
-  tasks/ID.md      assignment, progress, result and review in one record
-  ops/STATUS.md    machine/data/service/cost observations (Platform)
-```
+## Storage and checks
 
-Each task follows [TASK_TEMPLATE](TASK_TEMPLATE.md). Manager owns headers/releases/acceptance;
-the assigned specialist owns Progress/Result. Manager edits a task only while its specialist is
-idle or after an acknowledged checkpoint. Write one complete edit at a time, inspect the diff or
-prior text, and re-read before replacing a file. Never overwrite another writer's changes.
-QA may author requested documentation and presentations under its standing user authorization;
-no separate Manager release is required. Code, research state and other roles' records remain
-read-only. Its [Skill](../.agents/skills/qa-understanding/SKILL.md) defines artifact ownership and
-visual reporting. Local drafts/exports default to ignored `.local/qa-understanding/`; preserve
-existing delivered versions and keep the shared Git index untouched during active development.
+Commit small reusable code, instructions, plans, research notes and experiment metadata. Keep
+secrets, datasets, checkpoints, raw output, machine paths and routine task/ops notes ignored.
+Never push all branches or local archive refs. Preserve shared `.agent-local` when moving the
+checkout; worktree symlinks and TEAM paths need explicit verification after a move.
 
-The shared directory is local durable memory, not Git history or a cloud backup. Include it in
-normal private computer backups. Preserve it before removing/moving the canonical checkout;
-repoint worktree symlinks if that checkout moves. A fresh clone can run the application and portable
-checks without it. To move the existing team to another machine, privately transfer the directory,
-then verify task IDs/worktrees and update TEAM; never infer live identities from a template.
-For a new worktree, Manager links its `.agent-local` to the canonical directory after verifying
-the actual main worktree with `git worktree list --porcelain`. Never overwrite an existing local
-directory or link silently. Missing/broken memory means report BLOCKED for agent work.
-
-## Control in ordinary language
-
-These are prompts, not installed shell commands.
-
-| Say | Expected behavior |
-| --- | --- |
-| Manager: `project status` | Inspect evidence and report progress/blockers; do not launch work |
-| Manager: `Continue the ready work and coordinate the team` | Coordinate eligible assignments within authorization and review returned evidence |
-| Manager: `Assign Research to investigate ...` | Define a bounded local task, update TEAM, then message the existing Research task |
-| Specialist: `continue` | Read fresh instructions/local assignment; work only when released and prerequisites met |
-| Specialist: `status` | Report evidence, blockers and next step read-only |
-| Specialist: `manager sync` | Record meaningful local progress and send one evidence handoff |
-| Manager: `Pause the team` | Request safe checkpoints; after receipt record holds and verify stopped work |
-| QA: `Trace how an image moves through the code` | Inspect and explain without changing code |
-| QA: `Create a short PPTX for my mentor on current progress` | Refresh evidence and author a concise visual deck with sources; no separate Manager release |
-
-READY means eligible on continuation, not already running. No runnable assignment means wait or
-report a blocker. A setup/communication check does not authorize research execution or paid jobs.
-
-## Assignment and return
-
-1. Manager reads current code/evidence, writes the local task and TEAM pointer while the owner is
-   idle, and checks dependencies. Define inputs, owned files, exclusions, acceptance and limits once.
-2. Send one native `send_message_to_thread` to the verified TEAM ID/host. Include task ID,
-   current main SHA for tracked instructions and SHA-256 of the local assignment file, computed
-   after the edit (`shasum -a 256 .agent-local/tasks/ID.md`). This fingerprint detects stale messages;
-   it is not a Git commit or an immutable copy of later task updates.
-3. Specialist reads fresh local state. If a received fingerprint differs, re-read authorization and
-   dependencies and resolve contradictory scope with Manager. Inspect its own checkout before work.
-   Recheck the task header before publishing or costly actions. A local file cannot self-authorize work.
-4. Work on the isolated code branch. Commit safe owned code/research/plan/run outputs and record
-   exact SHA, observed control, verification, limitations and next action in the local task Result.
-   Memory-only work needs no Git commit. Do not commit routine task updates or machine identifiers.
-5. Send Manager one `[HANDOFF]` with task ID, artifact/code SHA when any, local task fingerprint,
-   changed scope, verdict/blockers and requested next action. Manager inspects exact committed
-   outputs and local review evidence, integrates accepted changes and records canonical acceptance.
-   Update PROJECT only when priorities change. Publish relevant reproducible verification in PRs/plans.
-
-A native send proves submission; receipt/progress provides stronger evidence. Use `list_threads`
-to reverify identities, `read_thread` for context and bounded `wait_threads` for progress/completion.
-If delivery fails, retain the local result and committed outputs, report pending delivery and let
-Manager inspect directly. Do not recreate agents. No self-messaging, ACK reply loops or status spam.
-A handoff alone does not authorize unrelated next work. External messages and recurring schedules
-require user authorization. Conversation history alone is not shared project memory.
-
-## Worktrees, gates and review
-
-Same-repository worktrees share Git refs, and the installed symlinks share local memory.
-Code checkout files remain isolated. Pin current control when reading tracked instructions:
-
-```sh
-control_sha=$(git rev-parse --verify refs/heads/main)
-git show "${control_sha}:AGENTS.md"
-git show "${control_sha}:coordination/README.md"
-# Substitute the current role:
-git show "${control_sha}:.agents/skills/development/SKILL.md"
-cat .agent-local/TEAM.md .agent-local/PROJECT.md
-```
-
-Never use `git show` for local task memory. Main does not contain it. Inspect dirty/untracked work
-before deliberately merging current public main into a specialist branch. Preserve owned work;
-never merge local archive branches into public development. The pre-publication setup histories
-remain on local archive refs only. Other clones/hosts do not automatically share refs or memory.
-
-States: BACKLOG, READY, IN_PROGRESS, BLOCKED, WAITING_REVIEW, DONE, CANCELLED. Manager owns
-releases and acceptance. `Depends: RES-001@DONE` requires accepted DONE plus Manager release.
-Implementation review uses `DEV-001@WAITING_REVIEW` with an immutable Candidate SHA; an already
-DONE candidate can also be reviewed. BLOCKED remains held even after a prerequisite completes.
-Testing gives PASS / PASS WITH WARNINGS / FAIL for exact scope/SHA; Manager accepts warnings
-explicitly. Changed implementation needs affected-scope review. Research/Planning confirm
-methodology-sensitive changes. Technical PASS, completed execution and scientific support differ.
-
-Allocate unique MGR/RES/PLAN/DEV/TEST/EXP task IDs with at least three digits. Experiment records
-under `experiments/` describe actual executions and retain runtime UUIDs; they are not local task
-records. For research changes, use Research/Planning where decisions are needed; Development implements,
-Testing reviews significant changes and Platform executes authorized workloads. Skip irrelevant
-stages for routine maintenance. Keep current dependency gates; QA assists independently.
-
-## Checks
-
-`python3 scripts/validate_agent_system.py` checks portable links, Skills and templates, and local
-records when present. `--live` requires local records and verifies registered Git branches. Run
-`python3 scripts/test_agent_system.py` after protocol/checker changes. These checks cannot prove
-native delivery, approvals, scientific validity, model correctness or service readiness.
+Use `python3 scripts/validate_agent_system.py --live` after role/protocol changes, and
+`python3 scripts/test_agent_system.py` only when changing its validator or task schema.
+These checks cannot prove message delivery, experiment correctness or cloud state.

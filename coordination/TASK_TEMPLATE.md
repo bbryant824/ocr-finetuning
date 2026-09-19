@@ -1,30 +1,26 @@
-# ID — Short outcome
+# ID — Outcome
 
-ID: <Manager-allocated task ID>
-Owner: <role from TEAM>
+ID: <allocated ID>
+Owner: <role>
 Priority: <P0 / P1 / P2>
 Status: <BACKLOG / READY / IN_PROGRESS / BLOCKED / WAITING_REVIEW / DONE / CANCELLED>
-Depends: <NONE or comma-separated TASK-ID@DONE; review may use TASK-ID@WAITING_REVIEW>
-Candidate: <NONE or full immutable implementation commit SHA for review>
+Depends: <NONE or TASK-ID@DONE / TASK-ID@WAITING_REVIEW>
+Candidate: <NONE or exact code SHA>
 Updated: <YYYY-MM-DD>
 
 ## Assignment
 
-Outcome, inputs/accepted plan version, owned files/artifacts, scope and exclusions. Define these
-once. Link any relevant research, run, issue or PR rather than adding empty metadata fields.
+Outcome, owner scope, inputs and limits. Keep it short; link existing evidence.
 
 ## Acceptance
 
-Observable criteria and proportionate verification; independent review and real-smoke requirements
-where relevant. State resource/approval limits for execution work.
+Observable checks and approval/budget gates only where relevant.
 
 ## Progress
 
-Short dated updates: observed control SHA, what changed, blockers and next action.
-Keep meaningful checkpoints, not a transcript. Only the assigned specialist updates these local sections; Manager serializes header edits.
+One meaningful checkpoint or blocker, not a running log.
 
 ## Result
 
-Outcome, artifact links, exact commands/results/environment, limitations and requested next action.
-For review include author, candidate SHA, PASS/PASS WITH WARNINGS/FAIL and acceptance mapping.
-Manager records acceptance/integration evidence here. The handoff carries artifact/code SHA when any, plus the local task SHA-256.
+Exact artifact/code SHA, observed result, validation and remaining limits. Manager records
+acceptance here; a handoff needs no empty Git commit.

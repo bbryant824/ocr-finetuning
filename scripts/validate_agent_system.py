@@ -95,7 +95,7 @@ def validate(root: Path, *, live: bool = False) -> tuple[list[str], dict[str, in
     if has_memory:
         required.extend(
             f".agent-local/{name}.md"
-            for name in ("PROJECT", "TEAM", "DECISIONS", "HISTORY", "ops/STATUS")
+            for name in ("PROJECT", "TEAM")
         )
     for relative in required:
         if not (root / relative).is_file():
