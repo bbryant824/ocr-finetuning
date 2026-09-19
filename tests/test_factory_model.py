@@ -117,12 +117,12 @@ def test_recipe_is_the_single_validated_source_of_settings():
     assert recipe["toolkit"]["template"] == "qwen3_vl_nothink" == f.TEMPLATE
     assert recipe["toolkit"]["infer_backend"] == "huggingface"
     assert f.REVISION == "ebb281ec70b05090aa6165b016eac8ec08e71b17"
-    assert (f.MAX_PROMPT_TOKENS, f.MAX_OUTPUT_TOKENS, f.MAX_SEQUENCE_TOKENS) == (2048, 4096, 6144)
+    assert (f.MAX_PROMPT_TOKENS, f.MAX_OUTPUT_TOKENS, f.MAX_SEQUENCE_TOKENS) == (3072, 4096, 7168)
     assert f.MAX_PROMPT_TOKENS + f.MAX_OUTPUT_TOKENS == f.MAX_SEQUENCE_TOKENS
     assert set(f.BASE_FILES) | set(f.PROCESSOR_FILES) == set(f.ASSETS)
     training = recipe["training"]
     assert (training["lora_rank"], training["lora_alpha"], training["lora_dropout"]) == (8, 16, 0.0)
-    assert training["lora_target"] == "q_proj,k_proj,v_proj,o_proj"
+    assert training["lora_target"] == "all"
     assert training["freeze_vision_tower"] is True
     assert training["packing"] is False and training["val_size"] == 0.0
     assert recipe["decode"]["do_sample"] is False
@@ -132,7 +132,7 @@ def test_rendered_yaml_matches_the_recipe_and_overrides_the_demo_cutoff(tmp_path
     config = f.training_yaml(tmp_path / "model", tmp_path / "data", tmp_path / "out", 824)
     training = f.recipe_field("training")
     # The upstream demo truncates at 2,048 tokens; silently losing a target is unacceptable.
-    assert config["cutoff_len"] == f.MAX_SEQUENCE_TOKENS == 6144
+    assert config["cutoff_len"] == f.MAX_SEQUENCE_TOKENS == 7168
     assert config["template"] == f.TEMPLATE
     assert config["dataset"] == "selected_train"
     assert config["dataset_dir"] == str(tmp_path / "data")
@@ -141,7 +141,7 @@ def test_rendered_yaml_matches_the_recipe_and_overrides_the_demo_cutoff(tmp_path
     assert config["seed"] == config["data_seed"] == 824
     for key in ("lora_rank", "lora_alpha", "lora_dropout", "lora_target", "freeze_vision_tower"):
         assert config[key] == training[key]
-    assert config["learning_rate"] == 3e-05 and config["lr_scheduler_type"] == "linear"
+    assert config["learning_rate"] == 1e-4 and config["lr_scheduler_type"] == "cosine"
     assert config["gradient_accumulation_steps"] == 4
     assert config["per_device_train_batch_size"] == 1
     assert config["gradient_checkpointing"] is True and config["bf16"] is True
@@ -295,9 +295,9 @@ def test_training_record_rejects_inconsistent_summaries(overrides):
 @pytest.mark.parametrize(
     "preflight",
     [
-        {"prompt_tokens": 2049, "target_tokens": 10, "total_tokens": 2059},
+        {"prompt_tokens": 3073, "target_tokens": 10, "total_tokens": 3083},
         {"prompt_tokens": 10, "target_tokens": 4097, "total_tokens": 4107},
-        {"prompt_tokens": 2048, "target_tokens": 4096, "total_tokens": 6144 + 1},
+        {"prompt_tokens": 3072, "target_tokens": 4096, "total_tokens": 7168 + 1},
         {"prompt_tokens": 10, "target_tokens": 10, "total_tokens": 21},
     ],
 )
@@ -650,7 +650,7 @@ def test_actual_native_cli_trains_and_fresh_process_reloads(toolkit, tmp_path, m
     worker._train(resolved, tmp_path)
     steps, losses, runtime = worker._trainer_summary(tmp_path / "adapter")
     assert steps == 1 and losses and runtime > 0
-    assert f.verify_adapter(tmp_path / "adapter")["changed_lora_B_tensors"] == 4
+    assert f.verify_adapter(tmp_path / "adapter")["changed_lora_B_tensors"] == 7
     program = """
 import sys, torch
 from pathlib import Path
