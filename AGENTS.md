@@ -8,9 +8,11 @@ human annotation. Reveal labels only for selected TRAIN pages. Validation truth 
 the evaluator; keep final test isolated. There is no labeling frontend in the current workflow.
 
 [Project guide](docs/PROJECT_GUIDE.md) is the maintained architecture and operating reference.
-[EXP-005](experiments/EXP-005.md) independently verified a complete 16-initial + 8-acquired
-LLaMA-Factory/Modal engineering round. OCR readiness failed (final 1/8 valid, CER 0.999512, box
-F1 zero). No active-learning benefit or human-time saving has been established. Real acquisition
+[EXP-005](experiments/EXP-005.md) verified a complete 16+8-page LLaMA-Factory/Modal
+engineering round. [EXP-008](experiments/EXP-008.md) predicted before training, then fit 64 and
+128 pages under a simpler full-page output format; all eight VAL outputs still truncated and box
+F1 stayed zero. Its planned third round was stopped. No useful OCR, active-learning benefit or
+human-time saving has been established. Real acquisition
 currently supports random only. Current assignments and budget state are in ignored
 `.agent-local/PROJECT.md`; historical experiment records stay in Git.
 

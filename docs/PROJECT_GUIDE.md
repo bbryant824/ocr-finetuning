@@ -1,12 +1,12 @@
 # OCR active-learning project — engineering report and guide
 
-**Status: 19 September 2026. LLaMA-Factory migration complete; independent pipeline review passed.**
-The real pipeline completed initial training on 16 pages, acquisition of 8 more pages, reset-fit
-on all 24, fresh-process checkpoint reloads, validation, commit, completed-run resume and export.
-The run is [EXP-005](../experiments/EXP-005.md), source
-`11a58ad9ae7e7d61fc45ac05b4dfba09442b710b`. **OCR readiness failed:** only one of eight final
-outputs was valid; CER was 0.999512, WER 1.0 and localization F1 zero. A working pipeline does
-not establish useful OCR or an active-learning advantage.
+**Status: 19 September 2026. The connected real pipeline works, but useful OCR is still blocked.**
+[EXP-005](../experiments/EXP-005.md) verified a complete 16+8-page engineering round and
+recovery/export. [EXP-006](../experiments/EXP-006.md), [EXP-007](../experiments/EXP-007.md) and
+[EXP-008](../experiments/EXP-008.md) then diagnosed the Qwen full-page OCR failure. EXP-008
+predicted with the untouched model, fit on 64 and then 128 cumulative pages, and found 0/8 valid
+VAL pages, CER 1.0 and box F1 zero after both fits. Its planned third round was stopped. There
+is no useful-OCR or active-learning advantage claim.
 
 This is the maintained document for the repository, component connections and operation.
 LLaMA-Factory v0.9.5 owns CLI training and native HuggingFace `ChatModel` inference. Our code
@@ -46,7 +46,7 @@ to manually label this corpus or build a labeling frontend for the present study
 | --- | --- |
 | Stage 1: local foundation | Image import, shared models, selectors, metrics, SQLite/artifacts, CLI, deterministic simulation, source-label oracle and isolated evaluator. |
 | Stage 2: connected real execution — complete | Pinned READ2016 conversion, verified assets, real Qwen LoRA runtime, Modal dispatch/recovery, initial baseline, one actual acquired training round, fresh-process checkpoint reload, exports and independent verification. |
-| Stage 3: useful OCR and research experiments — next | Calibrate output format and decode capacity; establish an adequate initial adaptation recipe; define grouping/evaluation and real uncertainty; compare equal budgets across seeds, then datasets/models. |
+| Stage 3: useful OCR and research experiments — next | Verify an OCR-specific page pipeline and VLM recognizer; then complete the fixed three-round acquisition run and define grouping/evaluation before comparative claims. |
 
 The implemented real path currently supports **random acquisition only**. Least-confidence
 and entropy selectors exist and work with fixture/test scores, but the model does not yet produce
@@ -318,14 +318,14 @@ binding locally, so a worker running a different recipe cannot produce an accept
 
 | Setting | Value |
 | --- | --- |
-| Version IDs | `read2016-llamafactory-joint-v1`; `llamafactory-lora-sft-v1`; `llamafactory-hf-greedy-v1`; evaluator `page-joint-nfc-iou50-v1` |
+| Version IDs | Current failed research recipe `read2016-llamafactory-joint-v3`; `llamafactory-lora-sft-v1`; `llamafactory-hf-greedy-v2`; evaluator `page-joint-nfc-iou50-v1` |
 | Toolkit | LLaMA-Factory 0.9.5, template `qwen3_vl_nothink` for training and inference, `infer_backend=huggingface` |
-| Model task | Ordered line text and boxes as strict JSON; coordinates normalized to 0–1000 relative to the original page |
-| Image view | Full page; the toolkit resizes by pixel budget, `image_max_pixels` 1,048,576 and `image_min_pixels` 65,536, identical in training and inference |
-| Sequence limits | Prompt ≤2,048; target ≤4,096 including EOS; total ≤6,144; `cutoff_len` is set to 6,144 |
-| Trainable adapter | BF16 LoRA rank 8, alpha 16, dropout 0 on language `q,k,v,o` projections; vision tower frozen |
-| Optimization | 3 epochs, batch 1, accumulation 4, AdamW, learning rate 3e-5, linear schedule, warmup ratio 0.05, gradient checkpointing, no packing, no automatic validation split |
-| Decoding | Greedy, ≤4,096 new tokens |
+| Model task | One `x1,y1,x2,y2|"JSON-quoted text"` row per full-page line; integer coordinates normalized to 0–1000 |
+| Image view | Full page; 2,097,152 maximum and 65,536 minimum pixels in training and inference |
+| Sequence limits | Prompt ≤3,072; target ≤1,536 including EOS; total and `cutoff_len` ≤4,608 |
+| Trainable adapter | BF16 LoRA rank 8, alpha 16, dropout 0, `lora_target=all`; vision tower frozen |
+| Optimization | 3 epochs, batch 1, accumulation 4, AdamW, learning rate 1e-4, cosine schedule, warmup 0.1, gradient checkpointing, no packing or automatic validation split |
+| Decoding | Greedy, ≤1,536 new tokens; output repeated and truncated in EXP-008 |
 | Key pins | llamafactory 0.9.5, Transformers 5.6.0, PEFT 0.18.1, Accelerate 1.11.0, TRL 0.24.0, Torch 2.8.0; exact resolution in `uv.lock` |
 
 The upstream range caps Transformers at 5.6.0 and PEFT at 0.18.1, so the project's previous newer
@@ -766,33 +766,15 @@ That note is rationale and proposals, not the current execution status or an app
 comparative methodology. READ/Qwen was a feasibility choice; historical-handwriting accuracy
 and lack of pretraining overlap were never assumed.
 
-**The immediate research blocker is useful structured OCR, not pipeline connectivity.**
-The next work should remain small and sequential:
-
-1. **Establish useful OCR before comparing strategies.** The toolkit recipe preserves the corrected
-   output capacity, but EXP-005 still produced invalid/truncated output and zero localization F1.
-   Diagnose model quality under a separately recorded research recipe; do not silently repair
-   outputs or source labels.
-2. **Establish adequate initial adaptation.** Choose a modest, fixed training subset and training
-   budget; verify usable line/text output and held-out validation behavior before spending on
-   acquisition comparisons. Three updates on two pages are not this baseline.
-3. **Freeze comparative methodology.** Establish document grouping or explicitly limit the claims;
-   define the final-test protocol, layout/text metrics, common initial labeled set, equal page
-   budgets, seeds, reset-fit policy and stopping rules. Keep final test isolated from calibration.
-4. **Implement real uncertainty only when needed.** Specify how token-level evidence becomes a
-   page-level confidence/entropy score and how failures are handled. Test actual scores before
-   releasing the existing uncertainty selectors for real model runs.
-5. **Run fair comparisons, then replication.** Compare random and candidate strategies under the
-   same conditions across multiple seeds; export quality versus labeled-page curves with
-   uncertainty. Change datasets/models in separate controlled replications, not simultaneously
-   while diagnosing the first working baseline.
-
-No new GPU result is claimed for the v2 correction. No claim is currently supported for
-selection superiority, annotation-time savings, useful OCR,
-multi-seed stability or document-independent generalization. Revealed-page counts simulate
-annotation budget; human annotation seconds remain unknown. No research campaign or extra cloud
-job is authorized merely by this report. Dataset/model replacement remains possible through
-the existing boundaries without adding speculative infrastructure.
+**The immediate research blocker is useful OCR, not pipeline connectivity.** EXP-008
+established that a compact box/text format and 128 selected pages still leave all eight fixed
+VAL outputs truncated. Do not interpret the planned 192-page ceiling as a completed three-round
+result. Verify an OCR-specific page pipeline and VLM recognizer on the engineering slice first;
+keep page-level acquisition and selected-only text labels. If that baseline works, integrate its
+maintained training interface, run 0-label baseline then three 64-page rounds, and only then
+compare selection strategies at equal budgets. Document grouping remains unknown, so current
+READ2016 results are engineering-only. Do not tune on final TEST, repair model outputs silently or
+claim annotation savings from these failed runs.
 
 ## 12. Team responsibilities and documentation policy
 
