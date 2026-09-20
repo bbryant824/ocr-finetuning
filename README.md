@@ -2,12 +2,12 @@
 
 A small pipeline for full-page OCR active-learning research. Page images are acquired as units;
 existing source labels simulate human annotation. Read the [research results](results/README.md)
-for concise explanations, starting with [EXP-009](results/EXP-009.md). The
+for concise explanations of every recorded experiment group. The
 [project guide](docs/PROJECT_GUIDE.md) tracks structure, setup and current progress.
 
-The current recognition study uses [LightOnOCR-2-1B-base](https://huggingface.co/lightonai/LightOnOCR-2-1B-base), Hugging Face Trainer/PEFT and Modal. [EXP-009](experiments/EXP-009.md) records the original-model baseline and three 64-page random-acquisition rounds on READ2016: untouched VAL42 page-text CER fell from 0.781 to 0.216. The maintained [runner](experiments/run_lighton_read2016.py) keeps selected TRAIN labels local until each fit; validation truth stays in the evaluator. This is a page-text result, with no line-box detection or strategy-advantage claim.
+The [shared page-text recipe](experiments/recipes/read2016-page-text.json) and [recognition runner](src/active_ocr/recognition_pipeline.py) use Hugging Face Trainer/PEFT and Modal to study [LightOnOCR-2-1B-base](https://huggingface.co/lightonai/LightOnOCR-2-1B-base) in [EXP-009](results/EXP-009.md) and [Qwen3-VL-4B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct) in [EXP-010](results/EXP-010.md). Both predict full-page text before training, then acquire 64 new TRAIN pages per round for three cumulative fits. Only selected TRAIN labels reach training; validation truth stays in the local evaluator. The official 42-page validation results are engineering checks, not an independent final test or an active-learning strategy comparison.
 
-The earlier LLaMA-Factory/Qwen joint box-and-text pipeline remains as historical engineering evidence in [EXP-005](experiments/EXP-005.md) and [EXP-008](experiments/EXP-008.md). Legacy Label Studio/HTTP workflows and the custom Qwen trainer are removed.
+The earlier LLaMA-Factory/Qwen joint box-and-text source is recoverable from Git history; [EXP-005](experiments/EXP-005.md) and [EXP-008](experiments/EXP-008.md) retain its results. Its unused runtime and tests have been removed. The optional LLaMA-Factory dependency remains available for future work.
 
 ## Try the local fixture
 

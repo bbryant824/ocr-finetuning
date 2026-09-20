@@ -15,7 +15,7 @@ from typing import Annotated, Protocol
 from PIL import Image, ImageDraw
 from pydantic import Field, model_validator
 
-from active_ocr.evaluation import page_localization_metrics, page_text_metrics
+from active_ocr.evaluation import page_text_metrics
 from active_ocr.integrations.storage import SQLiteStore
 from active_ocr.models import (
     DatasetSnapshot,
@@ -494,30 +494,4 @@ class PageTextEvaluatorV1:
         )
 
 
-class PageJointEvaluatorV1:
-    """The unchanged text metrics plus separately versioned engineering localization counts."""
-
-    identifier = "page-joint-nfc-iou50-v1"
-
-    def __call__(
-        self, examples: tuple[RevealedExample, ...], predictions: tuple[Prediction, ...]
-    ) -> dict[str, int | float]:
-        ordered = _aligned_validation(examples, predictions, "PageJointEvaluatorV1")
-        statuses = [p.status for p in ordered]
-        metrics = page_text_metrics(
-            [tuple(r.text for r in e.regions) for e in examples],
-            [tuple(r.text for r in p.regions) for p in ordered],
-            statuses,
-        )
-        metrics.update(
-            page_localization_metrics(
-                [e.regions for e in examples], [p.regions for p in ordered], statuses
-            )
-        )
-        return metrics
-
-
-EVALUATORS = {
-    evaluator.identifier: evaluator
-    for evaluator in (PageTextEvaluatorV1, PageJointEvaluatorV1)
-}
+EVALUATORS = {PageTextEvaluatorV1.identifier: PageTextEvaluatorV1}

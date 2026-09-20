@@ -18,15 +18,10 @@ dependencies = [
 [project.optional-dependencies]
 modal = ["modal==1.5.5"]
 dev = [
-  # Archived application writers are executed by backward-compatibility tests only.
-  "httpx>=0.27,<1",
-  "python-dotenv>=1,<2",
-  "pyyaml>=6,<7",
   "pytest>=8,<10",
   "ruff>=0.6,<1",
 ]
-# LLaMA-Factory owns training/inference. Its published range caps Transformers at 5.6.0
-# and PEFT at 0.18.1, so the previous newer pins cannot be kept.
+# Optional future LLaMA-Factory work; current page-text runs use Trainer/PEFT directly.
 gpu = [
   "accelerate==1.11.0",
   "datasets==4.0.0",
@@ -48,9 +43,6 @@ active-ocr = "active_ocr.entrypoints.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/active_ocr"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"experiments/recipes/read2016-llamafactory-joint.json" = "active_ocr/recipes/read2016-llamafactory-joint.json"
 
 [tool.pytest.ini_options]
 addopts = "-q"

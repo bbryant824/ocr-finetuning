@@ -3,15 +3,16 @@
 ## Purpose and current evidence
 
 Study whether active-learning strategies reduce annotation needed to adapt full-page OCR to
-historical documents. The acquisition unit is a page image; original line boxes and text simulate
-human annotation. The current recognition fit uses ordered text; original boxes remain
-for later joint OCR. Reveal labels only for selected TRAIN pages. Validation truth belongs only to
-the evaluator; keep final test isolated. There is no labeling frontend in the current workflow.
+historical documents. The acquisition unit is a page image; existing source transcriptions simulate
+human annotation. The recognition target is ordered full-page text; original source boxes
+remain only to verify frozen dataset provenance. Reveal labels only for selected TRAIN
+pages. Validation truth belongs only to the evaluator; keep final test isolated. There is no labeling frontend in the current workflow.
 
 [Project guide](docs/PROJECT_GUIDE.md) is the maintained architecture and operating reference.
-[EXP-009](experiments/EXP-009.md) records the current LightOnOCR recognition study:
-original-model baseline, then three random 64-page acquisitions and cumulative fits. On 42
-untouched official VAL pages, page-text CER fell from 0.781 to 0.216. This supports a working
+[EXP-009](experiments/EXP-009.md) records the LightOnOCR page-text control, and
+[EXP-010](experiments/EXP-010.md) records the Qwen control, each with the untouched
+original-model baseline and three random 64-page cumulative fits. The shared settings are in
+[the page-text recipe](experiments/recipes/read2016-page-text.json). This supports a working
 recognition learning curve, but does not establish line-box detection, strategy advantage,
 document-independent generalization or human-time saving. [EXP-005](experiments/EXP-005.md)
 and [EXP-008](experiments/EXP-008.md) preserve the earlier LLaMA-Factory/Qwen joint-OCR
@@ -36,10 +37,10 @@ engineering run and quality failure. Current assignments and resource decisions 
   technical `experiments/EXP-ID.md` evidence. Follow [results/README.md](results/README.md).
 - Never commit secrets, raw private labels, large assets/checkpoints or generated runtime output.
   Put concise reproducible methods/results in the existing guide, plan or experiment record.
-- Preserve the small boundary: `active_learning.py` selects, `pipeline.py` coordinates,
-  `LocalOracle` reveals selected TRAIN labels and `evaluation.py` scores. The current recognition
-  runner uses Hugging Face Trainer/PEFT on Modal; the earlier LLaMA-Factory adapter remains
-  historical joint-OCR engineering evidence.
+- Preserve the small boundary: `active_learning.py` selects, `LocalOracle` reveals selected
+  TRAIN labels and `evaluation.py` scores. `recognition_pipeline.py` coordinates current page-text
+  runs with Hugging Face Trainer/PEFT on Modal. `pipeline.py` retains the frozen source and fixture
+  lifecycle. Earlier joint-OCR execution is archived in Git and the experiment records.
 
 ## Agent use — Protocol 3
 

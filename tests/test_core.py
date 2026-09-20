@@ -4,7 +4,6 @@ from active_ocr.active_learning import select_pages
 from active_ocr.evaluation import (
     area_under_learning_curve,
     character_error_rate,
-    intersection_over_union,
 )
 from active_ocr.models import Box, Prediction, Strategy
 
@@ -12,9 +11,6 @@ from active_ocr.models import Box, Prediction, Strategy
 def test_box_validation_and_iou() -> None:
     with pytest.raises(ValueError):
         Box(x=0, y=0, width=0, height=10)
-    left = Box(x=0, y=0, width=10, height=10)
-    right = Box(x=5, y=5, width=10, height=10)
-    assert intersection_over_union(left, right) == pytest.approx(25 / 175)
 
 
 def test_random_selection_is_reproducible_and_excludes_pages() -> None:

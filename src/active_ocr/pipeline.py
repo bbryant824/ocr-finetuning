@@ -42,7 +42,7 @@ from active_ocr.models import (
 
 
 class Pipeline:
-    """Coordinate frozen source-label simulation with fixture or real OCR models."""
+    """Coordinate frozen source-label simulation and fixture runs."""
 
     def __init__(self, store: SQLiteStore) -> None:
         self.store = store
@@ -230,11 +230,7 @@ class Pipeline:
                     raise ValueError(f"unsupported evaluator: {run.config.evaluator_id}")
                 evaluator = EVALUATORS[run.config.evaluator_id]()
             if run.kind is RunKind.REAL:
-                from active_ocr.integrations.modal_model import ModalModel
-
-                if type(model) is not ModalModel:
-                    raise ValueError("production real execution requires the Modal adapter")
-                model.check_run(run, self.store)
+                raise ValueError("archived real runs use the page-text recognition pipeline")
         if model.backend != run.config.backend or model.fit_policy != run.config.fit_policy:
             raise ValueError("model backend/fit policy differs from frozen config")
         if (evaluator.identifier if evaluator is not None else None) != run.config.evaluator_id:
