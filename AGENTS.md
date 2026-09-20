@@ -44,6 +44,11 @@ engineering run and quality failure. Current assignments and resource decisions 
 
 ## Agent use — Protocol 3
 
+At the end of each completed user request, give a concise self-contained report of work since
+that prompt: changes and verification, experiment method and key results when applicable,
+where the relevant docs/data/models/adapters are, and the current research stage and next step.
+State briefly when no new experiment or model was involved.
+
 **Manager is the default worker** for questions, documentation, small fixes and ordinary
 engineering. Delegate only when a specialist clearly adds value: Development for sustained or
 risky coding, Testing for meaningful independent review, Research/Planning for substantive
