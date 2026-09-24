@@ -21,7 +21,13 @@ def test_known_boxes_crop_and_keep_source_order():
     assert [r["id"] for r in blind["regions"]] == ["second", "first"]
     _check_records([blind], labelled=False)
     with pytest.raises(ValueError, match="leakage"):
-        _check_records([blind | {"regions": [blind["regions"][0] | {"target": "secret"}, blind["regions"][1]]}], labelled=False)
+        _check_records(
+            [
+                blind
+                | {"regions": [blind["regions"][0] | {"target": "secret"}, blind["regions"][1]]}
+            ],
+            labelled=False,
+        )
     labelled = _record(page, geometry, {"second": "B", "first": "A"})
     assert [r["target"] for r in labelled["regions"]] == ["B", "A"]
     _check_records([labelled], labelled=True)
@@ -36,11 +42,18 @@ def test_region_predictions_reconstruct_page_in_declared_order():
         {"id": "line-a", "box": {"x": 0, "y": 0, "width": 5, "height": 5}},
     ]
     receipt = {
-        "stage": 0, "model_repository": "qwen", "model_revision": "pinned",
-        "predictions": [{"page_id": page_id, "regions": [
-            {"id": "line-b", "text": "second", "truncated": False},
-            {"id": "line-a", "text": "incomplete", "truncated": True},
-        ]}],
+        "stage": 0,
+        "model_repository": "qwen",
+        "model_revision": "pinned",
+        "predictions": [
+            {
+                "page_id": page_id,
+                "regions": [
+                    {"id": "line-b", "text": "second", "truncated": False},
+                    {"id": "line-a", "text": "incomplete", "truncated": True},
+                ],
+            }
+        ],
     }
 
     class Oracle:
@@ -50,8 +63,22 @@ def test_region_predictions_reconstruct_page_in_declared_order():
             assert [r.text for r in predictions[0].regions] == ["second", ""]
             return {"cer": 0.5, "wer": 1.0}
 
-    result = _metrics(receipt, {page_id: SimpleNamespace(id=page_id)}, {page_id: geometry}, Oracle(), [page_id], "exp")
+    result = _metrics(
+        receipt,
+        {page_id: SimpleNamespace(id=page_id)},
+        {page_id: geometry},
+        Oracle(),
+        [page_id],
+        "exp",
+    )
     assert (result["regions"], result["truncated_regions"]) == (2, 1)
     receipt["predictions"][0]["regions"].reverse()
     with pytest.raises(ValueError, match="order"):
-        _metrics(receipt, {page_id: SimpleNamespace(id=page_id)}, {page_id: geometry}, Oracle(), [page_id], "exp")
+        _metrics(
+            receipt,
+            {page_id: SimpleNamespace(id=page_id)},
+            {page_id: geometry},
+            Oracle(),
+            [page_id],
+            "exp",
+        )
