@@ -1,6 +1,6 @@
 # Active learning for historical page-text OCR
 
-**Current stage: two completed random-selection controls and a Qwen acquisition-strategy study.** [EXP-009](../results/EXP-009.md) evaluates LightOnOCR and [EXP-010](../results/EXP-010.md) evaluates Qwen3-VL on READ2016. [EXP-011](../results/EXP-011.md) has a completed seed-824 visual-diversity pilot; uncertainty methods and repeat seeds are still in progress. The research task is **whole-page transcription**, not line localization.
+**Current stage: two completed random-selection controls and a Qwen acquisition-strategy study.** [EXP-009](../results/EXP-009.md) evaluates LightOnOCR and [EXP-010](../results/EXP-010.md) evaluates Qwen3-VL on READ2016. [EXP-011](../results/EXP-011.md) has completed seed-824 visual-diversity and least-confidence pilots; entropy and repeat seeds are still in progress. The research task is **whole-page transcription**, not line localization.
 
 ## Where things live
 
