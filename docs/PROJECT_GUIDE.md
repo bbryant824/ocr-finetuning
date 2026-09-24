@@ -1,6 +1,6 @@
 # Active learning for historical page-text OCR
 
-**Current stage: two completed random-selection controls and a Qwen acquisition-strategy study.** [EXP-009](../results/EXP-009.md) evaluates LightOnOCR and [EXP-010](../results/EXP-010.md) evaluates Qwen3-VL on READ2016. [EXP-011](../results/EXP-011.md) has completed three-seed visual-diversity comparison; entropy and least-confidence repeat seeds are in progress. The research task is **whole-page transcription**, not line localization.
+**Current stage: two completed random-selection controls and a Qwen acquisition-strategy study.** [EXP-009](../results/EXP-009.md) evaluates LightOnOCR and [EXP-010](../results/EXP-010.md) evaluates Qwen3-VL on READ2016. [EXP-011](../results/EXP-011.md) has completed three-seed visual-diversity and entropy comparisons; least-confidence repeat seeds are in progress. The research task is **whole-page transcription**, not line localization.
 
 ## Where things live
 
@@ -54,4 +54,4 @@ uv run --locked python examples/simulate.py /tmp/ocr-simulation-example
 
 ## Evidence and next research step
 
-Read [reader results](../results/README.md) for interpretation and the matching `experiments/` record for exact configuration, identity and raw-evidence locations. The 42-page slice is official **validation**, not an independent document-disjoint final test; prompts/processors, model sizes and some EXP-009 hardware also differ. The first model-informed acquisition pilot is recorded in EXP-011, but its single-seed result is mixed. Paired repeat seeds and uncertainty strategies are in progress. Avoid claiming annotation savings or strategy superiority until those comparisons are complete.
+Read [reader results](../results/README.md) for interpretation and the matching `experiments/` record for exact configuration, identity and raw-evidence locations. The 42-page slice is official **validation**, not an independent document-disjoint final test; prompts/processors, model sizes and some EXP-009 hardware also differ. EXP-011 has completed three-seed k-center and entropy comparisons against matched random controls; least-confidence repeats are still running. Neither completed strategy has a consistent advantage at both tested budgets. Avoid claiming annotation savings or strategy superiority from official validation alone.
