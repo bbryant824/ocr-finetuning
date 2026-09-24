@@ -1,14 +1,15 @@
 # Active learning for historical page-text OCR
 
-**Current stage: two completed random-selection model controls.** [EXP-009](../results/EXP-009.md) evaluates LightOnOCR and [EXP-010](../results/EXP-010.md) evaluates Qwen3-VL on READ2016. The research task is now **whole-page transcription**, not line localization. The current comparisons assess whether each model improves after more labelled training pages; neither measures whether a model-informed acquisition rule beats random selection.
+**Current stage: two completed random-selection controls and a Qwen acquisition-strategy study.** [EXP-009](../results/EXP-009.md) evaluates LightOnOCR and [EXP-010](../results/EXP-010.md) evaluates Qwen3-VL on READ2016. [EXP-011](../results/EXP-011.md) has a completed seed-824 visual-diversity pilot; uncertainty methods and repeat seeds are still in progress. The research task is **whole-page transcription**, not line localization.
 
 ## Where things live
 
 | Path | Responsibility |
 | --- | --- |
 | `src/active_ocr/recognition_pipeline.py` | Current common LightOnOCR/Qwen experiment runner; Modal fits/inference, local selection and scoring. |
+| `src/active_ocr/acquisition_pipeline.py` | Qwen model-informed TRAIN-page scoring and selection, using the same fit/evaluation runner. |
 | `experiments/recipes/read2016-page-text.json` | Shared frozen source, split, selection schedule, model revisions, prompts, LoRA, inference settings. |
-| `src/active_ocr/active_learning.py` | Deterministic page selection. Random is the current control; uncertainty selectors have only fixture checks. |
+| `src/active_ocr/active_learning.py` | Deterministic random and scalar-uncertainty selection; the acquisition runner supplies Qwen scores. |
 | `src/active_ocr/evaluation.py` | NFC page-text, corpus CER/WER counts; no box metrics. |
 | `src/active_ocr/integrations/public_dataset.py` | Pinned READ2016 preparation and provenance checks. |
 | `src/active_ocr/integrations/simulation.py` | Frozen source/ground-truth oracle, page-text evaluator and synthetic fixture. |
@@ -16,6 +17,8 @@
 | `src/active_ocr/entrypoints/cli.py`, `examples/simulate.py` | Offline synthetic demonstration; **not** the real GPU runner. |
 | `tests/` | Source/fixture/text invariants. `experiments/EXP-*.md` and `results/EXP-*.md` hold technical evidence and readable findings. |
 | `docs/verification/` | Historical independent review evidence; see the commit linked in each older experiment for removed joint-OCR source. |
+
+Local source data is in ignored `.local/assets/read2016-1.2.0/`; `.local/prepared/read2016-v1-8db5833/` holds its checked page copy and provenance, and `.local/verification/active-learning-source/runs/` holds the frozen run database. The ignored `.local/verification/` folders use older execution IDs: `exp-011` corresponds to published EXP-008, `exp-012` to EXP-009, and `exp-013` to EXP-010. Current EXP-011 raw strategy evidence is under `al-strategies/`. The published IDs are the names of the records in `experiments/` and `results/`; do not rename older local folders because their receipts reference them.
 
 Historic EXP-001–008 joint box/text implementations and their detailed results remain in Git history and [experiment records](../experiments/). Their runtime, remote dispatcher, box matching and joint recipe have been removed from the current package. `Box` and original source `SourceRegion` remain to validate and read the **unchanged dataset provenance**; OCR predictions and scoring are page text only. The optional `gpu` extra retains LLaMA-Factory for future work, but neither current model uses it.
 
@@ -51,4 +54,4 @@ uv run --locked python examples/simulate.py /tmp/ocr-simulation-example
 
 ## Evidence and next research step
 
-Read [reader results](../results/README.md) for interpretation and the matching `experiments/` record for exact configuration, identity and raw-evidence locations. The 42-page slice is official **validation**, not an independent document-disjoint final test; prompts/processors, model sizes and some EXP-009 hardware also differ. A controlled acquisition-strategy result still requires model-informed scores, equal page budgets, repeat seeds and a justified untouched evaluation set. Avoid claiming annotation savings or strategy superiority from the two random controls.
+Read [reader results](../results/README.md) for interpretation and the matching `experiments/` record for exact configuration, identity and raw-evidence locations. The 42-page slice is official **validation**, not an independent document-disjoint final test; prompts/processors, model sizes and some EXP-009 hardware also differ. The first model-informed acquisition pilot is recorded in EXP-011, but its single-seed result is mixed. Paired repeat seeds and uncertainty strategies are in progress. Avoid claiming annotation savings or strategy superiority until those comparisons are complete.
