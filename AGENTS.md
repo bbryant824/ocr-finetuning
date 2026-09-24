@@ -44,10 +44,12 @@ engineering run and quality failure. Current assignments and resource decisions 
 
 ## Agent use — Protocol 3
 
-At the end of each completed user request, give a concise self-contained report of work since
-that prompt: changes and verification, experiment method and key results when applicable,
-where the relevant docs/data/models/adapters are, and the current research stage and next step.
-State briefly when no new experiment or model was involved.
+At the end of each completed request, report work and verification since that prompt. For
+long-running research or pipeline work, give a concise self-contained handoff: purpose, setup,
+key results and limits; exact locations of reader and technical reports, source/prepared data,
+raw receipts and trained models/adapters/checkpoints (say when none); current research stage
+and next step. Distinguish Git-tracked reports from ignored local or remote artifacts. For small
+tasks, state briefly when no experiment, data or model changed.
 
 **Manager is the default worker** for questions, documentation, small fixes and ordinary
 engineering. Delegate only when a specialist clearly adds value: Development for sustained or
