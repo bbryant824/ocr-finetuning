@@ -35,6 +35,10 @@ engineering run and quality failure. Current assignments and resource decisions 
 - For every full active-learning run, publish a concise reader-facing `results/EXP-ID.md`
   with purpose, metric meanings, all rounds, interpretation, limits and a link to the separate
   technical `experiments/EXP-ID.md` evidence. Follow [results/README.md](results/README.md).
+- Store every newly trained model/adapter/checkpoint in a verified, Git-ignored
+  `.local/models/exp-ID/` mirror; retain its remote original when used. Check the saved weight
+  hash against the run receipt and record exact local/remote paths, base-model identity and hashes
+  in `experiments/EXP-ID.md`. Reference reused earlier artifacts instead of copying them again.
 - Never commit secrets, raw private labels, large assets/checkpoints or generated runtime output.
   Put concise reproducible methods/results in the existing guide, plan or experiment record.
 - Preserve the small boundary: `active_learning.py` selects, `LocalOracle` reveals selected
