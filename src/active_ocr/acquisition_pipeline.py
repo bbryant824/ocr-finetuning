@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 import modal
+
 from active_ocr.recognition_pipeline import (
     BUNDLE,
     IMAGE_ID,
@@ -258,6 +259,10 @@ def main():
     parser.add_argument("source_runs", type=Path)
     parser.add_argument("results", type=Path)
     parser.add_argument(
+        "--config", type=Path, default=Path("experiments/recipes/read2016-page-text.json")
+    )
+    parser.add_argument("--anchor", type=Path, default=ANCHOR)
+    parser.add_argument(
         "--strategy",
         choices=("entropy", "least_confidence", "kcenter_greedy"),
         required=True,
@@ -271,9 +276,13 @@ def main():
         raise ValueError("results basename must be a safe Modal run name")
     if args.holdout and args.through_stage != 3:
         raise ValueError("holdout requires three completed rounds")
-    config_path = Path("experiments/recipes/read2016-page-text.json")
+    config_path = args.config
     config_bytes = config_path.read_bytes()
     config = json.loads(config_bytes)
+    visual_config = {
+        **config,
+        "selection": {k: v for k, v in config["selection"].items() if k != "seed"},
+    }
     source = Pipeline.for_simulation(args.source_runs).get_simulation(config["source_run_id"])
     if source.dataset.manifest_sha256 != config["source_manifest_sha256"]:
         raise ValueError("source manifest differs from frozen recipe")
@@ -285,8 +294,8 @@ def main():
     if len(train_ids) != 350 or len(val8) != 8 or len(val42) != 42:
         raise ValueError("unexpected frozen READ membership")
     first64 = list(select_pages(train_ids, Strategy.RANDOM, 64, config["selection"]["seed"]))
-    anchor_recipe = json.loads((ANCHOR / "recipe.json").read_text())
-    anchor = json.loads((ANCHOR / "round-1.json").read_text())["receipt"]
+    anchor_recipe = json.loads((args.anchor / "recipe.json").read_text())
+    anchor = json.loads((args.anchor / "round-1.json").read_text())["receipt"]
     if (
         anchor_recipe["config"],
         anchor_recipe["script_sha256"],
@@ -308,8 +317,10 @@ def main():
         "source_run": source.id,
         "source_manifest_sha256": source.dataset.manifest_sha256,
         "config_sha256": hashlib.sha256(config_bytes).hexdigest(),
+        "visual_config_sha256": sha_json(visual_config),
         "scorer_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "anchor_receipt_sha256": sha_json(anchor),
+        "anchor_run_name": args.anchor.name,
         "anchor_adapter_sha256": anchor["adapter_sha256"],
         "image_id": IMAGE_ID,
         "input_volume": INPUT_VOLUME_ID,
@@ -339,7 +350,9 @@ def main():
             "mode": mode,
             "checkpoint": checkpoint,
             "records": records,
-            "config_sha256": recipe["config_sha256"],
+            "config_sha256": (
+                recipe["visual_config_sha256"] if mode == "visual" else recipe["config_sha256"]
+            ),
             "scorer_sha256": recipe["scorer_sha256"],
         }
         key = sha_json(identity)
@@ -380,7 +393,7 @@ def main():
     if args.score_smoke:
         candidates = sorted(train_ids - set(first64))[:2]
         checkpoint = {
-            "run_name": ANCHOR.name,
+            "run_name": args.anchor.name,
             "stage": 1,
             "selected_ids": first64,
             "adapter_sha256": anchor["adapter_sha256"],
@@ -421,7 +434,7 @@ def main():
                 else json.loads((args.results / f"round-{stage - 1}.json").read_text())["receipt"]
             )
             checkpoint = {
-                "run_name": ANCHOR.name if stage == 2 else args.results.name,
+                "run_name": args.anchor.name if stage == 2 else args.results.name,
                 "stage": stage - 1,
                 "selected_ids": selected,
                 "adapter_sha256": prior["adapter_sha256"],
