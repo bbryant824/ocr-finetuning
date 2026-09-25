@@ -32,9 +32,13 @@ engineering run and quality failure. Current assignments and resource decisions 
   recovery or required approval.
 - Search first; read only relevant files/sections and reuse unchanged evidence. Test affected
   behavior first; broaden only for a concrete risk. Paid GPU work needs a bounded approved run.
-- For every full active-learning run, publish a concise reader-facing `results/EXP-ID.md`
-  with purpose, metric meanings, all rounds, interpretation, limits and a link to the separate
-  technical `experiments/EXP-ID.md` evidence. Follow [results/README.md](results/README.md).
+- For every full active-learning run, evaluate the untrained base model at zero labelled pages
+  before fitting. Reuse a verified zero-page result only when model revision, input, decoding,
+  evaluation slice and metric match; identify its original experiment/receipt and say explicitly
+  in both reports that it was reused, not rerun. Publish a concise reader-facing
+  `results/EXP-ID.md` with purpose, metric meanings, all rounds, interpretation, limits and a
+  link to the separate technical `experiments/EXP-ID.md` evidence. Follow
+  [results/README.md](results/README.md).
 - Store every newly trained model/adapter/checkpoint in a verified, Git-ignored
   `.local/models/exp-ID/` mirror; retain its remote original when used. Check the saved weight
   hash against the run receipt and record exact local/remote paths, base-model identity and hashes
