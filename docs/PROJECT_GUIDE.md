@@ -1,6 +1,6 @@
 # Active learning for historical OCR
 
-**Current stage:** [EXP-009](../results/EXP-009.md) and [EXP-010](../results/EXP-010.md) completed whole-page random controls; [EXP-011](../results/EXP-011.md) completed the three-seed Qwen page-selection comparison. [EXP-012](../experiments/EXP-012.md) is now running a separate Qwen **known-box line-recognition** study on L4. It crops supplied READ2016 text-line boxes and returns ordered text; it does not predict coordinates or test detection.
+**Current stage:** [EXP-009](../results/EXP-009.md) and [EXP-010](../results/EXP-010.md) completed whole-page random controls; [EXP-011](../results/EXP-011.md) completed the three-seed Qwen page-selection comparison. [EXP-012](../results/EXP-012.md) completed one random-seed baseline for a separate Qwen **known-box line-recognition** study on L4. It crops supplied READ2016 text-line boxes and returns ordered text; it does not predict coordinates or test detection.
 
 ## Where things live
 
@@ -32,7 +32,7 @@ For the whole-page controls, the runner verifies the frozen manifest/image ident
 
 `page-text-nfc-v1` joins ordered reference lines with newlines and scores full predicted text using corpus character error rate (CER) and word error rate (WER); lower is better. Truncated/invalid outputs are empty predictions, never silently excluded. A `Prediction` uses a whole-page placeholder region solely to reuse the frozen local evaluator; this is **not a detected box**.
 
-The separate EXP-012 recipe, exact local/remote receipts and L4 status are in [its technical record](../experiments/EXP-012.md). Its run uses the same frozen source and page budgets but different crop inputs, one training epoch and a 64-token line output cap. Whole-page and known-box scores therefore answer different tasks; compare selection strategies within each pipeline at equal page budgets.
+The completed random-only EXP-012 result and exact local/remote receipts are in [its technical record](../experiments/EXP-012.md). K-center, entropy and least confidence were not run for this known-box pipeline. Its run uses the same frozen source and page budgets but different crop inputs, one training epoch and a 64-token line output cap. Whole-page and known-box scores therefore answer different tasks; any future selector comparison needs equal page budgets and independent seeds within the same pipeline.
 
 ## Run and reproduce
 
