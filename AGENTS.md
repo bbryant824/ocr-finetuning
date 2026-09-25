@@ -2,11 +2,12 @@
 
 ## Purpose and current evidence
 
-Study whether active-learning strategies reduce annotation needed to adapt full-page OCR to
-historical documents. The acquisition unit is a page image; existing source transcriptions simulate
-human annotation. The recognition target is ordered full-page text; original source boxes
-remain only to verify frozen dataset provenance. Reveal labels only for selected TRAIN
-pages. Validation truth belongs only to the evaluator; keep final test isolated. There is no labeling frontend in the current workflow.
+Study active-learning page selection for historical OCR. EXP-009–011 transcribe whole pages;
+[EXP-012](experiments/EXP-012.md) separately transcribes crops from supplied READ2016 text-line
+boxes and rejoins their text in source reading order. The latter is known-location recognition,
+not detection. A page remains the acquisition unit and source transcripts simulate human
+annotation. Reveal labels only for selected TRAIN pages; validation truth belongs only to the
+evaluator, and final test stays isolated. There is no labeling frontend in the current workflow.
 
 [Project guide](docs/PROJECT_GUIDE.md) is the maintained architecture and operating reference.
 [EXP-009](experiments/EXP-009.md) records the LightOnOCR page-text control, and
@@ -46,8 +47,9 @@ engineering run and quality failure. Current assignments and resource decisions 
 - Never commit secrets, raw private labels, large assets/checkpoints or generated runtime output.
   Put concise reproducible methods/results in the existing guide, plan or experiment record.
 - Preserve the small boundary: `active_learning.py` selects, `LocalOracle` reveals selected
-  TRAIN labels and `evaluation.py` scores. `recognition_pipeline.py` coordinates current page-text
-  runs with Hugging Face Trainer/PEFT on Modal. `pipeline.py` retains the frozen source and fixture
+  TRAIN labels and `evaluation.py` scores. `recognition_pipeline.py` coordinates page-text runs;
+  `region_pipeline.py` independently coordinates known-box crop recognition on Modal L4.
+  `pipeline.py` retains the frozen source and fixture
   lifecycle. Earlier joint-OCR execution is archived in Git and the experiment records.
 
 ## Agent use — Protocol 3

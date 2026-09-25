@@ -1,6 +1,6 @@
-# Active learning for historical page-text OCR
+# Active learning for historical OCR
 
-**Current stage: two completed random-selection controls and a Qwen acquisition-strategy study.** [EXP-009](../results/EXP-009.md) evaluates LightOnOCR and [EXP-010](../results/EXP-010.md) evaluates Qwen3-VL on READ2016. [EXP-011](../results/EXP-011.md) has completed three-seed visual-diversity, entropy and least-confidence comparisons. The research task is **whole-page transcription**, not line localization.
+**Current stage:** [EXP-009](../results/EXP-009.md) and [EXP-010](../results/EXP-010.md) completed whole-page random controls; [EXP-011](../results/EXP-011.md) completed the three-seed Qwen page-selection comparison. [EXP-012](../results/EXP-012.md) completed one random-seed baseline for a separate Qwen **known-box line-recognition** study on L4. It crops supplied READ2016 text-line boxes and returns ordered text; it does not predict coordinates or test detection.
 
 ## Where things live
 
@@ -8,7 +8,9 @@
 | --- | --- |
 | `src/active_ocr/recognition_pipeline.py` | Current common LightOnOCR/Qwen experiment runner; Modal fits/inference, local selection and scoring. |
 | `src/active_ocr/acquisition_pipeline.py` | Qwen model-informed TRAIN-page scoring and selection, using the same fit/evaluation runner. |
-| `experiments/recipes/read2016-page-text.json` | Shared frozen source, split, selection schedule, model revisions, prompts, LoRA, inference settings. |
+| `src/active_ocr/region_pipeline.py` | Isolated known-box crop fit, inference and page-level acquisition on Modal L4 for EXP-012. |
+| `experiments/recipes/read2016-page-text.json` | Frozen settings for the whole-page controls. |
+| `experiments/recipes/read2016-known-box-regions.json` | Separate EXP-012 crop, L4 training, inference and page-budget settings. |
 | `src/active_ocr/active_learning.py` | Deterministic random and scalar-uncertainty selection; the acquisition runner supplies Qwen scores. |
 | `src/active_ocr/evaluation.py` | NFC page-text, corpus CER/WER counts; no box metrics. |
 | `src/active_ocr/integrations/public_dataset.py` | Pinned READ2016 preparation and provenance checks. |
@@ -20,15 +22,17 @@
 
 Local source data is in ignored `.local/assets/read2016-1.2.0/`; `.local/prepared/read2016-v1-8db5833/` holds its checked page copy and provenance, and `.local/verification/active-learning-source/runs/` holds the frozen run database. The ignored `.local/verification/` folders use older execution IDs: `exp-011` corresponds to published EXP-008, `exp-012` to EXP-009, and `exp-013` to EXP-010. Current EXP-011 raw strategy evidence is under `al-strategies/`. The published IDs are the names of the records in `experiments/` and `results/`; do not rename older local folders because their receipts reference them.
 
-Historic EXP-001–008 joint box/text implementations and their detailed results remain in Git history and [experiment records](../experiments/). Their runtime, remote dispatcher, box matching and joint recipe have been removed from the current package. `Box` and original source `SourceRegion` remain to validate and read the **unchanged dataset provenance**; OCR predictions and scoring are page text only. The optional `gpu` extra retains LLaMA-Factory for future work, but neither current model uses it.
+Historic EXP-001–008 joint box/text implementations and their detailed results remain in Git history and [experiment records](../experiments/). Their runtime, remote dispatcher, box matching and joint recipe have been removed from the current package. `Box` and original source `SourceRegion` still preserve unchanged dataset provenance. EXP-012 additionally uses their known text-line boxes for crops; its model predicts text only. The optional `gpu` extra retains LLaMA-Factory for future work, but neither current model uses it.
 
 ## Data → acquisition → fit → evaluation
 
-READ2016 v1.2.0 has 350 official TRAIN and 50 official VAL pages in the frozen source snapshot `781d319efaa94b68bdd8027a2ae4e01c`. Document grouping and possible model-pretraining overlap are **unknown**; no final TEST result exists. Eight fixed VAL pages (`Seite0355`–`Seite0362`) served as the recipe check, then the other 42 VAL pages were scored separately. Original READ2016 source line transcriptions are joined in their source order into NFC whole-page text. Source boxes stay in the original labels, not model targets.
+READ2016 v1.2.0 has 350 official TRAIN and 50 official VAL pages in the frozen source snapshot `781d319efaa94b68bdd8027a2ae4e01c`. Document grouping and possible model-pretraining overlap are **unknown**; no final TEST result exists. Eight fixed VAL pages (`Seite0355`–`Seite0362`) served as the recipe check, then the other 42 VAL pages were scored separately. Original READ2016 source line transcriptions are joined in their source order into NFC whole-page text. The whole-page experiments keep source boxes out of model targets. EXP-012 supplies those boxes as crop locations, never as predicted coordinates.
 
-The runner verifies the frozen manifest/image identities and chooses 64 **new** TRAIN pages per round with the existing seeded random selector (`824`). Only selected TRAIN text goes into the fit payload; validation pages are sent as images and scored against truth locally after inference. At stage 0, the untouched base model predicts. Stages 1, 2 and 3 each **restart from the pinned base model** and train on cumulative 64, 128 and 192 acquired pages. Each saved adapter is reloaded in a fresh model for evaluation. The experiment stops at three rounds, never at a validation threshold. Both models use the same page set, schedule, resized image longest edge (1540), Trainer + PEFT LoRA settings and inference token budget (1536); their documented model-specific chat templates/prompts still differ. Refer to the [shared recipe](../experiments/recipes/read2016-page-text.json) for exact values.
+For the whole-page controls, the runner verifies the frozen manifest/image identities and chooses 64 **new** TRAIN pages per round with the existing seeded random selector (`824`). Only selected TRAIN text goes into the fit payload; validation pages are sent as images and scored against truth locally after inference. At stage 0, the untouched base model predicts. Stages 1, 2 and 3 each **restart from the pinned base model** and train on cumulative 64, 128 and 192 acquired pages. Each saved adapter is reloaded in a fresh model for evaluation. The experiment stops at three rounds, never at a validation threshold. Both models use the same page set, schedule, resized image longest edge (1540), Trainer + PEFT LoRA settings and inference token budget (1536); their documented model-specific chat templates/prompts still differ. Refer to the [shared recipe](../experiments/recipes/read2016-page-text.json) for exact values.
 
 `page-text-nfc-v1` joins ordered reference lines with newlines and scores full predicted text using corpus character error rate (CER) and word error rate (WER); lower is better. Truncated/invalid outputs are empty predictions, never silently excluded. A `Prediction` uses a whole-page placeholder region solely to reuse the frozen local evaluator; this is **not a detected box**.
+
+The completed random-only EXP-012 result and exact local/remote receipts are in [its technical record](../experiments/EXP-012.md). K-center, entropy and least confidence were not run for this known-box pipeline. Its run uses the same frozen source and page budgets but different crop inputs, one training epoch and a 64-token line output cap. Whole-page and known-box scores therefore answer different tasks; any future selector comparison needs equal page budgets and independent seeds within the same pipeline.
 
 ## Run and reproduce
 
@@ -54,4 +58,6 @@ uv run --locked python examples/simulate.py /tmp/ocr-simulation-example
 
 ## Evidence and next research step
 
-Read [reader results](../results/README.md) for interpretation and the matching `experiments/` record for exact configuration, identity and raw-evidence locations. The 42-page slice is official **validation**, not an independent document-disjoint final test; prompts/processors, model sizes and some EXP-009 hardware also differ. EXP-011 has completed all three strategy comparisons across paired seeds against matched random controls. None has a consistent advantage at both tested budgets. Avoid claiming annotation savings or strategy superiority from official validation alone.
+Read [reader results](../results/README.md) for interpretation and the matching `experiments/` record for exact configuration, identity and raw-evidence locations. [EXP-011](../results/EXP-011.md) completed three paired seeds of Qwen whole-page random, k-center, entropy and least-confidence selection at 128 and 192 labelled pages; no selector consistently beat its matched random control at both budgets. [EXP-012](../results/EXP-012.md) completed a separate known-box Qwen random baseline at 0/64/128/192 pages: VAL42 CER fell from 0.8036 to 0.0944 and WER from 1.0871 to 0.3705. No model-guided region selector was run, so this is a learning curve, not an active-selection comparison.
+
+Both studies report official **validation**, not an independent document-disjoint final test. Document grouping and possible pretraining overlap remain unknown; the whole-page and known-box tasks also differ in inputs and recipe. Do not infer annotation savings, line detection or strategy superiority from these results.

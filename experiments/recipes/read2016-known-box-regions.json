@@ -1,0 +1,50 @@
+{
+  "source_run_id": "781d319efaa94b68bdd8027a2ae4e01c",
+  "source_manifest_sha256": "ac0a02a218a2142c6ee92ae964e7828ddfc65545dd6ca12f695815bb4493bdd6",
+  "validation_page_ids": [
+    "read2016-v1.2.0:validation:Seite0355",
+    "read2016-v1.2.0:validation:Seite0356",
+    "read2016-v1.2.0:validation:Seite0357",
+    "read2016-v1.2.0:validation:Seite0358",
+    "read2016-v1.2.0:validation:Seite0359",
+    "read2016-v1.2.0:validation:Seite0360",
+    "read2016-v1.2.0:validation:Seite0361",
+    "read2016-v1.2.0:validation:Seite0362"
+  ],
+  "selection": {
+    "pages_per_round": 64,
+    "rounds": 3,
+    "fit": "reset_from_base_on_cumulative_selected_pages"
+  },
+  "training": {
+    "image_longest_edge": 1024,
+    "epochs": 1,
+    "batch_size": 1,
+    "gradient_accumulation_steps": 4,
+    "learning_rate": 0.0001,
+    "scheduler": "cosine",
+    "warmup_ratio": 0.1,
+    "optimizer": "adamw_torch",
+    "precision": "bf16",
+    "lora_rank": 8,
+    "lora_alpha": 16,
+    "lora_dropout": 0,
+    "lora_targets": "all-linear"
+  },
+  "inference": {
+    "max_new_tokens": 64,
+    "repetition_penalty": 1.1,
+    "do_sample": false,
+    "evaluator": "page-text-nfc-v1"
+  },
+  "models": {
+    "qwen": {
+      "repository": "Qwen/Qwen3-VL-4B-Instruct",
+      "revision": "ebb281ec70b05090aa6165b016eac8ec08e71b17",
+      "source": "pinned-input-bundle",
+      "prompt": "Transcribe only the text in this cropped line. Return only the transcription."
+    }
+  },
+  "prompt": "Transcribe only the text in this cropped line. Return only the transcription.",
+  "crop_padding_px": 8
+}
