@@ -2,6 +2,8 @@
 
 **Current stage:** [EXP-009](../results/EXP-009.md) and [EXP-010](../results/EXP-010.md) completed whole-page random controls; [EXP-011](../results/EXP-011.md) completed the three-seed Qwen page-selection comparison. [EXP-012](../results/EXP-012.md) completed one random-seed baseline for a separate Qwen **known-box line-recognition** study on L4. It crops supplied READ2016 text-line boxes and returns ordered text; it does not predict coordinates or test detection.
 
+[EXP-013](../results/EXP-013.md) now extends known-box recognition to four strategy-first arms at 24/48/72 pages (seed 824); GPU results are pending. It reuses only EXP-012’s original-model validation, with three sampled lines for page scoring and all lines for training/evaluation.
+
 ## Where things live
 
 | Path | Responsibility |

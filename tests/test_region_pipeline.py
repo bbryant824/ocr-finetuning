@@ -82,3 +82,70 @@ def test_region_predictions_reconstruct_page_in_declared_order():
             [page_id],
             "exp",
         )
+
+
+def test_baseline_reuse_checks_identity_and_keeps_original_receipt(tmp_path):
+    import json
+
+    from active_ocr.recognition_pipeline import sha_json
+    from active_ocr.region_pipeline import _baseline_receipt
+
+    original = {
+        "config": {
+            "selection": {"pages_per_round": 64},
+            "prompt": "text",
+            "models": {"qwen": {"repository": "qwen", "revision": "pinned"}},
+        },
+        "source_run": "source",
+        "input_bundle": "bundle",
+        "modal_image": "image",
+        "validation_ids": ["val"],
+    }
+    receipt = {
+        "stage": 0,
+        "selected_ids": [],
+        "adapter_sha256": None,
+        "source_run": "source",
+        "recipe_sha256": sha_json(original),
+        "model_repository": "qwen",
+        "model_revision": "pinned",
+        "validation_ids": ["val"],
+        "gpu": "L4",
+    }
+    (tmp_path / "recipe.json").write_text(json.dumps(original))
+    (tmp_path / "round-0.json").write_text(json.dumps({"receipt": receipt, "metrics": {}}))
+    current = {
+        **original,
+        "config": {
+            **original["config"],
+            "selection": {"pages_per_round": 24, "initial_batch": "strategy"},
+        },
+    }
+    saved = _baseline_receipt(tmp_path, current)
+    assert saved["receipt"] == receipt
+    assert saved["reused_from"]["recipe_sha256"] == sha_json(original)
+    current["config"]["prompt"] = "changed"
+    with pytest.raises(ValueError, match="baseline"):
+        _baseline_receipt(tmp_path, current)
+
+
+def test_score_cache_checks_coverage_sample_ids_and_finite_scores(tmp_path):
+    from active_ocr.region_pipeline import _check_scores, _save
+
+    records = [{"page_id": "train", "regions": [{"id": str(i)} for i in range(4)]}]
+    row = {
+        "page_id": "train",
+        "sampled_region_ids": ["1", "2", "3"],
+        "entropy": 0.5,
+        "confidence": 0.2,
+        "truncated_regions": 0,
+    }
+    _check_scores([row], records, "uncertainty")
+    path = tmp_path / "cache.json"
+    assert _save(path, row) == _save(path, row)
+    with pytest.raises(ValueError, match="differs"):
+        _save(path, {**row, "confidence": 0.3})
+    with pytest.raises(ValueError, match="score"):
+        _check_scores([{**row, "entropy": float("nan")}], records, "uncertainty")
+    with pytest.raises(ValueError, match="score"):
+        _check_scores([{**row, "sampled_region_ids": ["0"]}], records, "uncertainty")
