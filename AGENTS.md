@@ -24,6 +24,7 @@ engineering run and quality failure. Current assignments and resource decisions 
 
 - Label FACT, MEASUREMENT, INFERENCE, ESTIMATE and UNKNOWN accurately. Preserve original data,
   splits, checkpoints and failed runs. Record source/data/model/recipe identities, seeds and costs.
+  For future fits, seed RNG before adapter construction; Trainer’s seed alone is insufficient.
 - Compare strategies only at equal annotation budgets with documented controls and leakage checks.
   Do not tune on final test or infer scientific benefit from one engineering run.
 - Use the installed Ponytail plugin for this entire FYP. Manager and specialists should follow

@@ -248,6 +248,8 @@ def run_stage(payload: dict, stage: int, run_name: str) -> dict:
         train_metrics = {
             k: float(v) for k, v in outcome.metrics.items() if isinstance(v, (int, float))
         }
+        if not all(math.isfinite(v) for v in train_metrics.values()):
+            raise ValueError("nonfinite training metrics")
         del trainer, model
         gc.collect()
         torch.cuda.empty_cache()
@@ -332,6 +334,7 @@ def score_pool(records, config, checkpoint, mode):
         regions = record["regions"]
         positions = sorted({len(regions) // 4, len(regions) // 2, 3 * len(regions) // 4})
         entropies, confidences, features = [], [], []
+        capped = 0
         for index in positions:
             batch = _cuda(_inputs(processor, page, regions[index], config))
             with torch.inference_mode():
@@ -355,6 +358,7 @@ def score_pool(records, config, checkpoint, mode):
                 ids = generated.sequences[0, batch["input_ids"].shape[1] :]
                 if not len(ids) or len(ids) != len(generated.logits):
                     raise ValueError("scoring token/logit alignment failed")
+                capped += int(len(ids) >= config["inference"]["max_new_tokens"])
                 entropy_sum = logp_sum = 0.0
                 for token, logits in zip(ids, generated.logits, strict=True):
                     logp = torch.log_softmax(logits[0].float(), dim=-1)
@@ -371,7 +375,9 @@ def score_pool(records, config, checkpoint, mode):
                 "page_id": record["page_id"],
                 "entropy": sum(entropies) / len(entropies),
                 "confidence": sum(confidences) / len(confidences),
+                "truncated_regions": capped,
             }
+        row["sampled_region_ids"] = [regions[i]["id"] for i in positions]
         output.append(row)
     return output
 
@@ -453,11 +459,95 @@ def _metrics(receipt, pages, geometry, oracle, validation_ids, experiment_id):
     return result
 
 
+def _reused_receipt(directory, recipe, stage=0):
+    """Keep an original receipt; check identical source, model and applicable recipe."""
+    original = json.loads((directory / "recipe.json").read_text())
+    saved = json.loads((directory / f"round-{stage}.json").read_text())
+    receipt = saved["receipt"]
+    for key in ("source_run", "input_bundle", "modal_image", "validation_ids"):
+        if original[key] != recipe[key]:
+            raise ValueError("baseline source or input identity mismatch")
+    # Selection/training seed cannot affect an untouched-model evaluation.
+    old = {k: v for k, v in original["config"].items() if k != "selection"}
+    new = {k: v for k, v in recipe["config"].items() if k != "selection"}
+    spec = recipe["config"]["models"]["qwen"]
+    if stage and (
+        original["config"] != recipe["config"] or original["strategy"] != recipe["strategy"]
+    ):
+        raise ValueError("reused fit recipe differs")
+    if (stage == 0 and (receipt["selected_ids"] or receipt["adapter_sha256"] is not None)) or (
+        stage > 0 and (not receipt["adapter_sha256"] or not receipt["selected_ids"])
+    ):
+        raise ValueError("reused receipt training identity differs")
+    if old != new or (
+        receipt["stage"],
+        receipt["source_run"],
+        receipt["recipe_sha256"],
+        receipt["validation_ids"],
+        receipt["model_repository"],
+        receipt["model_revision"],
+        receipt["gpu"],
+    ) != (
+        stage,
+        recipe["source_run"],
+        sha_json(original),
+        recipe["validation_ids"],
+        spec["repository"],
+        spec["revision"],
+        "L4",
+    ):
+        raise ValueError("baseline model, recipe or receipt mismatch")
+    return {
+        **saved,
+        "reused_from": {
+            "path": str((directory / f"round-{stage}.json").resolve()),
+            "recipe_sha256": receipt["recipe_sha256"],
+            "receipt_sha256": hashlib.sha256(
+                (directory / f"round-{stage}.json").read_bytes()
+            ).hexdigest(),
+        },
+    }
+
+
+def _pool_predictions(rows, run_name, query_round, model_id):
+    from active_ocr.models import Prediction
+
+    return [
+        Prediction(
+            page_id=r["page_id"],
+            experiment_id=run_name,
+            round_number=query_round,
+            model_id=model_id,
+            entropy=r["entropy"],
+            confidence=r["confidence"],
+        )
+        for r in rows
+    ]
+
+
+def _check_scores(rows, records, mode):
+    if [r["page_id"] for r in rows] != [r["page_id"] for r in records]:
+        raise ValueError("score coverage mismatch")
+    for row, record in zip(rows, records, strict=True):
+        regions = record["regions"]
+        positions = sorted({len(regions) // 4, len(regions) // 2, 3 * len(regions) // 4})
+        if row["sampled_region_ids"] != [regions[i]["id"] for i in positions]:
+            raise ValueError("score sampled-region mismatch")
+        if mode == "visual":
+            vector = row["embedding"]
+            if not vector or not all(math.isfinite(x) for x in vector) or not any(vector):
+                raise ValueError("invalid visual score")
+        elif not all(
+            math.isfinite(row[k]) and 0 <= row[k] <= 1 for k in ("entropy", "confidence")
+        ) or not 0 <= row["truncated_regions"] <= len(positions):
+            raise ValueError("invalid uncertainty score")
+
+
 def main():
     from active_ocr.acquisition_pipeline import kcenter_greedy
     from active_ocr.active_learning import select_pages
     from active_ocr.integrations.simulation import LocalOracle
-    from active_ocr.models import Prediction, Split, Strategy
+    from active_ocr.models import Split, Strategy
     from active_ocr.pipeline import Pipeline
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -474,14 +564,22 @@ def main():
     parser.add_argument("--seed", type=int, default=824)
     parser.add_argument("--through-stage", type=int, choices=range(4), default=3)
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--baseline-from", type=Path)
+    parser.add_argument(
+        "--fit-from", type=Path, help="Reuse checked random/k-center fits with identical inputs"
+    )
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
+    budget = config["selection"]["pages_per_round"]
+    strategy_first = config["selection"].get("initial_batch") == "strategy"
     if (
         args.seed not in (824, 825, 826)
         or config["selection"]["rounds"] != 3
-        or config["selection"]["pages_per_round"] != 64
+        or budget not in (24, 64)
     ):
         raise ValueError("unsupported frozen comparison")
+    if args.fit_from and args.strategy not in ("random", "kcenter_greedy"):
+        raise ValueError("fit reuse is restricted to non-adapter-scoring arms")
     config["selection"]["seed"] = args.seed
     source = Pipeline.for_simulation(args.source_runs).get_simulation(config["source_run_id"])
     if source.dataset.manifest_sha256 != config["source_manifest_sha256"]:
@@ -525,12 +623,23 @@ def main():
         "validation_ids": val42,
         "gpu": "L4",
     }
+    if strategy_first:
+        recipe["selection_code_sha256"] = sha_json(
+            {
+                name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
+                for name in ("acquisition_pipeline.py", "active_learning.py")
+            }
+        )
+    if args.baseline_from:
+        recipe["baseline_from"] = str(args.baseline_from.resolve())
+    if args.fit_from:
+        recipe["fit_from"] = str(args.fit_from.resolve())
     recipe_sha = sha_json(recipe)
     selected = []
     anchor = args.results.parent / f"region-exp012-random-seed{args.seed}"
     if not args.prepare_only:
         _save(args.results / "recipe.json", recipe)
-        if args.strategy != "random":
+        if args.strategy != "random" and not strategy_first:
             anchor_recipe = json.loads((anchor / "recipe.json").read_text())
             if (
                 anchor_recipe["config"] != config
@@ -538,17 +647,41 @@ def main():
             ):
                 raise ValueError("random anchor differs from current code/recipe")
     for stage in range(args.through_stage + 1):
+        if stage == 0 and args.baseline_from:
+            saved = _reused_receipt(args.baseline_from, recipe)
+            metrics = _metrics(saved["receipt"], pages, geometry, oracle, val42, run_name)
+            if metrics != saved["metrics"]:
+                raise ValueError("baseline metrics differ from recomputed predictions")
+            if not args.prepare_only:
+                _save(args.results / "round-0.json", saved)
+            print(
+                json.dumps(
+                    {
+                        "strategy": args.strategy,
+                        "stage": 0,
+                        "pages": 0,
+                        "cer": metrics["cer"],
+                        "wer": metrics["wer"],
+                        "reused_from": saved["reused_from"],
+                    }
+                )
+            )
+            continue
         if stage:
             pool = sorted(train_ids - set(selected))
-            if args.strategy == "random" or stage == 1:
-                chosen = select_pages(pool, Strategy.RANDOM, 64, args.seed + stage - 1)
+            if args.strategy == "random" or (stage == 1 and not strategy_first):
+                chosen = select_pages(pool, Strategy.RANDOM, budget, args.seed + stage - 1)
             else:
                 mode = "visual" if args.strategy == "kcenter_greedy" else "uncertainty"
-                previous = anchor if stage == 2 else args.results
-                prior = json.loads((previous / f"round-{stage - 1}.json").read_text())["receipt"]
+                previous = anchor if stage == 2 and not strategy_first else args.results
+                prior = (
+                    json.loads((previous / f"round-{stage - 1}.json").read_text())["receipt"]
+                    if stage > 1 and mode == "uncertainty"
+                    else None
+                )
                 checkpoint = (
                     None
-                    if mode == "visual"
+                    if prior is None
                     else {
                         "run_name": previous.name,
                         "stage": stage - 1,
@@ -591,9 +724,13 @@ def main():
                 else:
                     rows = []
                     with modal.enable_output(), app.run(environment_name="main"):
-                        for start in range(0, len(records), 16):
-                            part = cache_root / f"{key}-part-{start // 16}.json"
-                            part_identity = {**identity, "start": start}
+                        for start in range(0, len(records), 64):
+                            part = cache_root / f"{key}-part-{start // 64}.json"
+                            part_identity = {
+                                **identity,
+                                "start": start,
+                                "count": len(records[start : start + 64]),
+                            }
                             if part.exists():
                                 saved = json.loads(part.read_text())
                                 if saved["identity"] != part_identity:
@@ -601,9 +738,10 @@ def main():
                                 chunk = saved["rows"]
                             else:
                                 chunk = score_pool.remote(
-                                    records[start : start + 16], config, checkpoint, mode
+                                    records[start : start + 64], config, checkpoint, mode
                                 )
                                 _save(part, {"identity": part_identity, "rows": chunk})
+                            _check_scores(chunk, records[start : start + 64], mode)
                             rows.extend(chunk)
                     _save(cache, {"identity": identity, "rows": rows})
                 if args.prepare_only:
@@ -618,30 +756,27 @@ def main():
                         )
                     )
                     break
-                if [r["page_id"] for r in rows] != ids:
-                    raise ValueError("score coverage mismatch")
+                _check_scores(rows, records, mode)
                 if mode == "visual":
                     chosen = kcenter_greedy(
-                        {r["page_id"]: r["embedding"] for r in rows}, selected, pool, 64
+                        {r["page_id"]: r["embedding"] for r in rows}, selected, pool, budget
                     )
                 else:
-                    estimates = [
-                        Prediction(
-                            page_id=r["page_id"],
-                            experiment_id=run_name,
-                            round_number=stage - 1,
-                            model_id="adapter:sha256:" + checkpoint["adapter_sha256"],
-                            entropy=r["entropy"],
-                            confidence=r["confidence"],
-                        )
-                        for r in rows
-                    ]
+                    model_id = (
+                        "adapter:sha256:" + checkpoint["adapter_sha256"]
+                        if checkpoint
+                        else "hf:"
+                        + config["models"]["qwen"]["repository"]
+                        + "@"
+                        + config["models"]["qwen"]["revision"]
+                    )
+                    estimates = _pool_predictions(rows, run_name, stage, model_id)
                     chosen = select_pages(
-                        pool, Strategy(args.strategy), 64, 0, predictions=estimates
+                        pool, Strategy(args.strategy), budget, 0, predictions=estimates
                     )
             selected.extend(chosen)
             if (
-                len(selected) != 64 * stage
+                len(selected) != budget * stage
                 or len(set(selected)) != len(selected)
                 or not set(selected) <= train_ids
             ):
@@ -666,7 +801,7 @@ def main():
                 )
             )
             continue
-        if args.strategy != "random" and stage < 2:
+        if args.strategy != "random" and stage < 2 and not strategy_first:
             saved = json.loads((anchor / f"round-{stage}.json").read_text())
             if (
                 saved["receipt"]["selected_ids"] != selected
@@ -683,6 +818,27 @@ def main():
                         "cer": saved["metrics"]["cer"],
                         "wer": saved["metrics"]["wer"],
                         "reused_from": str(anchor),
+                    }
+                )
+            )
+            continue
+        if args.fit_from and stage and (args.fit_from / f"round-{stage}.json").exists():
+            saved = _reused_receipt(args.fit_from, recipe, stage)
+            if saved["receipt"]["selected_ids"] != selected:
+                raise ValueError("reused fit selection differs")
+            metrics = _metrics(saved["receipt"], pages, geometry, oracle, val42, run_name)
+            if metrics != saved["metrics"]:
+                raise ValueError("reused fit metrics differ")
+            _save(args.results / f"round-{stage}.json", saved)
+            print(
+                json.dumps(
+                    {
+                        "strategy": args.strategy,
+                        "stage": stage,
+                        "pages": len(selected),
+                        "cer": metrics["cer"],
+                        "wer": metrics["wer"],
+                        "reused_from": saved["reused_from"],
                     }
                 )
             )

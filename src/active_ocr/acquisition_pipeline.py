@@ -154,8 +154,8 @@ def kcenter_greedy(embeddings, labelled, candidates, count):
 
     candidate_ids = sorted(set(candidates))
     labelled_ids = sorted(set(labelled))
-    if not labelled_ids or count <= 0 or count > len(candidate_ids):
-        raise ValueError("k-center needs labelled seeds and a feasible positive budget")
+    if count <= 0 or count > len(candidate_ids):
+        raise ValueError("k-center needs a feasible positive budget")
     if set(candidate_ids) & set(labelled_ids) or set(candidate_ids + labelled_ids) != set(
         embeddings
     ):
@@ -171,10 +171,16 @@ def kcenter_greedy(embeddings, labelled, candidates, count):
     vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
     seeds = vectors[: len(labelled_ids)]
     pool = vectors[len(labelled_ids) :]
-    distances = np.min(np.linalg.norm(pool[:, None, :] - seeds[None, :, :], axis=-1), axis=1)
     chosen = []
     available = np.ones(len(candidate_ids), dtype=bool)
-    for _ in range(count):
+    if labelled_ids:
+        distances = np.min(np.linalg.norm(pool[:, None, :] - seeds[None, :, :], axis=-1), axis=1)
+    else:
+        first = int(np.argmin(np.linalg.norm(pool - pool.mean(axis=0), axis=1)))
+        chosen.append(candidate_ids[first])
+        available[first] = False
+        distances = np.linalg.norm(pool - pool[first], axis=1)
+    for _ in range(count - len(chosen)):
         index = int(np.argmax(np.where(available, distances, -1)))
         chosen.append(candidate_ids[index])
         available[index] = False
