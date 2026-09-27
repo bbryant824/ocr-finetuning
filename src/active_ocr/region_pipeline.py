@@ -459,10 +459,10 @@ def _metrics(receipt, pages, geometry, oracle, validation_ids, experiment_id):
     return result
 
 
-def _baseline_receipt(directory, recipe):
-    """Retain an original zero-page receipt after checking its inference identity."""
+def _reused_receipt(directory, recipe, stage=0):
+    """Keep an original receipt; check identical source, model and applicable recipe."""
     original = json.loads((directory / "recipe.json").read_text())
-    saved = json.loads((directory / "round-0.json").read_text())
+    saved = json.loads((directory / f"round-{stage}.json").read_text())
     receipt = saved["receipt"]
     for key in ("source_run", "input_bundle", "modal_image", "validation_ids"):
         if original[key] != recipe[key]:
@@ -471,10 +471,16 @@ def _baseline_receipt(directory, recipe):
     old = {k: v for k, v in original["config"].items() if k != "selection"}
     new = {k: v for k, v in recipe["config"].items() if k != "selection"}
     spec = recipe["config"]["models"]["qwen"]
+    if stage and (
+        original["config"] != recipe["config"] or original["strategy"] != recipe["strategy"]
+    ):
+        raise ValueError("reused fit recipe differs")
+    if (stage == 0 and (receipt["selected_ids"] or receipt["adapter_sha256"] is not None)) or (
+        stage > 0 and (not receipt["adapter_sha256"] or not receipt["selected_ids"])
+    ):
+        raise ValueError("reused receipt training identity differs")
     if old != new or (
         receipt["stage"],
-        receipt["selected_ids"],
-        receipt["adapter_sha256"],
         receipt["source_run"],
         receipt["recipe_sha256"],
         receipt["validation_ids"],
@@ -482,9 +488,7 @@ def _baseline_receipt(directory, recipe):
         receipt["model_revision"],
         receipt["gpu"],
     ) != (
-        0,
-        [],
-        None,
+        stage,
         recipe["source_run"],
         sha_json(original),
         recipe["validation_ids"],
@@ -496,11 +500,29 @@ def _baseline_receipt(directory, recipe):
     return {
         **saved,
         "reused_from": {
-            "path": str((directory / "round-0.json").resolve()),
+            "path": str((directory / f"round-{stage}.json").resolve()),
             "recipe_sha256": receipt["recipe_sha256"],
-            "receipt_sha256": hashlib.sha256((directory / "round-0.json").read_bytes()).hexdigest(),
+            "receipt_sha256": hashlib.sha256(
+                (directory / f"round-{stage}.json").read_bytes()
+            ).hexdigest(),
         },
     }
+
+
+def _pool_predictions(rows, run_name, query_round, model_id):
+    from active_ocr.models import Prediction
+
+    return [
+        Prediction(
+            page_id=r["page_id"],
+            experiment_id=run_name,
+            round_number=query_round,
+            model_id=model_id,
+            entropy=r["entropy"],
+            confidence=r["confidence"],
+        )
+        for r in rows
+    ]
 
 
 def _check_scores(rows, records, mode):
@@ -525,7 +547,7 @@ def main():
     from active_ocr.acquisition_pipeline import kcenter_greedy
     from active_ocr.active_learning import select_pages
     from active_ocr.integrations.simulation import LocalOracle
-    from active_ocr.models import Prediction, Split, Strategy
+    from active_ocr.models import Split, Strategy
     from active_ocr.pipeline import Pipeline
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -543,6 +565,9 @@ def main():
     parser.add_argument("--through-stage", type=int, choices=range(4), default=3)
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--baseline-from", type=Path)
+    parser.add_argument(
+        "--fit-from", type=Path, help="Reuse checked random/k-center fits with identical inputs"
+    )
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
     budget = config["selection"]["pages_per_round"]
@@ -553,6 +578,8 @@ def main():
         or budget not in (24, 64)
     ):
         raise ValueError("unsupported frozen comparison")
+    if args.fit_from and args.strategy not in ("random", "kcenter_greedy"):
+        raise ValueError("fit reuse is restricted to non-adapter-scoring arms")
     config["selection"]["seed"] = args.seed
     source = Pipeline.for_simulation(args.source_runs).get_simulation(config["source_run_id"])
     if source.dataset.manifest_sha256 != config["source_manifest_sha256"]:
@@ -605,6 +632,8 @@ def main():
         )
     if args.baseline_from:
         recipe["baseline_from"] = str(args.baseline_from.resolve())
+    if args.fit_from:
+        recipe["fit_from"] = str(args.fit_from.resolve())
     recipe_sha = sha_json(recipe)
     selected = []
     anchor = args.results.parent / f"region-exp012-random-seed{args.seed}"
@@ -619,7 +648,7 @@ def main():
                 raise ValueError("random anchor differs from current code/recipe")
     for stage in range(args.through_stage + 1):
         if stage == 0 and args.baseline_from:
-            saved = _baseline_receipt(args.baseline_from, recipe)
+            saved = _reused_receipt(args.baseline_from, recipe)
             metrics = _metrics(saved["receipt"], pages, geometry, oracle, val42, run_name)
             if metrics != saved["metrics"]:
                 raise ValueError("baseline metrics differ from recomputed predictions")
@@ -733,24 +762,15 @@ def main():
                         {r["page_id"]: r["embedding"] for r in rows}, selected, pool, budget
                     )
                 else:
-                    estimates = [
-                        Prediction(
-                            page_id=r["page_id"],
-                            experiment_id=run_name,
-                            round_number=stage - 1,
-                            model_id=(
-                                "adapter:sha256:" + checkpoint["adapter_sha256"]
-                                if checkpoint
-                                else "hf:"
-                                + config["models"]["qwen"]["repository"]
-                                + "@"
-                                + config["models"]["qwen"]["revision"]
-                            ),
-                            entropy=r["entropy"],
-                            confidence=r["confidence"],
-                        )
-                        for r in rows
-                    ]
+                    model_id = (
+                        "adapter:sha256:" + checkpoint["adapter_sha256"]
+                        if checkpoint
+                        else "hf:"
+                        + config["models"]["qwen"]["repository"]
+                        + "@"
+                        + config["models"]["qwen"]["revision"]
+                    )
+                    estimates = _pool_predictions(rows, run_name, stage, model_id)
                     chosen = select_pages(
                         pool, Strategy(args.strategy), budget, 0, predictions=estimates
                     )
@@ -798,6 +818,27 @@ def main():
                         "cer": saved["metrics"]["cer"],
                         "wer": saved["metrics"]["wer"],
                         "reused_from": str(anchor),
+                    }
+                )
+            )
+            continue
+        if args.fit_from and stage and (args.fit_from / f"round-{stage}.json").exists():
+            saved = _reused_receipt(args.fit_from, recipe, stage)
+            if saved["receipt"]["selected_ids"] != selected:
+                raise ValueError("reused fit selection differs")
+            metrics = _metrics(saved["receipt"], pages, geometry, oracle, val42, run_name)
+            if metrics != saved["metrics"]:
+                raise ValueError("reused fit metrics differ")
+            _save(args.results / f"round-{stage}.json", saved)
+            print(
+                json.dumps(
+                    {
+                        "strategy": args.strategy,
+                        "stage": stage,
+                        "pages": len(selected),
+                        "cer": metrics["cer"],
+                        "wer": metrics["wer"],
+                        "reused_from": saved["reused_from"],
                     }
                 )
             )
