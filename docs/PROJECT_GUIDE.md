@@ -10,10 +10,12 @@
 | --- | --- |
 | `src/active_ocr/recognition_pipeline.py` | Current common LightOnOCR/Qwen experiment runner; Modal fits/inference, local selection and scoring. |
 | `src/active_ocr/acquisition_pipeline.py` | Qwen model-informed TRAIN-page scoring and selection, using the same fit/evaluation runner. |
-| `src/active_ocr/region_pipeline.py` | Isolated known-box crop fit, inference and page-level acquisition on Modal L4 for EXP-012/013. |
+| `src/active_ocr/region_pipeline.py` | Known-box fit/acquisition plus the explicit `--icl-stage prepare/check/evaluate` entrypoint. |
+| `src/active_ocr/icl.py` | Random line demonstrations, checked reference reuse, L4 readiness gate and resumable per-query inference. |
 | `experiments/recipes/read2016-page-text.json` | Frozen settings for the whole-page controls. |
 | `experiments/recipes/read2016-known-box-regions.json` | Separate EXP-012 crop, L4 training, inference and page-budget settings. |
 | `experiments/recipes/read2016-known-box-al-24.json` | EXP-013 independent strategy-first 24/48/72-page settings; other training/decoding values match EXP-012. |
+| `experiments/recipes/read2016-known-box-icl.json` | EXP-014 original Qwen, reused seed-824 24-page bank, 0/8/24 random line pairs/query. |
 | `src/active_ocr/active_learning.py` | Deterministic random and scalar-uncertainty selection; the acquisition runner supplies Qwen scores. |
 | `src/active_ocr/evaluation.py` | NFC page-text, corpus CER/WER counts; no box metrics. |
 | `src/active_ocr/integrations/public_dataset.py` | Pinned READ2016 preparation and provenance checks. |
@@ -59,10 +61,19 @@ uv sync --locked --no-editable --extra dev
 uv run --locked python examples/simulate.py /tmp/ocr-simulation-example
 ```
 
+The random ICL extension reuses the exact EXP-013 24-page bank and original/LoRA controls. It has an
+explicit local preparation stage, a small eight-crop L4 check, and a full-evaluation stage gated by a
+matching passed check. No fitting or retrieval is performed. See [EXP-014](../experiments/EXP-014.md)
+for commands and artifact paths; its full VAL42 experiment has not run.
+
 ## Evidence and next research step
 
 Read [reader results](../results/README.md) for interpretation and the matching `experiments/` record for exact configuration, identity and raw-evidence locations. [EXP-011](../results/EXP-011.md) completed three paired seeds of Qwen whole-page random, k-center, entropy and least-confidence selection at 128 and 192 labelled pages; no selector consistently beat its matched random control at both budgets. [EXP-012](../results/EXP-012.md) completed a separate known-box Qwen random baseline at 0/64/128/192 pages: VAL42 CER fell from 0.8036 to 0.0944 and WER from 1.0871 to 0.3705. EXP-012 ran random only. EXP-013 now supplies a four-method known-box pilot at 24/48/72 pages; no selector led at every budget.
 
 These studies report official **validation**, not an independent document-disjoint final test. Document grouping and possible pretraining overlap remain unknown; the whole-page and known-box tasks also differ in inputs and recipe. Do not infer annotation savings, line detection or strategy superiority from these results.
 
-Before a stronger known-box comparison, explicitly seed adapter construction and repeat paired seeds. EXP-013 preserves the inherited training behavior and records its initialization limitation; saved-adapter evaluation remains reproducible. No further cloud run is active.
+[EXP-014](../experiments/EXP-014.md) now implements original-Qwen random ICL at 0/8/24 line examples
+from EXP-013's 24-page bank. Its local checks and small L4 readiness pass; the next approved step is
+full 8/24-shot VAL42 evaluation against the reused original and 24-page LoRA controls. No new training
+or full experiment has run, and no cloud job remains active. EXP-013's historical initialization
+limitation remains recorded; its saved checkpoint is the fixed reference for this pilot.

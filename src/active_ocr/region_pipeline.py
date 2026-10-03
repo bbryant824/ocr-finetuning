@@ -54,19 +54,33 @@ def _crop(page, box, padding):
     )
 
 
-def _inputs(processor, page, region, config, *, train=False):
+def _inputs(processor, page, region, config, *, train=False, examples=()):
+    if train and examples:
+        raise ValueError("ICL examples are not supported during training")
 
-    crop = _crop(page, region["box"], config["crop_padding_px"])
-    crop.thumbnail((config["training"]["image_longest_edge"],) * 2)
-    user = {
-        "role": "user",
-        "content": [
-            {"type": "image", "image": crop},
-            {"type": "text", "text": config["prompt"]},
-        ],
-    }
+    def user_message(image, line):
+        crop = _crop(image, line["box"], config["crop_padding_px"])
+        crop.thumbnail((config["training"]["image_longest_edge"],) * 2)
+        return {
+            "role": "user",
+            "content": [
+                {"type": "image", "image": crop},
+                {"type": "text", "text": config["prompt"]},
+            ],
+        }
+
+    messages = []
+    for example_page, example in examples:
+        messages.extend(
+            [
+                user_message(example_page, example),
+                {"role": "assistant", "content": [{"type": "text", "text": example["target"]}]},
+            ]
+        )
+    user = user_message(page, region)
+    messages.append(user)
     prompt = processor.apply_chat_template(
-        [user], add_generation_prompt=True, tokenize=True, return_dict=True, return_tensors="pt"
+        messages, add_generation_prompt=True, tokenize=True, return_dict=True, return_tensors="pt"
     )
     if not train:
         return prompt
@@ -408,7 +422,7 @@ def _save(path, value):
     return value
 
 
-def _metrics(receipt, pages, geometry, oracle, validation_ids, experiment_id):
+def _metrics(receipt, pages, geometry, oracle, validation_ids, experiment_id, *, evaluator=None):
     from active_ocr.integrations.simulation import PageTextEvaluatorV1
     from active_ocr.models import Box, Prediction, PredictionPurpose, PredictionStatus, Region
 
@@ -447,7 +461,7 @@ def _metrics(receipt, pages, geometry, oracle, validation_ids, experiment_id):
             )
         )
     result = oracle.evaluate_validation(
-        tuple(predictions), PageTextEvaluatorV1(), tuple(validation_ids)
+        tuple(predictions), evaluator or PageTextEvaluatorV1(), tuple(validation_ids)
     )
     result["truncated_regions"] = sum(
         r["truncated"] for p in receipt["predictions"] for r in p["regions"]
@@ -568,8 +582,21 @@ def main():
     parser.add_argument(
         "--fit-from", type=Path, help="Reuse checked random/k-center fits with identical inputs"
     )
+    parser.add_argument(
+        "--icl-stage", choices=("prepare", "check", "evaluate"),
+        help="Random ICL: local preparation, small readiness check, or full evaluation",
+    )
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
+    if "icl" in config and not args.icl_stage:
+        parser.error("ICL recipes require an explicit --icl-stage; no training is implied")
+    if args.icl_stage and args.prepare_only:
+        parser.error("ICL uses --icl-stage prepare instead of combining --prepare-only")
+    if args.icl_stage:
+        from active_ocr.icl import run_icl
+
+        run_icl(args, config)
+        return
     budget = config["selection"]["pages_per_round"]
     strategy_first = config["selection"].get("initial_batch") == "strategy"
     if (
