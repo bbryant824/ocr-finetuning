@@ -64,7 +64,7 @@ uv run --locked python examples/simulate.py /tmp/ocr-simulation-example
 The random ICL extension reuses the exact EXP-013 24-page bank and original/LoRA controls. It has an
 explicit local preparation stage, a small eight-crop L4 check, and a full-evaluation stage gated by a
 matching passed check. No fitting or retrieval is performed. See [EXP-014](../experiments/EXP-014.md)
-for commands and artifact paths; its full VAL42 experiment has not run.
+for commands and artifact paths; the separately recorded [EXP-015](../results/EXP-015.md) now supplies full VAL42 results.
 
 ## Evidence and next research step
 
@@ -72,8 +72,11 @@ Read [reader results](../results/README.md) for interpretation and the matching 
 
 These studies report official **validation**, not an independent document-disjoint final test. Document grouping and possible pretraining overlap remain unknown; the whole-page and known-box tasks also differ in inputs and recipe. Do not infer annotation savings, line detection or strategy superiority from these results.
 
-[EXP-014](../experiments/EXP-014.md) now implements original-Qwen random ICL at 0/8/24 line examples
-from EXP-013's 24-page bank. Its local checks and small L4 readiness pass; the next approved step is
-full 8/24-shot VAL42 evaluation against the reused original and 24-page LoRA controls. No new training
-or full experiment has run, and no cloud job remains active. EXP-013's historical initialization
-limitation remains recorded; its saved checkpoint is the fixed reference for this pilot.
+[EXP-014](../results/EXP-014.md) is the completed development/testing experiment for original-Qwen
+random ICL at 0/8/24 line examples from EXP-013's 24-page bank. Local and small L4 checks passed;
+[EXP-015](../results/EXP-015.md) completed and audited both full L4 passes: eight-shot CER/WER
+0.749012/1.050841, 24-shot 0.755954/1.035140. Both modestly improve on reused zero-shot
+0.803646/1.087103 but remain worse than the saved 24-page LoRA control 0.410374/0.825421.
+More shots gave mixed CER/WER results. No new training or production-code change was needed;
+all 1,722 predictions are saved and both apps stopped. Historical initialization and validation
+limitations remain recorded; no further experiment has started.

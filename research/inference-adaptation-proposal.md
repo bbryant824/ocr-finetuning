@@ -1,8 +1,9 @@
 # Historical OCR: random ICL versus the existing fine-tuned reference
 
-**3 October 2026 · Development and the bounded readiness check approved; full experiment pending.**
+**4 October 2026 · EXP-014 testing completed; EXP-015 full evaluation completed and audited after a fresh L4 check.**
 This supersedes the earlier initial protocol. Implementation extends the existing region runner;
-[EXP-014 preparation](../experiments/EXP-014.md) records verification and execution commands.
+[EXP-014 testing](../results/EXP-014.md) records completed development/readiness; its
+[technical record](../experiments/EXP-014.md) preserves verification and reproduction commands.
 The broader primary-paper review is preserved at the end as background.
 
 ## 1. Goal and initial scope
@@ -167,9 +168,11 @@ Source data: `.local/assets/read2016-1.2.0/`; prepared data: `.local/prepared/re
 frozen source: `.local/verification/active-learning-source/runs/`;
 base model: `.local/assets/qwen3-vl-4b-ebb281e/`.
 
-Update the results index and concise project state only after verified execution. EXP-014 is reserved for this pilot; its technical record distinguishes readiness evidence from
-full results. The user approved development and the bounded readiness check in this turn. Full VAL42
-execution is deferred to a later prompt; no full experiment or new fit has run.
+EXP-014 records completed development and bounded testing, with a separate reader report.
+[EXP-015](../results/EXP-015.md) records the completed full VAL42 pilot, preserving the testing
+evidence and checked reuse provenance. Fresh readiness and both full-condition audits passed.
+Eight/24-shot CER/WER are 0.749012/1.050841 and 0.755954/1.035140; both remain above the saved
+24-page LoRA reference. No new fit or follow-up experiment is included.
 
 ## Verified project position before ICL development (background)
 
