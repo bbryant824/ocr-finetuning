@@ -97,14 +97,14 @@ def _partial_evaluator(examples, predictions):
     )
 
 
-def _receipt(rows, records, config, source_run):
+def _receipt(rows, records, config, source_run, model_key="qwen"):
     index = {(row["page_id"], row["id"]): row for row in rows}
     expected = [
         (record["page_id"], region["id"]) for record in records for region in record["regions"]
     ]
     if len(index) != len(rows) or set(index) != set(expected):
         raise ValueError("ICL prediction coverage mismatch")
-    spec = config["models"]["qwen"]
+    spec = config["models"][model_key]
     return {
         "stage": 0,
         "source_run": source_run,
@@ -125,6 +125,29 @@ def _receipt(rows, records, config, source_run):
     }
 
 
+def check_input_capacity(batch, processor, model, images, max_new_tokens):
+    """Validate every image placeholder and context capacity for the two pinned models."""
+    tokens = batch["input_ids"].shape[1]
+    limit = min(
+        model.config.text_config.max_position_embeddings, processor.tokenizer.model_max_length
+    )
+    if tokens + max_new_tokens > limit:
+        raise ValueError("ICL context exceeds token limit")
+    if "image_grid_thw" in batch:
+        sizes = batch["image_grid_thw"]
+        expected = int(sizes.prod(dim=1).sum()) // processor.image_processor.merge_size**2
+    else:
+        sizes = batch["image_sizes"]
+        patch = processor.patch_size * processor.spatial_merge_size
+        expected = int((sizes // patch).prod(dim=1).sum())
+    if sizes.shape[0] != images:
+        raise ValueError("ICL image count mismatch")
+    visual = int((batch["input_ids"] == model.config.image_token_id).sum())
+    if visual != expected or visual <= 0:
+        raise ValueError("ICL image tokens were lost or truncated")
+    return visual
+
+
 @app.function(
     image=image.add_local_python_source("active_ocr"),
     gpu="L4",
@@ -136,6 +159,7 @@ def _receipt(rows, records, config, source_run):
 def run_queries(payload, run_name):
     """One bounded chunk; durable per-query cache retains work after interruption."""
     import torch
+    import transformers
 
     config, bank, queries = payload["config"], payload["bank"], payload["queries"]
     mode = payload.get("demonstration_mode", "paired")
@@ -162,7 +186,22 @@ def run_queries(payload, run_name):
             != record["image_sha256"]
         ):
             raise ValueError("ICL input image checksum mismatch")
-    processor, model = _load_model(config["models"]["qwen"])
+    processor, model = _load_model(config["models"][payload.get("model_key", "qwen")])
+    model_files = {}
+    if "model_files_sha256" in payload:
+        spec = config["models"][payload["model_key"]]
+        snapshot = (
+            Path(spec["cache_dir"])
+            / ("models--" + spec["repository"].replace("/", "--"))
+            / "snapshots"
+            / spec["revision"]
+        )
+        for name, expected in payload["model_files_sha256"].items():
+            with (snapshot / name).open("rb") as stream:
+                model_files[name] = hashlib.file_digest(stream, "sha256").hexdigest()
+            if model_files[name] != expected:
+                raise ValueError("pinned ICL model asset checksum mismatch")
+        output_volume.commit()
     model = model.to("cuda").eval()
     pages = {r["page_id"]: _load_page(r) for r in bank + queries}
     lines = {line_key(r, line): (r, line) for r in bank for line in r["regions"]}
@@ -185,21 +224,13 @@ def run_queries(payload, run_name):
             examples=examples,
             demonstration_mode=mode,
         )
-        if batch["image_grid_thw"].shape[0] != (1 if mode == "text-only" else shots + 1):
-            raise ValueError("ICL image count mismatch")
-        tokens = batch["input_ids"].shape[1]
-        limit = min(
-            model.config.text_config.max_position_embeddings, processor.tokenizer.model_max_length
+        visual = check_input_capacity(
+            batch,
+            processor,
+            model,
+            1 if mode == "text-only" else shots + 1,
+            decode["max_new_tokens"],
         )
-        if tokens + decode["max_new_tokens"] > limit:
-            raise ValueError("ICL context exceeds token limit")
-        expected = (
-            int(batch["image_grid_thw"].prod(dim=1).sum())
-            // processor.image_processor.merge_size**2
-        )
-        visual = int((batch["input_ids"] == model.config.image_token_id).sum())
-        if visual != expected:
-            raise ValueError("ICL image tokens were lost or truncated")
         return batch, ids, visual
 
     tasks = [
@@ -319,6 +350,21 @@ def run_queries(payload, run_name):
         "scope": payload["scope"],
         "gpu": torch.cuda.get_device_name(),
         "rows": rows,
+        **(
+            {
+                "model_files_sha256": model_files,
+                "runtime": {
+                    "transformers": transformers.__version__,
+                    "torch": torch.__version__,
+                    "processor_class": type(processor).__name__,
+                    "model_class": type(model).__name__,
+                    "context_limit": model.config.text_config.max_position_embeddings,
+                    "eos_token_ids": model.generation_config.eos_token_id,
+                },
+            }
+            if model_files
+            else {}
+        ),
     }
 
 

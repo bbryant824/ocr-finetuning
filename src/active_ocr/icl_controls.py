@@ -50,15 +50,24 @@ def require_gate(path, digest, outputs):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=("prepare", "check", "pilot", "full", "report"))
-    stage = parser.parse_args().stage
-    spec = json.loads(SPEC.read_text())
-    assert spec["demonstration_modes"] == ["text-only", "mismatched"]
+    parser.add_argument("--spec", type=Path, default=SPEC)
+    args = parser.parse_args()
+    stage, spec_path = args.stage, args.spec
+    spec = json.loads(spec_path.read_text())
+    model_key = spec.get("model_key", "qwen")
+    experiment = spec.get("experiment", "EXP-016")
+    fresh = model_key == "lighton"
+    assert spec["demonstration_modes"] == (
+        ["paired", "text-only", "mismatched"] if fresh else ["text-only", "mismatched"]
+    )
     assert spec["shots"] == [8, 24] and spec["seed"] == 824 and spec["chunk_lines"] == 64
     root, parent = Path(spec["output_directory"]), Path(spec["parent_run"])
     original = json.loads((parent / "recipe.json").read_text())
     assert sha_json(original) == "72119aa627a9211ca6363ec061637a572f5062a2c395e4510477c512b460e34d"
     config = json.loads(Path(spec["base_recipe"]).read_text())
     assert config == original["config"] and config["inference"]["repetition_penalty"] == 1.1
+    if fresh:
+        config["models"] = {model_key: spec["model"]}
     bank = json.loads((parent / "bank.json").read_text())
     assert sha_json(bank) == original["bank_sha256"]
     source = Pipeline.for_simulation(
@@ -97,12 +106,33 @@ def main():
         for name in (*original["code_sha256"], "icl_controls.py")
     }
     recipe = original | {
-        "experiment": "EXP-016",
+        "experiment": experiment,
         "controls": spec,
         "code_sha256": code,
-        "spec_file_sha256": hashlib.sha256(SPEC.read_bytes()).hexdigest(),
+        "spec_file_sha256": hashlib.sha256(spec_path.read_bytes()).hexdigest(),
         "queries": scopes,
     }
+    if fresh:
+        recipe["config"] = config
+        recipe["model_key"] = model_key
+        recipe["references"] = {}
+        assets = json.loads(Path(spec["model_assets_manifest"]).read_text())
+        assert (assets["repository"], assets["revision"]) == (
+            spec["model"]["repository"],
+            spec["model"]["revision"],
+        )
+        recipe["model_files_sha256"] = {
+            name: assets["files"][name]["sha256"]
+            for name in (
+                "config.json",
+                "generation_config.json",
+                "processor_config.json",
+                "chat_template.jinja",
+                "tokenizer.json",
+                "tokenizer_config.json",
+                "model.safetensors",
+            )
+        }
     digest = sha_json(recipe)
     _save(root / "recipe.json", recipe)
     _save(root / "bank.json", bank)
@@ -120,8 +150,8 @@ def main():
         assert [p["page_id"] for p in receipt["predictions"]] == [p["page_id"] for p in records]
         assert (receipt["source_run"], receipt["model_repository"], receipt["model_revision"]) == (
             source.id,
-            config["models"]["qwen"]["repository"],
-            config["models"]["qwen"]["revision"],
+            config["models"][model_key]["repository"],
+            config["models"][model_key]["revision"],
         )
         for page, record in zip(receipt["predictions"], records, strict=True):
             assert [r["id"] for r in page["regions"]] == [r["id"] for r in record["regions"]]
@@ -132,7 +162,7 @@ def main():
             {p["page_id"]: p["regions"] for p in records},
             oracle,
             [p["page_id"] for p in records],
-            "EXP-016",
+            experiment,
             evaluator=_partial_evaluator if scope == "check" else None,
         )
         return {
@@ -173,41 +203,45 @@ def main():
         return computed
 
     refs = {"pilot": {}, "full": {}}
-    pilot_path = Path(spec["pilot_reference"]) / "pilot.json"
-    pilot_recipe = json.loads(pilot_path.with_name("recipe.json").read_text())
-    assert (
-        pilot_recipe["config"] == config and pilot_recipe["bank_sha256"] == original["bank_sha256"]
-    )
-    assert pilot_recipe["validation_ids"] == [p["page_id"] for p in scopes["pilot"]]
-    for n in (0, 8, 24):
-        refs["pilot"]["zero" if n == 0 else f"paired-{n}"] = reference(pilot_path, "pilot", str(n))
-    for n in (8, 24):
-        refs["full"][f"paired-{n}"] = reference(parent / "full" / f"shot-{n}.json", "full")
-    historical = json.loads((parent / "references.json").read_text())
-    for name, key in (("original", "zero"), ("lora24", "lora24")):
-        origin = historical[name]["reused_from"]
-        path = Path(origin["path"])
-        assert hashlib.sha256(path.read_bytes()).hexdigest() == origin["receipt_sha256"]
-        executed = json.loads(path.read_text())
-        assert executed["receipt"] == historical[name]["receipt"]
-        ref_recipe = json.loads(path.with_name("recipe.json").read_text())
-        assert sha_json(ref_recipe) == origin["recipe_sha256"]
-        for field in ("source_run", "input_bundle", "modal_image", "validation_ids"):
-            assert ref_recipe[field] == original[field]
-        old_config = {
-            k: v for k, v in ref_recipe["config"].items() if k not in ("icl", "selection")
-        }
-        assert old_config == {k: v for k, v in config.items() if k not in ("icl", "selection")}
-        refs["full"][key] = reference(path, "full")
-        if key == "lora24":
-            assert executed["receipt"]["selected_ids"] == [p["page_id"] for p in bank]
-            weights = Path(
-                ".local/models/exp-013/random/seed-824/round-1/adapter/adapter_model.safetensors"
+    if not fresh:
+        pilot_path = Path(spec["pilot_reference"]) / "pilot.json"
+        pilot_recipe = json.loads(pilot_path.with_name("recipe.json").read_text())
+        assert (
+            pilot_recipe["config"] == config
+            and pilot_recipe["bank_sha256"] == original["bank_sha256"]
+        )
+        assert pilot_recipe["validation_ids"] == [p["page_id"] for p in scopes["pilot"]]
+        for n in (0, 8, 24):
+            refs["pilot"]["zero" if n == 0 else f"paired-{n}"] = reference(
+                pilot_path, "pilot", str(n)
             )
-            assert (
-                hashlib.sha256(weights.read_bytes()).hexdigest()
-                == executed["receipt"]["adapter_sha256"]
-            )
+        for n in (8, 24):
+            refs["full"][f"paired-{n}"] = reference(parent / "full" / f"shot-{n}.json", "full")
+        historical = json.loads((parent / "references.json").read_text())
+        for name, key in (("original", "zero"), ("lora24", "lora24")):
+            origin = historical[name]["reused_from"]
+            path = Path(origin["path"])
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == origin["receipt_sha256"]
+            executed = json.loads(path.read_text())
+            assert executed["receipt"] == historical[name]["receipt"]
+            ref_recipe = json.loads(path.with_name("recipe.json").read_text())
+            assert sha_json(ref_recipe) == origin["recipe_sha256"]
+            for field in ("source_run", "input_bundle", "modal_image", "validation_ids"):
+                assert ref_recipe[field] == original[field]
+            old_config = {
+                k: v for k, v in ref_recipe["config"].items() if k not in ("icl", "selection")
+            }
+            assert old_config == {k: v for k, v in config.items() if k not in ("icl", "selection")}
+            refs["full"][key] = reference(path, "full")
+            if key == "lora24":
+                assert executed["receipt"]["selected_ids"] == [p["page_id"] for p in bank]
+                weights = Path(
+                    ".local/models/exp-013/random/seed-824/round-1/adapter/adapter_model.safetensors"
+                )
+                assert (
+                    hashlib.sha256(weights.read_bytes()).hexdigest()
+                    == executed["receipt"]["adapter_sha256"]
+                )
     for scope, reports in refs.items():
         _save(root / scope / "references.json", reports)
     print(
@@ -256,7 +290,7 @@ def main():
                 )
                 if mode == "mismatched":
                     assert all(a != b for a, b in zip(ids, image_ids, strict=True))
-            receipt = _receipt(selected, records, config, source.id)
+            receipt = _receipt(selected, records, config, source.id, model_key)
             receipt.update(
                 recipe_sha256=digest,
                 validation_ids=[p["page_id"] for p in records],
@@ -295,12 +329,10 @@ def main():
     if stage in ("pilot", "full"):
         require_gate(root / "readiness.json", digest, 56)
     if stage == "full":
-        require_gate(root / "pilot-ready.json", digest, 728)
+        require_gate(root / "pilot-ready.json", digest, 1274 if fresh else 728)
     records = scopes[stage]
-    modes = (
-        ["paired", *spec["demonstration_modes"]]
-        if stage == "check"
-        else spec["demonstration_modes"]
+    modes = list(
+        dict.fromkeys((["paired"] if stage == "check" else []) + spec["demonstration_modes"])
     )
     with modal.enable_output(), app.run(environment_name="main"):
         outputs = 0
@@ -331,8 +363,13 @@ def main():
                         "code_sha256": code,
                         "app_id": app.app_id,
                         "demonstration_mode": mode,
+                        "model_key": model_key,
                     }
-                    call = run_queries.spawn(payload, f"icl-exp016-{mode}-seed824")
+                    if fresh:
+                        payload["model_files_sha256"] = recipe["model_files_sha256"]
+                    call = run_queries.spawn(
+                        payload, f"icl-{experiment.lower().replace('-', '')}-{mode}-seed824"
+                    )
                     event = {
                         "app_id": app.app_id,
                         "call_id": call.object_id,
@@ -352,11 +389,13 @@ def main():
                     and saved["scope"] == stage
                     and "L4" in saved["gpu"]
                 )
+                if fresh:
+                    assert saved["model_files_sha256"] == recipe["model_files_sha256"]
                 all_rows.extend(saved["rows"])
             reports = audit(all_rows, mode, records, stage)
             _save(root / stage / mode / "results.json", reports)
             outputs += len(all_rows)
-            if mode == "paired":
+            if mode == "paired" and not fresh:
                 for n in (0, 8, 24):
                     old = json.loads((parent / "check" / f"shot-{n}.json").read_text())
                     assert reports[str(n)]["page_metrics"] == old["metrics"]
@@ -395,7 +434,7 @@ def main():
                 flush=True,
             )
         if stage in ("check", "pilot"):
-            assert outputs == (56 if stage == "check" else 728)
+            assert outputs == (56 if stage == "check" else 1274 if fresh else 728)
             _save(
                 root / ("readiness.json" if stage == "check" else "pilot-ready.json"),
                 {"passed": True, "recipe_sha256": digest, "outputs": outputs, "app_id": app.app_id},

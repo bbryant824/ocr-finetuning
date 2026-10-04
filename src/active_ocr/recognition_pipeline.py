@@ -49,10 +49,11 @@ def _load_model(spec):
     if spec["source"] == "huggingface":
         source = spec["repository"]
         revision = spec["revision"]
+        options = {"cache_dir": spec["cache_dir"]} if "cache_dir" in spec else {}
         return (
-            LightOnOcrProcessor.from_pretrained(source, revision=revision),
+            LightOnOcrProcessor.from_pretrained(source, revision=revision, **options),
             LightOnOcrForConditionalGeneration.from_pretrained(
-                source, revision=revision, torch_dtype=torch.bfloat16
+                source, revision=revision, torch_dtype=torch.bfloat16, **options
             ),
         )
     raise ValueError("unsupported pinned model source")

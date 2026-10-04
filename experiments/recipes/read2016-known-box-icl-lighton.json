@@ -1,0 +1,40 @@
+{
+  "experiment": "EXP-017",
+  "model_key": "lighton",
+  "model": {
+    "repository": "lightonai/LightOnOCR-2-1B-base",
+    "revision": "c1bc8eb6625be7b34178ff53481b242f7b8ffcb8",
+    "source": "huggingface",
+    "prompt": "Transcribe only the text in this cropped line. Return only the transcription.",
+    "cache_dir": "/output/.hf-cache/lightonocr-2-1b-base-c1bc8eb"
+  },
+  "base_recipe": "experiments/recipes/read2016-known-box-icl.json",
+  "parent_run": ".local/verification/exp-015/icl-exp015-random-seed824",
+  "output_directory": ".local/verification/exp-017/icl-exp017-lighton-seed824",
+  "comparison_run": ".local/verification/exp-016/icl-exp016-controls-seed824",
+  "demonstration_modes": [
+    "paired",
+    "text-only",
+    "mismatched"
+  ],
+  "shots": [
+    8,
+    24
+  ],
+  "seed": 824,
+  "chunk_lines": 64,
+  "primary_metric": "line-text-nfc-raw-v1; retain capped text",
+  "secondary_metric": "page-text-nfc-v1; capped lines empty",
+  "prompt_policy": "Keep the Qwen crop instruction and original chat template for the requested fixed-protocol replication; LightOnOCR was trained for prompt-free OCR.",
+  "baseline": "Fresh LightOnOCR line-crop zero-shot; EXP-009 whole-page results are incompatible.",
+  "execution_bound": {
+    "check_outputs": 56,
+    "pilot_outputs": 1274,
+    "full_outputs": 6027,
+    "max_serial_calls": 54,
+    "gpu": "L4",
+    "cpu": 2,
+    "memory_mib": 32768
+  },
+  "model_assets_manifest": ".local/assets/lightonocr-2-1b-base-c1bc8eb/asset-manifest.json"
+}

@@ -82,3 +82,45 @@ def test_gates_reject_missing_changed_or_incomplete_evidence(tmp_path):
     for digest, outputs in [("other", 56), ("recipe", 55)]:
         with pytest.raises(ValueError, match="gate"):
             require_gate(path, digest, outputs)
+
+
+def test_lighton_capacity_and_receipt_keep_model_identity():
+    from types import SimpleNamespace
+
+    import torch
+
+    from active_ocr.icl import _receipt, check_input_capacity
+
+    processor = SimpleNamespace(
+        patch_size=14,
+        spatial_merge_size=2,
+        tokenizer=SimpleNamespace(model_max_length=16384),
+    )
+    model = SimpleNamespace(
+        config=SimpleNamespace(
+            image_token_id=99,
+            text_config=SimpleNamespace(max_position_embeddings=16384),
+        )
+    )
+    batch = {
+        "input_ids": torch.tensor([[99, 99, 1, 99, 99, 2]]),
+        "image_sizes": torch.tensor([[28, 56], [28, 56]]),
+    }
+    assert check_input_capacity(batch, processor, model, 2, 64) == 4
+    with pytest.raises(ValueError, match="image count"):
+        check_input_capacity(batch, processor, model, 1, 64)
+    with pytest.raises(ValueError, match="lost"):
+        check_input_capacity(
+            batch | {"input_ids": torch.tensor([[99, 1]])}, processor, model, 2, 64
+        )
+    with pytest.raises(ValueError, match="token limit"):
+        check_input_capacity(batch, processor, model, 2, 16384)
+    config = {"models": {"lighton": {"repository": "lighton", "revision": "pinned"}}}
+    receipt = _receipt(
+        [{"page_id": "val", "id": "line"}],
+        [{"page_id": "val", "regions": [{"id": "line"}]}],
+        config,
+        "source",
+        "lighton",
+    )
+    assert (receipt["model_repository"], receipt["model_revision"]) == ("lighton", "pinned")
