@@ -1,0 +1,13 @@
+{
+  "experiment": "EXP-015",
+  "parent_run": ".local/verification/exp-015/icl-exp015-random-seed824",
+  "output_directory": ".local/verification/exp-015/decoding-ablation",
+  "penalties": [1.1, 1.0],
+  "shots": [0, 8, 24],
+  "seed": 824,
+  "pilot_slice": "VAL8",
+  "pilot_pages": 8,
+  "pilot_lines": 182,
+  "chunk_lines": 64,
+  "decision_rule": "Adopt 1.0 only if it lowers the equal-weight mean existing page CER and mean raw-output line CER across 0/8/24 shots on VAL8; otherwise retain 1.1. WER, caps and script errors are diagnostics."
+}
