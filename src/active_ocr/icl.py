@@ -138,6 +138,9 @@ def run_queries(payload, run_name):
     import torch
 
     config, bank, queries = payload["config"], payload["bank"], payload["queries"]
+    mode = payload.get("demonstration_mode", "paired")
+    if mode not in ("paired", "text-only", "mismatched"):
+        raise ValueError("invalid demonstration mode")
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}", run_name):
         raise ValueError("unsafe ICL run name")
     _check_records(bank, labelled=True)
@@ -174,8 +177,15 @@ def run_queries(payload, run_name):
             payload["bank_sha256"],
         )
         examples = [(pages[lines[key][0]["page_id"]], lines[key][1]) for key in ids]
-        batch = _inputs(processor, pages[record["page_id"]], region, config, examples=examples)
-        if batch["image_grid_thw"].shape[0] != shots + 1:
+        batch = _inputs(
+            processor,
+            pages[record["page_id"]],
+            region,
+            config,
+            examples=examples,
+            demonstration_mode=mode,
+        )
+        if batch["image_grid_thw"].shape[0] != (1 if mode == "text-only" else shots + 1):
             raise ValueError("ICL image count mismatch")
         tokens = batch["input_ids"].shape[1]
         limit = min(
@@ -209,9 +219,20 @@ def run_queries(payload, run_name):
     rows = []
     for shots, record, region in tasks:
         batch, ids, visual = inputs(record, region, shots)
-        identity = sha_json(
-            [payload["recipe_sha256"], payload["scope"], shots, line_key(record, region), ids]
+        image_ids = (
+            [] if mode == "text-only" else ids[1:] + ids[:1] if mode == "mismatched" else ids
         )
+        image_count = 1 if mode == "text-only" else shots + 1
+        identity_parts = [
+            payload["recipe_sha256"],
+            payload["scope"],
+            shots,
+            line_key(record, region),
+            ids,
+        ]
+        if "demonstration_mode" in payload:
+            identity_parts.append(mode)
+        identity = sha_json(identity_parts)
         path = Path("/output") / run_name / payload["scope"] / f"shot-{shots}" / f"{identity}.json"
         row = read_cache(path, identity)
         if row is None:
@@ -229,6 +250,10 @@ def run_queries(payload, run_name):
                 )
             torch.cuda.synchronize()
             output = generated[0, tokens:]
+            output_ids = output.tolist()
+            eos = model.generation_config.eos_token_id
+            eos_ids = eos if isinstance(eos, list) else [eos]
+            ended_with_eos = bool(output_ids and output_ids[-1] in eos_ids)
             row = {
                 "page_id": record["page_id"],
                 "id": region["id"],
@@ -241,7 +266,20 @@ def run_queries(payload, run_name):
                 "truncated": len(output) >= decode["max_new_tokens"],
                 "input_tokens": tokens,
                 "visual_tokens": visual,
-                "images": shots + 1,
+                "images": image_count,
+                "demonstration_mode": mode,
+                "demo_image_ids": image_ids,
+                "same_target_pairs": sum(
+                    lines[text_id][1]["target"] == lines[image_id][1]["target"]
+                    for text_id, image_id in zip(ids, image_ids, strict=False)
+                ),
+                "output_token_ids": output_ids,
+                "ended_with_eos": ended_with_eos,
+                "stop_reason": "eos"
+                if ended_with_eos
+                else "length"
+                if len(output_ids) >= decode["max_new_tokens"]
+                else "other",
                 "generation_seconds": time.perf_counter() - start,
                 "peak_allocated_bytes": torch.cuda.max_memory_allocated(),
                 "peak_reserved_bytes": torch.cuda.max_memory_reserved(),
@@ -265,9 +303,13 @@ def run_queries(payload, run_name):
             region["id"],
             shots,
             ids,
-            shots + 1,
+            image_count,
         ):
             raise ValueError("cached ICL row differs from query/context")
+        if "demonstration_mode" in payload and (
+            row["demonstration_mode"] != mode or row["demo_image_ids"] != image_ids
+        ):
+            raise ValueError("cached ICL row differs from demonstration mode")
         rows.append(row)
         if len(rows) % 8 == 0:
             output_volume.commit()

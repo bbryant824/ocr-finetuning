@@ -1,0 +1,15 @@
+{
+  "experiment": "EXP-016",
+  "base_recipe": "experiments/recipes/read2016-known-box-icl.json",
+  "parent_run": ".local/verification/exp-015/icl-exp015-random-seed824",
+  "pilot_reference": ".local/verification/exp-015/decoding-ablation/penalty-1.1",
+  "output_directory": ".local/verification/exp-016/icl-exp016-controls-seed824",
+  "demonstration_modes": ["text-only", "mismatched"],
+  "shots": [8, 24],
+  "seed": 824,
+  "chunk_lines": 64,
+  "primary_evaluator": "line-text-nfc-raw-v1",
+  "mismatch_permutation": "cyclic-left-1-with-transcript-order-fixed",
+  "full_gate": "matched readiness and complete VAL8 coverage; run both modes and shot counts without choosing by pilot scores",
+  "reference_policy": "reuse matching original, paired ICL and LoRA24 outputs; recompute all metrics and retain executed provenance"
+}

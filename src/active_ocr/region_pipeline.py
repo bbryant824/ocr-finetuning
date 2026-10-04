@@ -54,7 +54,13 @@ def _crop(page, box, padding):
     )
 
 
-def _inputs(processor, page, region, config, *, train=False, examples=()):
+def _inputs(
+    processor, page, region, config, *, train=False, examples=(), demonstration_mode="paired"
+):
+    if demonstration_mode not in ("paired", "text-only", "mismatched") or (
+        train and demonstration_mode != "paired"
+    ):
+        raise ValueError("invalid demonstration mode")
     if train and examples:
         raise ValueError("ICL examples are not supported during training")
 
@@ -77,6 +83,14 @@ def _inputs(processor, page, region, config, *, train=False, examples=()):
                 {"role": "assistant", "content": [{"type": "text", "text": example["target"]}]},
             ]
         )
+    users = messages[::2]
+    if demonstration_mode == "text-only":
+        for message in users:
+            message["content"] = [item for item in message["content"] if item["type"] != "image"]
+    elif demonstration_mode == "mismatched":
+        images = [message["content"][0]["image"] for message in users]
+        for index, message in enumerate(users):
+            message["content"][0]["image"] = images[(index + 1) % len(images)]
     user = user_message(page, region)
     messages.append(user)
     prompt = processor.apply_chat_template(
