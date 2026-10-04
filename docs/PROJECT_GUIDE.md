@@ -1,6 +1,6 @@
 # Active learning for historical OCR
 
-**Current stage:** [EXP-009](../results/EXP-009.md) and [EXP-010](../results/EXP-010.md) completed whole-page random controls; [EXP-011](../results/EXP-011.md) completed the three-seed Qwen page-selection comparison. [EXP-012](../results/EXP-012.md) completed one random-seed baseline for a separate Qwen **known-box line-recognition** study on L4. It crops supplied READ2016 text-line boxes and returns ordered text; it does not predict coordinates or test detection.
+**Current stage:** [EXP-009–011](../results/README.md) completed whole-page controls/selection comparisons; [EXP-012](../results/EXP-012.md) and [EXP-013](../results/EXP-013.md) completed known-box recognition/selection pilots. [EXP-015](../results/EXP-015.md) and [EXP-016](../results/EXP-016.md) completed random ICL and content controls: text examples give modest gains, mismatched pairs harm OCR, and the saved LoRA reference remains stronger. Supplied READ2016 line boxes are cropped and transcribed in order; this is recognition at known locations, not detection.
 
 [EXP-013](../results/EXP-013.md) completed four strategy-first known-box arms at 24/48/72 pages (configured seed 824), with all 12 adapters audited and mirrored. It reused only EXP-012’s original-model validation. Uncertainty methods led at 24 pages; random led at 48 and 72. Three sampled lines score each page; all acquired lines train and all VAL42 lines evaluate. This remains a pilot with uncontrolled pre-construction adapter initialization.
 
@@ -11,7 +11,8 @@
 | `src/active_ocr/recognition_pipeline.py` | Current common LightOnOCR/Qwen experiment runner; Modal fits/inference, local selection and scoring. |
 | `src/active_ocr/acquisition_pipeline.py` | Qwen model-informed TRAIN-page scoring and selection, using the same fit/evaluation runner. |
 | `src/active_ocr/region_pipeline.py` | Known-box fit/acquisition plus the explicit `--icl-stage prepare/check/evaluate` entrypoint. |
-| `src/active_ocr/icl.py` | Random line demonstrations, checked reference reuse, L4 readiness gate and resumable per-query inference. |
+| `src/active_ocr/icl.py` | Random line demonstrations, content controls, checked reference reuse and resumable L4 per-query inference. |
+| `src/active_ocr/icl_controls.py` | EXP-016 transcript-only/mismatched controls: preparation, readiness, VAL8 pilot, VAL42 evaluation and local reporting. |
 | `experiments/recipes/read2016-page-text.json` | Frozen settings for the whole-page controls. |
 | `experiments/recipes/read2016-known-box-regions.json` | Separate EXP-012 crop, L4 training, inference and page-budget settings. |
 | `experiments/recipes/read2016-known-box-al-24.json` | EXP-013 independent strategy-first 24/48/72-page settings; other training/decoding values match EXP-012. |
@@ -79,4 +80,4 @@ random ICL at 0/8/24 line examples from EXP-013's 24-page bank. Local and small 
 0.803646/1.087103 but remain worse than the saved 24-page LoRA control 0.410374/0.825421.
 More shots gave mixed CER/WER results. No new training or production-code change was needed;
 all 1,722 predictions are saved and both apps stopped. Historical initialization and validation
-limitations remain recorded; no further experiment has started.
+limitations remain recorded. [EXP-016](../experiments/EXP-016.md) completed the matched content-control study after local, L4-readiness and VAL8 gates. Transcript-only raw line CER .805965/.798095 is close to paired .798331/.808924; mismatched .968874/.948695 is worse than zero .863601, while saved LoRA24 is .430499. All 4,228 outputs are verified and all three apps stopped; no new training. [Its reader report](../results/EXP-016.md) explains the raw-line versus historical page metrics.
