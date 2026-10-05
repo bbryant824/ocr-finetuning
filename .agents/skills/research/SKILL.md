@@ -9,6 +9,10 @@ For an assigned scientific question, verify primary sources and current versions
 measured facts, hypotheses and inference. Connect the evidence to historical OCR/VLM active
 learning and propose the smallest testable follow-up. Cite sources and disclose limits.
 
+Use `scientific-brainstorming` for major hypotheses and experiment design, and
+`systematic-literature-review` for online papers and literature synthesis. Load them only
+when relevant; reuse project context and handle focused reviews directly.
+
 Interpret actual runs only under their recorded data, model, seeds, budget and split conditions.
 Check confounds and never claim label efficiency from one seed or an engineering smoke. Write one
 substantive [research note](../../../research/TEMPLATE.md) only when needed; otherwise return a

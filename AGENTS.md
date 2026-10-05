@@ -32,6 +32,10 @@ engineering run and quality failure. Current assignments and resource decisions 
   what is needed now; reuse existing code and tools before adding dependencies or coordination.
   Choose the smallest correct change without sacrificing research integrity, data isolation,
   recovery or required approval.
+- Research and Manager use `scientific-brainstorming` for major research ideas/study design,
+  and `systematic-literature-review` for online paper reviews and evidence synthesis. Both are
+  installed in the user Codex skills directory. Load only the relevant skill when needed,
+  reuse project context, and keep reviews proportional; no mandatory extra workers or reports.
 - Search first; read only relevant files/sections and reuse unchanged evidence. Test affected
   behavior first; broaden only for a concrete risk. Paid GPU work needs a bounded approved run.
 - For every full active-learning run, evaluate the untrained base model at zero labelled pages
