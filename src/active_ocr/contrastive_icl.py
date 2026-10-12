@@ -362,6 +362,18 @@ def run_chunk(payload):
     }
 
 
+def group_queries(records):
+    """Collate flattened line chunks into the existing one-record-per-page schema."""
+    grouped = {}
+    for record in records:
+        grouped.setdefault(record["page_id"], record | {"regions": []})["regions"].extend(
+            record["regions"]
+        )
+    result = list(grouped.values())
+    _check_records(result, labelled=False)
+    return result
+
+
 def _source(config):
     from active_ocr.pipeline import Pipeline
 
@@ -596,6 +608,11 @@ def main():
     bank = json.loads((root / "bank.json").read_text())
     assert sha_json(bank) == recipe["bank_sha256"]
     digest = sha_json(recipe)
+    if args.stage == "check" and (root / "readiness.json").exists():
+        gate = json.loads((root / "readiness.json").read_text())
+        assert gate["passed"] and gate["recipe_sha256"] == digest and gate["queries"] == 3
+        print(json.dumps({"readiness_cache": True, "recipe_sha256": digest}), flush=True)
+        return
     if args.stage == "report":
         report(recipe, root)
         return
@@ -618,7 +635,7 @@ def main():
                 payload = {
                     "recipe": recipe,
                     "bank": bank,
-                    "queries": part,
+                    "queries": group_queries(part),
                     "scope": args.stage,
                     "app_id": app.app_id,
                 }

@@ -89,3 +89,18 @@ def test_plausibility_uses_processed_positive_logits_and_rejects_nonfinite_input
     assert torch.equal(zero, penalty(ids, positive.clone()))
     with pytest.raises(ValueError, match="finite"):
         decoder.contrastive_scores(positive, negative * torch.nan, ids, penalty)
+
+
+def test_flat_line_batch_is_grouped_without_losing_region_order():
+    decoder = api()
+    group = getattr(decoder, "group_queries", None)
+    assert callable(group), "flat pilot batches need page grouping"
+    box = {"x": 0, "y": 0, "width": 1, "height": 1}
+    page = {"page_id": "validation:a", "image_sha256": "0" * 64, "width": 1, "height": 1}
+    flat = [page | {"regions": [{"id": r, "box": box}]} for r in ("a", "b")]
+    flat.append(page | {"page_id": "validation:b", "regions": [{"id": "c", "box": box}]})
+    grouped = group(flat)
+    decoder._check_records(grouped, labelled=False)
+    assert [p["page_id"] for p in grouped] == ["validation:a", "validation:b"]
+    assert [[r["id"] for r in p["regions"]] for p in grouped] == [["a", "b"], ["c"]]
+    assert [len(p["regions"]) for p in flat] == [1, 1, 1]
