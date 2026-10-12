@@ -1,0 +1,20 @@
+{
+  "study": "contrastive-icl-development",
+  "parent_run": ".local/verification/exp-015/icl-exp015-random-seed824",
+  "controls_run": ".local/verification/exp-016/icl-exp016-controls-seed824",
+  "paired_pilot": ".local/verification/exp-015/decoding-ablation/penalty-1.1/pilot.json",
+  "model_assets": ".local/assets/qwen3-vl-4b-ebb281e",
+  "output_directory": ".local/verification/contrastive-icl-pilot-2026-10-12",
+  "shots": 8,
+  "seed": 824,
+  "alpha": 1,
+  "beta": 0.1,
+  "readiness_queries": 3,
+  "pilot_lines": 182,
+  "diagnostic_pairs": 6,
+  "chunk_lines": 64,
+  "primary_evaluator": "line-text-nfc-raw-v1",
+  "negative_context": "cyclic-left-1-with-transcript-order-fixed",
+  "lens_prefix": "observed-transcripts-only-eight-token-ids",
+  "scope": "development checks, VAL8 pilot and small diagnostic only; no EXP ID or full VAL42"
+}
