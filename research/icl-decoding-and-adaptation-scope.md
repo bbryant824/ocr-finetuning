@@ -1,6 +1,6 @@
 # Historical OCR: contrastive ICL and visual versus linguistic evidence
 
-Owner: Manager with the existing Research agent. Updated: **12 October 2026**. Status: **bounded development completed and audited on 12 October 2026. VAL8 pilot and six-pair diagnostic passed engineering checks; no full experiment or EXP-018.**. Inspected repository: main at `b5dc6cf403c10a933879fac875d83039205b0879`.
+Owner: Manager with the existing Research agent. Updated: **17 October 2026**. Status: **development and full EXP-018 validation completed and audited**. This note preserves the method and 12 October development record; the latest full results are in [EXP-018](../results/EXP-018.md), with [Research interpretation and next plan](exp-018-contrastive-icl-analysis.md).
 
 This revision narrows the earlier proposal to one step: **eight-shot association-contrastive decoding**, with a small query-image and logit-lens diagnostic. The earlier fine-tuning ablations, Base/chat comparison and larger execution matrix are deferred. The complete 11 October proposal is preserved privately at `.local/research-review-archive/2026-10-11-icl-decoding-and-adaptation-scope.md.gz`; previous experiment and research records remain intact.
 
@@ -237,3 +237,8 @@ From the repository root with existing assets and Modal authentication:
 ```
 
 Matching completed stages/queries are reused, not relabeled as new executions. Preserve the source/config version when replaying. **Next review:** consider a locked eight-shot VAL42 confirmation using the same method and verified full-slice controls. A full experiment and EXP-018 assignment require the user's next approval; no 24-shot, new fits, other model families or strategy matrix has been started.
+
+
+### Full follow-up — 17 October 2026
+
+The approved [EXP-018](../results/EXP-018.md) completed all 861 lines of the established VAL42 slice with the unchanged decoder. VAL42 and the 182-line development pilot are disjoint, correcting the earlier chat assumption. Raw CER/WER is 75.5429%/108.2243%, versus 79.8331%/112.1121% for paired eight-shot and 80.5965%/113.0093% for transcript-only eight-shot. All outputs and controls passed independent audit; there are no empty/length-capped new outputs. The single app is stopped. The full reports supersede the old pending-approval status above; no follow-up study has been launched.
