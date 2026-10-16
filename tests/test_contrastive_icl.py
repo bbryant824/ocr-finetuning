@@ -104,3 +104,35 @@ def test_flat_line_batch_is_grouped_without_losing_region_order():
     assert [p["page_id"] for p in grouped] == ["validation:a", "validation:b"]
     assert [[r["id"] for r in p["regions"]] for p in grouped] == [["a", "b"], ["c"]]
     assert [len(p["regions"]) for p in flat] == [1, 1, 1]
+
+
+def test_reference_reuse_checks_model_slice_adapter_and_supports():
+    import copy
+
+    check = getattr(api(), "check_reference", None)
+    assert callable(check), "reference reuse needs identity and ordered coverage validation"
+    config = {"models": {"qwen": {"repository": "qwen", "revision": "pinned"}}}
+    queries = [{"page_id": "validation:a", "regions": [{"id": "line1"}]}]
+    contexts = {"validation:a/line1": ["train:b/line2"]}
+    receipt = {
+        "source_run": "source", "model_repository": "qwen", "model_revision": "pinned",
+        "adapter_sha256": None,
+        "predictions": [{"page_id": "validation:a", "regions": [
+            {"id": "line1", "demo_ids": ["train:b/line2"], "text": "output"}
+        ]}],
+    }
+    assert list(check(receipt, queries, config, "source", contexts)) == ["validation:a/line1"]
+    for field, value in [("source_run", "other"), ("model_revision", "other"),
+                         ("adapter_sha256", "unexpected")]:
+        bad = copy.deepcopy(receipt)
+        bad[field] = value
+        with pytest.raises(ValueError):
+            check(bad, queries, config, "source", contexts)
+    for changes in [[], [{"page_id": "validation:a", "regions": [{"id": "wrong"}]}]]:
+        bad = receipt | {"predictions": changes}
+        with pytest.raises(ValueError):
+            check(bad, queries, config, "source", contexts)
+    bad = copy.deepcopy(receipt)
+    bad["predictions"][0]["regions"][0]["demo_ids"] = ["train:wrong/line2"]
+    with pytest.raises(ValueError):
+        check(bad, queries, config, "source", contexts)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import math
@@ -392,7 +393,24 @@ def _source(config):
     return source, pages, truth, geometry
 
 
-def prepare(spec, root):
+def check_reference(receipt, queries, config, source_id, contexts=None, *, adapter=False):
+    """Require the pinned model, exact ordered slice and matched support assignments."""
+    model = config["models"]["qwen"]
+    if (receipt["source_run"], receipt["model_repository"], receipt["model_revision"]) != (
+        source_id, model["repository"], model["revision"]
+    ) or bool(receipt["adapter_sha256"]) != adapter:
+        raise ValueError("reference source, model or adapter mismatch")
+    expected = [(p["page_id"], r["id"]) for p in queries for r in p["regions"]]
+    actual = [(p["page_id"], r["id"]) for p in receipt["predictions"] for r in p["regions"]]
+    if actual != expected or len(set(actual)) != len(expected):
+        raise ValueError("reference ordered query coverage mismatch")
+    rows = {line_key(p, r): r for p in receipt["predictions"] for r in p["regions"]}
+    if contexts is not None and any(r.get("demo_ids") != contexts[k] for k, r in rows.items()):
+        raise ValueError("reference support assignment mismatch")
+    return rows
+
+
+def prepare(spec, root, spec_path=SPEC):
     from PIL import Image
     from transformers import AutoProcessor
 
@@ -412,10 +430,14 @@ def prepare(spec, root):
         assert pages[pid].split.value == "train" and record == _record(
             pages[pid], geometry[pid], truth[pid]
         )
-    queries = [_record(pages[pid], geometry[pid]) for pid in sorted(config["validation_page_ids"])]
-    assert (
-        len(queries) == 8 and sum(len(r["regions"]) for r in queries) == spec["pilot_lines"] == 182
-    )
+    full = spec.get("evaluation_scope") == "full"
+    query_ids = original["validation_ids"] if full else sorted(config["validation_page_ids"])
+    queries = [_record(pages[pid], geometry[pid]) for pid in query_ids]
+    assert len(queries) == (42 if full else 8)
+    assert sum(len(r["regions"]) for r in queries) == (861 if full else spec["pilot_lines"])
+    if full:
+        assert not set(query_ids) & set(config["validation_page_ids"])
+        assert spec["evaluation_lines"] == 861 and spec["diagnostic_pairs"] == 0
     assert all(pages[r["page_id"]].split.value == "validation" for r in queries)
     _check_records(bank, labelled=True)
     _check_records(queries, labelled=False)
@@ -437,40 +459,42 @@ def prepare(spec, root):
         control_recipe["config"] == config
         and control_recipe["bank_sha256"] == original["bank_sha256"]
     )
-    references, reference_rows = {}, {}
-    for name, path, item in (
+    entries = (
         ("zero", Path(spec["paired_pilot"]), "0"),
         ("paired-eight", Path(spec["paired_pilot"]), "8"),
         ("transcripts-only-eight", control_root / "pilot/text-only/results.json", "8"),
         ("mismatched-eight", control_root / "pilot/mismatched/results.json", "8"),
-    ):
-        data = json.loads(path.read_text())[item]
+    )
+    if full:
+        entries = (
+            ("zero", Path(control_recipe["references"]["original"]["path"]), None),
+            ("paired-eight", parent / "full/shot-8.json", None),
+            ("transcripts-only-eight", control_root / "full/text-only/results.json", "8"),
+            ("mismatched-eight", control_root / "full/mismatched/results.json", "8"),
+            ("lora24", Path(control_recipe["references"]["lora24"]["path"]), None),
+        )
+        old_summary = json.loads((control_root / "summary.json").read_text())
+    references, reference_rows = {}, {}
+    for name, path, item in entries:
+        data = json.loads(path.read_text())
+        data = data[item] if item is not None else data
         receipt = data["receipt"]
-        assert receipt["source_run"] == source.id and receipt["adapter_sha256"] is None
-        assert (receipt["model_repository"], receipt["model_revision"]) == (
-            config["models"]["qwen"]["repository"],
-            config["models"]["qwen"]["revision"],
+        rows = check_reference(
+            receipt, queries, config, source.id,
+            contexts if name not in ("zero", "lora24") else None, adapter=name == "lora24",
         )
-        assert [
-            (p["page_id"], [r["id"] for r in p["regions"]]) for p in receipt["predictions"]
-        ] == [(p["page_id"], [r["id"] for r in p["regions"]]) for p in queries]
-        computed = raw_metrics(receipt, truth)
-        assert all(
-            computed[k] == data["raw_line"][k]
-            for k in (
-                "cer",
-                "wer",
-                "char_edits",
-                "word_edits",
-                "reference_chars",
-                "reference_words",
+        if name == "lora24":
+            adapter = Path(
+                ".local/models/exp-013/random/seed-824/round-1/adapter/adapter_model.safetensors"
             )
-        )
-        rows = {line_key(p, r): r for p in receipt["predictions"] for r in p["regions"]}
-        assert all(
-            row["demo_ids"] == ([] if name == "zero" else contexts[key])
-            for key, row in rows.items()
-        )
+            assert hashlib.sha256(adapter.read_bytes()).hexdigest() == receipt["adapter_sha256"]
+            assert receipt["selected_ids"] == original["bank_selection"]["selected_ids"]
+            assert receipt["training_regions"] == 589
+        computed = raw_metrics(receipt, truth)
+        old_name = "paired-8" if name == "paired-eight" else name
+        expected = (old_summary["references"]["full"][old_name]["raw_line"]
+                    if full and name in ("zero", "paired-eight", "lora24") else data["raw_line"])
+        assert computed == expected
         reference_rows[name] = rows
         references[name] = {
             "path": str(path),
@@ -484,46 +508,48 @@ def prepare(spec, root):
                 for r in rows.values()
             ),
         }
-    processor = AutoProcessor.from_pretrained(spec["model_assets"], local_files_only=True)
-    local_pages = {
-        p["page_id"]: Image.open(pages[p["page_id"]].image_uri).convert("RGB") for p in queries
-    }
-    grids, query_index = {}, {}
-    for p in queries:
-        for r in p["regions"]:
-            key = line_key(p, r)
-            grids[key] = _inputs(processor, local_pages[p["page_id"]], r, config)[
-                "image_grid_thw"
-            ].tolist()
-            query_index[key] = (p, r)
-    ordered = sorted(query_index, key=lambda k: sha_json([824, "query-swap", k]))
-    used, pairs = set(), []
-    for anchor in ordered:
-        replacements = [
-            k
-            for k in ordered
-            if k not in used
-            and k != anchor
-            and grids[k] == grids[anchor]
-            and query_index[k][0]["page_id"] != query_index[anchor][0]["page_id"]
-        ]
-        if anchor in used or not replacements:
-            continue
-        replacement = replacements[0]
-        pairs.append(
-            {
-                "anchor": anchor,
-                "replacement": replacement,
-                "grid": grids[anchor],
-                "prefix_token_ids": reference_rows["transcripts-only-eight"][anchor][
-                    "output_token_ids"
-                ],
-            }
-        )
-        used.update((anchor, replacement))
-        if len(pairs) == spec["diagnostic_pairs"]:
-            break
-    assert 0 < len(pairs) <= 6
+    pairs = []
+    if not full:
+        processor = AutoProcessor.from_pretrained(spec["model_assets"], local_files_only=True)
+        local_pages = {
+            p["page_id"]: Image.open(pages[p["page_id"]].image_uri).convert("RGB") for p in queries
+        }
+        grids, query_index = {}, {}
+        for p in queries:
+            for r in p["regions"]:
+                key = line_key(p, r)
+                grids[key] = _inputs(processor, local_pages[p["page_id"]], r, config)[
+                    "image_grid_thw"
+                ].tolist()
+                query_index[key] = (p, r)
+        ordered = sorted(query_index, key=lambda k: sha_json([824, "query-swap", k]))
+        used, pairs = set(), []
+        for anchor in ordered:
+            replacements = [
+                k
+                for k in ordered
+                if k not in used
+                and k != anchor
+                and grids[k] == grids[anchor]
+                and query_index[k][0]["page_id"] != query_index[anchor][0]["page_id"]
+            ]
+            if anchor in used or not replacements:
+                continue
+            replacement = replacements[0]
+            pairs.append(
+                {
+                    "anchor": anchor,
+                    "replacement": replacement,
+                    "grid": grids[anchor],
+                    "prefix_token_ids": reference_rows["transcripts-only-eight"][anchor][
+                        "output_token_ids"
+                    ],
+                }
+            )
+            used.update((anchor, replacement))
+            if len(pairs) == spec["diagnostic_pairs"]:
+                break
+        assert 0 < len(pairs) <= 6
     check = original["check_queries"][: spec["readiness_queries"]]
     native_reference = json.loads((control_root / "check/paired/results.json").read_text())["8"][
         "receipt"
@@ -550,7 +576,7 @@ def prepare(spec, root):
             model_hashes[name] = hashlib.file_digest(stream, "sha256").hexdigest()
     recipe = {
         "spec": spec,
-        "spec_sha256": hashlib.sha256(SPEC.read_bytes()).hexdigest(),
+        "spec_sha256": hashlib.sha256(spec_path.read_bytes()).hexdigest(),
         "config": config,
         "source_run": source.id,
         "parent_recipe_sha256": sha_json(original),
@@ -572,6 +598,37 @@ def prepare(spec, root):
         "input_volume": original["input_volume"],
         "output_volume": original["output_volume"],
     }
+    if full:
+        pilot = Path(spec["pilot_run"])
+        before = json.loads((pilot / "recipe.json").read_text())
+        gate_path = pilot / "readiness.json"
+        gate = json.loads(gate_path.read_text())
+        assert gate["passed"] and gate["recipe_sha256"] == sha_json(before)
+        assert all(before[k] == recipe[k] for k in (
+            "config", "bank_sha256", "model_files_sha256", "check_queries", "native_check_tokens",
+            "input_bundle", "modal_image", "input_volume", "output_volume",
+        ))
+        assert all(before["code_sha256"][k] == v for k, v in recipe["code_sha256"].items()
+                   if k != "contrastive_icl.py")
+        source_tree = ast.parse(Path(__file__).read_text())
+        methods = gate["reused_from"]["method_ast_sha256"]
+        for node in source_tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name in methods:
+                encoded = ast.dump(node, include_attributes=False).encode()
+                digest = hashlib.sha256(encoded).hexdigest()
+                assert digest == methods[node.name], node.name
+        readiness = {
+            "passed": True, "queries": 3, "recipe_sha256": sha_json(recipe),
+            "app_id": gate["app_id"],
+            "reused_from": {
+                "path": str(gate_path),
+                "file_sha256": hashlib.sha256(gate_path.read_bytes()).hexdigest(),
+                "recipe_sha256": sha_json(before),
+                "method_ast_sha256": methods,
+                "reason": "unchanged modeling/worker AST, helpers, model and readiness inputs",
+            },
+        }
+        _save(root / "readiness.json", readiness)
     _save(root / "recipe.json", recipe)
     _save(root / "bank.json", bank)
     print(
@@ -579,7 +636,7 @@ def prepare(spec, root):
             {
                 "prepared": True,
                 "recipe_sha256": sha_json(recipe),
-                "pilot_lines": 182,
+                "evaluation_lines": sum(len(p["regions"]) for p in queries),
                 "diagnostic_pairs": len(pairs),
             }
         ),
@@ -589,17 +646,22 @@ def prepare(spec, root):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=("prepare", "check", "pilot", "diagnose", "report"))
+    parser.add_argument(
+        "stage", choices=("prepare", "check", "pilot", "full", "diagnose", "report")
+    )
+    parser.add_argument("--spec", type=Path, default=SPEC)
     args = parser.parse_args()
-    spec = json.loads(SPEC.read_text())
+    spec = json.loads(args.spec.read_text())
+    if args.stage in ("pilot", "full") and args.stage != spec.get("evaluation_scope", "pilot"):
+        parser.error("execution stage differs from the frozen evaluation scope")
     root = Path(spec["output_directory"])
     if args.stage == "prepare":
-        prepare(spec, root)
+        prepare(spec, root, args.spec)
         return
     recipe = json.loads((root / "recipe.json").read_text())
     assert (
         recipe["spec"] == spec
-        and recipe["spec_sha256"] == hashlib.sha256(SPEC.read_bytes()).hexdigest()
+        and recipe["spec_sha256"] == hashlib.sha256(args.spec.read_bytes()).hexdigest()
     )
     assert all(
         hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest() == digest
@@ -664,14 +726,14 @@ def main():
             root / "readiness.json",
             {"passed": True, "queries": 3, "recipe_sha256": digest, "app_id": app.app_id},
         )
-    elif args.stage == "pilot":
+    elif args.stage in ("pilot", "full"):
         receipt = _receipt(all_rows, records, recipe["config"], recipe["source_run"])
         receipt.update(
             recipe_sha256=digest, study=spec["study"], primary_evaluator=spec["primary_evaluator"]
         )
         _, _, truth, _ = _source(recipe["config"])
         result = {"receipt": receipt, "raw_line": raw_metrics(receipt, truth)}
-        _save(root / "pilot/results.json", result)
+        _save(root / args.stage / "results.json", result)
         print(json.dumps(result["raw_line"]), flush=True)
     else:
         assert len(all_rows) == len(recipe["diagnostic_pairs"])
@@ -683,16 +745,18 @@ def report(recipe, root):
     from active_ocr.evaluation import edit_count, page_text_view
 
     _, _, truth, _ = _source(recipe["config"])
-    pilot = json.loads((root / "pilot/results.json").read_text())
+    scope = recipe["spec"].get("evaluation_scope", "pilot")
+    pilot = json.loads((root / scope / "results.json").read_text())
     assert pilot["raw_line"] == raw_metrics(pilot["receipt"], truth)
     expected = {line_key(p, r) for p in recipe["queries"] for r in p["regions"]}
     rows = {line_key(p, r): r for p in pilot["receipt"]["predictions"] for r in p["regions"]}
-    assert set(rows) == expected and len(rows) == 182
+    assert set(rows) == expected and len(rows) == sum(len(p["regions"]) for p in recipe["queries"])
     comparisons = {}
     for name, ref in recipe["references"].items():
         path = Path(ref["path"])
         assert hashlib.sha256(path.read_bytes()).hexdigest() == ref["file_sha256"]
-        old = json.loads(path.read_text())[ref["item"]]["receipt"]
+        saved = json.loads(path.read_text())
+        old = (saved[ref["item"]] if ref["item"] is not None else saved)["receipt"]
         assert sha_json(old) == ref["receipt_sha256"] and raw_metrics(old, truth) == ref["raw_line"]
         before = {line_key(p, r): r for p in old["predictions"] for r in p["regions"]}
         changes = []
@@ -721,7 +785,8 @@ def report(recipe, root):
             "tied": sum(n == o for o, n in changes),
             "previously_correct_damaged": sum(o == 0 < n for o, n in changes),
         }
-    diagnostics = json.loads((root / "diagnose/results.json").read_text())
+    diagnostics = (json.loads((root / "diagnose/results.json").read_text())
+                   if scope == "pilot" else {"rows": []})
     swap_metrics = []
     for row in diagnostics["rows"]:
         pa, ra = row["anchor"].rsplit("/", 1)
@@ -755,7 +820,7 @@ def report(recipe, root):
         "generation_seconds": sum(r["generation_seconds"] for r in rows.values()),
         "max_peak_allocated_bytes": max(r["peak_allocated_bytes"] for r in rows.values()),
         "diagnostic_pairs": swap_metrics,
-        "stage": "development pilot; not a full experiment",
+        "stage": recipe["spec"].get("experiment", "development pilot; not a full experiment"),
     }
     _save(root / "summary.json", summary)
     print(json.dumps(summary, indent=2), flush=True)

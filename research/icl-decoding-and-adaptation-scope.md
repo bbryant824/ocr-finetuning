@@ -163,6 +163,8 @@ Existing artifacts remain:
 
 The isolated [contrastive module](../src/active_ocr/contrastive_icl.py) uses the existing crop, native prompt, sampling, receipt/cache and raw-evaluation helpers. Existing OCR workers, source labels, model weights, adapters and evaluation slices are unchanged. [The development recipe](../experiments/recipes/read2016-known-box-icl-contrastive-pilot.json) fixes α=1, β=0.1, eight supports and seed 824; pinned Qwen, bank 24/589, crop padding 8 / longest edge 1024, BF16, greedy generation, repetition penalty 1.1 and max 64 remain as before. Both decoding branches see the real query and the same generated suffix; their native positions/caches remain separate. No fitting.
 
+Saved positive and negative prompts each contain **1,030–1,628 tokens**, including **737–1,315 image tokens** for eight support crops plus the query. The pinned model and tokenizer both declare a 262,144-token limit; every branch is checked with 64 output tokens reserved. Actual outputs contain 2–37 tokens and all end in EOS. These figures establish capacity for this setup, not effective use of arbitrary long contexts.
+
 The lens uses saved **transcripts-only-eight output token IDs** as its common observed prefix. Historical paired pilot rows did not retain exact tokens, so reconstructing them from stripped text would be unreliable. This refinement follows the observed-trajectory principle and matches the query-swap condition. Validation references enter offline scoring only.
 
 ### Verification and the integration correction
@@ -173,6 +175,8 @@ The lens uses saved **transcripts-only-eight output token IDs** as its common ob
 - The native gate was **reused explicitly**, after verifying unchanged decoder/worker AST, helper hashes, model/config/bank/check inputs and identity of the three check payloads after grouping. Current `readiness.json` retains original provenance; it does not claim another GPU gate was executed. The corrected pilot also replayed all three original contrastive outputs exactly.
 - **All 182 outputs audited:** IDs, support assignments, shared-prefix/cache lengths, token IDs, EOS and raw edits. An independent Python edit-distance implementation confirms 3,010 character edits/3,925 reference characters and 685 word edits/614 words. No empty or actual length-capped outputs.
 - **All six query pairs and 24 lens contexts passed:** original-query native tokens match their saved references; replacement prompts preserve token IDs and processor image-grid geometry; final vocabulary readouts match native raw logits with maximum error **0.0**. Up to three answer positions per context were inspected. All 12 diagnostic generations ended in EOS.
+
+Local re-review, 12 October: all **four decoder-specific tests passed again** and the independent saved-data audit reproduced the edit counts, all 182 traces, three readiness replays and six diagnostic pairs. Frozen hashes match all six source helpers/modules and all 15 audited JSON files; archived native-equivalence receipts and reused control-file hashes also match. No source correction or new GPU execution was required.
 
 ### Pilot results and meaning
 
