@@ -128,3 +128,22 @@ def test_advance_screen_rejects_harmful_group_or_rank_only_confound():
     assert fn(rows)["passed"]
     assert not fn([r | {"G": 3.0} if r["group"] == "harmed" else r for r in rows])["passed"]
     assert not fn([r | {"rank_G": -1} for r in rows])["passed"]
+
+
+def test_large_vocabulary_logprob_matches_analytic_normalizer():
+    import math
+
+    vocabulary = 160000
+    logits = torch.zeros(1, vocabulary)
+    logits[0, 0] = 15
+    modes = ("paired", "mismatched", "text-only")
+    processors = LogitsProcessorList([RepetitionPenaltyLogitsProcessor(1.1)])
+    row = api().decision(
+        {m: logits for m in modes},
+        {m: torch.tensor([[0]]) for m in modes},
+        {m: processors for m in modes},
+        0,
+        1,
+    )
+    expected = -math.log1p((vocabulary - 1) * math.exp(-15))
+    assert abs(row["paired"]["candidates"][0]["raw_logprob"] - expected) < 2e-5

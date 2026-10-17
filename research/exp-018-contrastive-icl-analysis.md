@@ -1,6 +1,6 @@
 # EXP-018: interpreting contrastive in-context handwriting recognition
 
-Review date: 17 October 2026. **Completed analysis of independently audited EXP-018; follow-up proposal only.** Primary papers were checked on 16 October.
+Review date: 17 October 2026. **Completed analysis of independently audited EXP-018 and its approved 16-case query-image follow-up. The follow-up failed its advance screen; no 64-case confirmation was run.** Primary papers were checked on 16 October.
 
 ## Question and current conclusion
 
@@ -119,7 +119,7 @@ Independent AST comparison confirms all five modeling/worker functions match bot
 
 ## Single next question: query evidence in improvements versus harms
 
-**Recommendation: C, a small teacher-forced query-image intervention study, subject to separate authorization.** Ask: **Are the continuation preferences associated with contrastive improvements over transcript-only output more query-specific than those associated with harm, or are they compatible with largely query-insensitive sequence regularization?** The full gain justifies retaining the small diagnostic, while its insertion/deletion composition changes the hypothesis and gate: assess continuation and stopping choices, not a claim of better glyph reading. This connects controlled query effects to scored outcomes; sensitivity alone is not success. Its contribution would be a bounded empirical association, not a new lens or a separation into pure linguistic and visual components.
+**Predeclared recommendation: C, a small teacher-forced query-image intervention study. Approved and executed 17 October 2026; see the completed diagnostic below.** Ask: **Are the continuation preferences associated with contrastive improvements over transcript-only output more query-specific than those associated with harm, or are they compatible with largely query-insensitive sequence regularization?** The full gain justifies retaining the small diagnostic, while its insertion/deletion composition changes the hypothesis and gate: assess continuation and stopping choices, not a claim of better glyph reading. This connects controlled query effects to scored outcomes; sensitivity alone is not success. Its contribution would be a bounded empirical association, not a new lens or a separation into pure linguistic and visual components.
 
 | Alternative | What it tests and why it is not the default next step |
 |---|---|
@@ -129,7 +129,7 @@ Independent AST comparison confirms all five modeling/worker functions match bot
 
 These choices follow the distinctions in the primary-source table: ICCD motivates association contrasts; VCD changes query evidence; Reading or Guessing separates image dependence from correctness; LatentLens limits semantic claims from intermediate readouts. Neither A nor B alone identifies the cause of a gain. C is also a conditional diagnostic, not a complete mechanistic explanation.
 
-### Smallest proposed study, not authorized or executed
+### Predeclared study (approved and executed pilot; conditional confirmation stopped)
 
 Use existing exact contrastive and transcript-only token sequences. At their **first differing token**, take the shared generated prefix and two observed candidates, **including EOS when one candidate stops**. This revises the earlier non-EOS-only proposal to reflect the observed sequence-length findings without adding evaluations. Do not retokenize stripped text or teacher-force reference text. Classify lines as improved or harmed by whole-line raw character edits; a net line improvement does **not** label its first differing token as correct. Attach each line's output-length difference and alignment-based substitution/deletion/insertion changes for interpretation. Reference text is used only offline. The first divergence is an early decision probe: it need not coincide with the edits responsible for the final gain, and a null effect there cannot rule out later query-dependent stopping or repetition control.
 
@@ -151,7 +151,26 @@ Keep raw margins separate from actual processed decoding scores. Reproduce origi
 
 **Conditional confirmation:** only after that gate, freeze the same analysis before viewing new probe scores; use 32 improved and 32 harmed VAL42 lines, half position-zero and half later-position within each group, capped at two per group per page, retaining one EOS-difference slot per group where feasible. This requires **384 additional prefix evaluations**. Report all distributions, length/edit summaries and page-grouped results. The improved-versus-harmed distinction must recur in both position strata under margin and rank readouts, without being carried by one page, output-length outliers or only masked decisions; otherwise the pilot explanation is not confirmed. This balanced sample estimates a conditional contrast, not population prevalence or an OCR benchmark. Both slices remain previously examined validation; a replicated association is not final-test evidence.
 
-**Falsification and decision:** the full recognition-gain prerequisite is now met. If improvements and harms have similar query effects, or the distinction disappears under rank/length/mask checks, the proposed early query-specific preference account is unsupported. That does not prove a pure language mechanism or exclude later sequence effects. Stop before confirmation and report what remains unresolved. A becomes relevant only if the priority changes to permutation robustness; B only if it changes to testing a new decoder. Missing matched-grid cases also block C as specified; do not silently substitute image deletion. No follow-up experiment, model family, parameter search or broader matrix is authorized here.
+**Falsification and decision:** the full recognition-gain prerequisite is now met. If improvements and harms have similar query effects, or the distinction disappears under rank/length/mask checks, the proposed early query-specific preference account is unsupported. That does not prove a pure language mechanism or exclude later sequence effects. Stop before confirmation and report what remains unresolved. A becomes relevant only if the priority changes to permutation robustness; B only if it changes to testing a new decoder. Missing matched-grid cases also block C as specified; do not silently substitute image deletion. The approved scope covers this diagnostic and its conditional confirmation; no model family, parameter search or broader matrix is authorized.
+
+## Completed query-image follow-up, 17 October 2026
+
+The fixed 16-case VAL8 diagnostic completed on L4 and passed independent raw-score/input audits. [Reader appendix](../results/EXP-018.md#query-image-diagnostic-follow-up-17-october-2026), [technical record](../experiments/EXP-018.md#query-image-diagnostic-follow-up-17-october-2026). Original model/bank/support draws retained; 96 prefix evaluations,32/32 original contrastive/text-only next-token choices reproduced, native final projection error0. No fitting or free continuation. Raw recipe 4884f8063f98; executed source ee31126; both execution and auxiliary-reporting source identities preserved.
+
+| Position | Improved/harmed median G | Improved/harmed median rank effect | Positive G, improved/harmed |
+|---|---:|---:|---|
+| First token | 2.3125 / 0.90625 | 73.5 / 10.0 | 3/4 / 2/4 |
+| Later token | 0.53125 / 2.28125 | 7.0 / −7.0 | 3/4 / 3/4 |
+
+First-token aggregate patterns meet the main screen; the later raw-margin ordering reverses it. Rank changes do not rescue that disagreement. The non-EOS/both-admissible comparison is unavailable: original/donor plausibility membership retains both candidates in only1/16 cases, with exclusions in2 original and14 donor views. Most exclusions occur after a real image with different text replaces the query, so the failure concerns interpretability of this counterfactual comparison; it does not show that the original run was driven by masking. One improved EOS example is represented; a harmed EOS donor was unavailable. No candidate/threshold/donor selection was changed after inference.
+
+Query pixels remain influential: native paired, mismatched and transcript-only argmax choices change in16/16,13/16 and14/16 cases respectively; contrastive changes in15/16. Transcript-only support therefore does not imply an image-independent query. Original paired and contrastive choices agree in12 cases, so these sampled decisions also cannot identify a unique contrastive mechanism. Native paired-minus-transcript-only median query effects show no consistent improvement/harm distinction under raw and rank readouts. This reinforces the distinction between dependence, correctness and externally reweighted decoding.
+
+**Conclusion:** this particular early-decision explanation is not established. Do not expand to64 cases or treat this outcome-conditioned sample as a population benchmark. It neither proves a purely linguistic mechanism nor rules out later query-dependent completion. The measured full-slice recognition gain stands. These boundaries match the earlier primary-paper synthesis: ICCD supplies a contrast principle, while Reading or Guessing warns that visual dependence can coexist with incorrect output.
+
+**Next research decision, proposal only:** repair the inferential limitation before a larger mechanism study. A text-preserving query-quality intervention could examine how useful versus misleading linguistic context interacts with weaker visual evidence, while keeping the target transcription fixed; it would answer a different controlled question from replacing content. The intervention severity, context controls, readiness and success criteria need a separate reviewed plan. No new strategy, dataset, model or cloud job is released by this diagnostic. The earlier larger adaptation/Base-chat matrices remain deferred.
+
+A local auxiliary log-probability normalization discrepancy was reproduced analytically and fixed using float64 reporting. Native raw logits/choices/ranks/masks and the frozen screening results did not change; all original evidence remains. The separate NumPy audit validates all16 tensors, exact prefixes and source-based outcomes; no inference was repeated. This is a numerical reporting correction, not an explanation of the OCR effect.
 
 ## Reproducibility records reviewed
 
@@ -173,4 +192,4 @@ Full execution/configuration: [EXP-018 technical record](../experiments/EXP-018.
 | `app-state.json` | `697315c888d5884f6e457ab46b78f14309c28bffd25c841c6166c992e4bc1143` |
 | `full/results.json` | `38ebdec2d0fba866027459084e4c2933b61f07d04082e695f25085345c03b07c` |
 
-The independent audit uses Python dynamic-programming edit distances for totals and a recorded optimal Levenshtein edit-operation alignment for descriptive S/D/I counts. Review verification rehashed these files and reproduced all six conditions' totals without executing the writer in `audit.py`, changing raw evidence or making cloud calls. Only this research note was authored; the proposed intervention study remains unexecuted.
+The independent audit uses Python dynamic-programming edit distances for totals and a recorded optimal Levenshtein edit-operation alignment for descriptive S/D/I counts. Review verification rehashed these files and reproduced all six conditions' totals without executing the writer in `audit.py`, changing raw evidence or making cloud calls. That initial paper review authored only this note and ran no inference. The dated follow-up above separately records Manager's subsequent approved diagnostic execution.

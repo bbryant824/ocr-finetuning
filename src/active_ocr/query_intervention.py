@@ -142,11 +142,11 @@ def decision(logits, ids, processors, contrastive_token, text_token):
                 {
                     "token_id": token,
                     "raw_logit": float(scores[0, token]),
-                    "raw_logprob": float(scores.log_softmax(-1)[0, token]),
+                    "raw_logprob": float(scores.double().log_softmax(-1)[0, token]),
                     "rank": 1 + int((scores[0] > scores[0, token]).sum()),
                     "admissible": bool(torch.isfinite(value)),
                     "processed_score": float(value) if torch.isfinite(value) else None,
-                    "processed_logprob": float(processed[mode].log_softmax(-1)[0, token])
+                    "processed_logprob": float(processed[mode].double().log_softmax(-1)[0, token])
                     if torch.isfinite(value)
                     else None,
                 }
@@ -603,6 +603,8 @@ def report(recipe, root):
     }
     summary = {
         "recipe_sha256": sha_json(recipe),
+        "execution_module_sha256": recipe["code_sha256"]["query_intervention.py"],
+        "analysis_module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "cases": len(rows),
         "prefix_evaluations": len(rows) * 6,
         "screen": screening,
@@ -629,13 +631,14 @@ def main():
     root = Path(spec["output_directory"]) / args.scope
     recipe = json.loads((root / "recipe.json").read_text())
     assert recipe["spec"] == spec
-    for name, expected in recipe["code_sha256"].items():
-        assert hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest() == expected
     for path, expected in recipe["reference_files_sha256"].items():
         assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == expected
     if args.stage == "report":
+        # Offline reanalysis records its source separately; frozen tensor receipts stay immutable.
         report(recipe, root)
         return
+    for name, expected in recipe["code_sha256"].items():
+        assert hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest() == expected
     bank = json.loads((root / "bank.json").read_text())
     assert sha_json(bank) == recipe["bank_sha256"]
     # The first production case is the GPU readiness check; then continue the same fixed sample.
