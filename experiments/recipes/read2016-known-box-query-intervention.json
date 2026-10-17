@@ -1,0 +1,16 @@
+{
+  "study": "EXP-018 query-evidence diagnostic follow-up",
+  "pilot_run": ".local/verification/contrastive-icl-pilot-2026-10-12",
+  "full_run": ".local/verification/exp-018/icl-exp018-contrastive-seed824",
+  "model_assets": ".local/assets/qwen3-vl-4b-ebb281e",
+  "output_directory": ".local/verification/exp-018/query-intervention",
+  "selection_seed": 824,
+  "shots": 8,
+  "alpha": 1,
+  "beta": 0.1,
+  "pilot_cases": 16,
+  "conditional_confirmation_cases": 64,
+  "source_plan": "research/exp-018-contrastive-icl-analysis.md#single-next-question-query-evidence-in-improvements-versus-harms",
+  "screen": "Within each position stratum: positive G and rank_G on at least 75% of improved cases; improved medians exceed zero and harmed medians. Non-EOS/both-admissible subsets need at least two per outcome and the same positive median contrasts. Leave-one-page-out screens must pass. Inspect length outliers before any conditional expansion.",
+  "scope": "Shared observed-prefix token scoring only; no generation, fitting, new labels, parameter search or untouched final-test access"
+}
