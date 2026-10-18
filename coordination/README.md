@@ -1,6 +1,7 @@
 # FYP agent protocol
 
-Protocol: 3. Manager works by default; specialists are used only when their expertise or an
+Protocol: 3. Manager works by default; mandatory complex-task Superpowers and synchronization rules are in
+[AGENTS.md](../AGENTS.md). They apply to every role. Specialists are used only when their expertise or an
 independent review materially improves the result. The seven existing Codex tasks are registered
 in ignored `.agent-local/TEAM.md`. A task message starts work; a file edit does not.
 
@@ -8,7 +9,9 @@ in ignored `.agent-local/TEAM.md`. A task message starts work; a file edit does 
 
 Read `AGENTS.md` and `.agent-local/PROJECT.md` first. Consult TEAM, the assigned task,
 the relevant role Skill and source/experiment evidence only as needed. PROJECT is the sole
-current local summary; TEAM maps verified task IDs/worktrees; `tasks/ID.md` holds a released
+current local summary, not an append-only history; public progress is in the project guide and
+results/research indexes. Full metrics stay in their linked records. TEAM maps verified task
+IDs/worktrees; `tasks/ID.md` holds a released
 specialist assignment and result. Historical local setup/decision/ops records are retained in
 ignored `.local/coordination-history/`, outside routine context. Public methods and
 measured runs belong in `plans/`, `research/` and `experiments/`. A fresh clone needs no private
@@ -29,7 +32,9 @@ stale task header or private cross-task conversation.
    assigned checkout, runs proportionate checks, and returns one concise result with exact
    SHA/commands, observations, limits and links. Record it in the task only when one exists.
 3. Manager verifies the returned evidence, uses independent Testing only for significant/risky
-   scope, integrates accepted work and updates PROJECT when priorities change. Reuse unchanged
+   scope, integrates accepted work and reconciles PROJECT, AGENTS and relevant indexes at
+   experiment/research handoff, following AGENTS. Give older worktrees the current canonical policy/state reference at dispatch; do not
+   assume their checkout contains the latest instructions. Reuse unchanged
    checks. An uncertain or failed provider call must be reconciled before another paid run.
 
 States are BACKLOG, READY, IN_PROGRESS, BLOCKED, WAITING_REVIEW, DONE and CANCELLED. A dependent

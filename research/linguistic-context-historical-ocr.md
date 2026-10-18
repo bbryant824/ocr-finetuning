@@ -1,5 +1,9 @@
 # Linguistic context and language adaptation in historical VLM OCR
 
+> Historical post-EXP-015–017 analysis/proposal; its dated evidence is preserved below. For the current
+> direction and approval state after EXP-021, use [research index](README.md) and
+> [current synthesis](exp-018-contrastive-icl-analysis.md). Older proposed work is not a release.
+
 **Post EXP-015–017 research analysis · 5 October 2026**  
 Owner: Manager, collaborating with the existing Research agent.  
 Status: verified literature and saved-output analysis; proposed experiments have **not** run.

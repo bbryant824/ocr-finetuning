@@ -1,0 +1,10 @@
+{
+  "experiment": "EXP-019",
+  "study": "Freely generated OCR: stopping versus text decision components",
+  "parent_run": ".local/verification/contrastive-icl-pilot-2026-10-12",
+  "contrast_results_sha256": "1666f1660c6e36e53334c771e10841f3d143a48c4f456323b127a64652030b3d",
+  "model_assets": ".local/assets/qwen3-vl-4b-ebb281e",
+  "output_directory": ".local/verification/exp-019/components-seed824",
+  "source_plan": "research/exp-018-contrastive-icl-analysis.md#proposed-next-step-separate-stopping-from-text-choice-during-generation",
+  "scope": "Two controls on all182 VAL8 lines, same seed824 bank/8 supports; native endpoint checks first; no teacher forcing, fitting, tuning or final-test access"
+}

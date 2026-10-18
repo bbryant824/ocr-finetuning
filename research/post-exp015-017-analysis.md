@@ -1,5 +1,9 @@
 # Post EXP-015–017 research analysis
 
+> Historical post-EXP-015–017 analysis/proposal; its dated evidence is preserved below. For the current
+> direction and approval state after EXP-021, use [research index](README.md) and
+> [current synthesis](exp-018-contrastive-icl-analysis.md). Older proposed work is not a release.
+
 **Reviewed 5 October 2026 — Manager + Research.** Completed evidence review; the proposed next study awaits user approval. No production code, experiment predictions, datasets or model weights changed, and no cloud job was launched for this review.
 
 ## 1. Conclusions and current research stage

@@ -1,5 +1,9 @@
 # Historical OCR: contrastive ICL and visual versus linguistic evidence
 
+> Historical EXP-018 analysis/proposal; its dated evidence is preserved below. For the current
+> direction and approval state after EXP-021, use [research index](README.md) and
+> [current synthesis](exp-018-contrastive-icl-analysis.md). Older proposed work is not a release.
+
 Owner: Manager with the existing Research agent. Updated: **17 October 2026**. Status: **development and full EXP-018 validation completed and audited**. This note preserves the method and 12 October development record; the latest full results are in [EXP-018](../results/EXP-018.md), with [Research interpretation and next plan](exp-018-contrastive-icl-analysis.md).
 
 This revision narrows the earlier proposal to one step: **eight-shot association-contrastive decoding**, with a small query-image and logit-lens diagnostic. The earlier fine-tuning ablations, Base/chat comparison and larger execution matrix are deferred. The complete 11 October proposal is preserved privately at `.local/research-review-archive/2026-10-11-icl-decoding-and-adaptation-scope.md.gz`; previous experiment and research records remain intact.

@@ -20,6 +20,7 @@ ROLES = {
     "experiment-platform",
     "qa-understanding",
 }
+CAPABILITIES = {"nus-soc-cluster"}
 TASK_STATES = {
     "BACKLOG",
     "READY",
@@ -133,9 +134,10 @@ def validate(root: Path, *, live: bool = False) -> tuple[list[str], dict[str, in
             errors.append(f"Retired protocol folder still contains Markdown: {relative}")
 
     skills = {p.parent.name: p for p in (root / ".agents/skills").glob("*/SKILL.md")}
-    if set(skills) != ROLES:
+    role_skills = set(skills) - CAPABILITIES
+    if role_skills != ROLES:
         errors.append(
-            f"Skill roles differ: missing={ROLES - set(skills)}, extra={set(skills) - ROLES}"
+            f"Skill roles differ: missing={ROLES - role_skills}, extra={role_skills - ROLES}"
         )
     for role, path in skills.items():
         front = re.match(r"---\n(.*?)\n---\n", path.read_text(), re.S)

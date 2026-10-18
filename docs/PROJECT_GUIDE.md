@@ -1,8 +1,13 @@
-# Active learning for historical OCR
+# Historical OCR with VLMs — project guide
 
-**Current stage:** [EXP-009–011](../results/README.md) completed whole-page controls/selection comparisons; [EXP-012](../results/EXP-012.md) and [EXP-013](../results/EXP-013.md) completed known-box recognition/selection pilots. [EXP-015](../results/EXP-015.md) and [EXP-016](../results/EXP-016.md) completed random ICL and content controls: text examples give modest gains, mismatched pairs harm OCR, and the saved LoRA reference remains stronger. [EXP-017](../results/EXP-017.md) completed the same seven conditions with LightOnOCR: all six ICL conditions worsened raw recognition under the fixed Qwen instruction, despite passed integrity checks. [EXP-018](../results/EXP-018.md) completed fixed eight-shot contrastive Qwen ICL: raw CER/WER 0.755429/1.082243 versus paired 0.798331/1.121121 and transcript-only 0.805965/1.130093 on the same VAL42 lines; saved LoRA remains stronger. Its 16-case query-image follow-up passed execution audits but failed the advance screen, so no 64-case confirmation ran. Supplied READ2016 line boxes are cropped and transcribed in order; this is recognition at known locations, not detection.
-
-[EXP-013](../results/EXP-013.md) completed four strategy-first known-box arms at 24/48/72 pages (configured seed 824), with all 12 adapters audited and mirrored. It reused only EXP-012’s original-model validation. Uncertainty methods led at 24 pages; random led at 48 and 72. Three sampled lines score each page; all acquired lines train and all VAL42 lines evaluate. This remains a pilot with uncontrolled pre-construction adapter initialization.
+**Current stage, 18 October 2026:** engineering, fine-tuning/AL baselines and ICL controls are
+recorded through EXP-017; contrastive recognition and diagnostics through EXP-021 are completed.
+The current research objective is to improve inference-time OCR using useful visual/textual
+context, with an explanation that can be tested beyond READ2016. [EXP-021 reader](../results/EXP-021.md)
+and [technical record](../experiments/EXP-021.md) are the latest full run. The proposed token-choice
+continuation study remains unapproved. Supplied line boxes mean known-location recognition,
+not detection. See the [complete experiment index](../results/README.md) and
+[current research index](../research/README.md); detailed numbers belong in their source records.
 
 ## Where things live
 
@@ -15,6 +20,10 @@
 | `src/active_ocr/icl_controls.py` | EXP-016 Qwen and EXP-017 LightOnOCR ICL/content controls: preparation, readiness, VAL8 pilot, VAL42 evaluation and local reporting via `--spec`. |
 | `src/active_ocr/contrastive_icl.py` | Existing crop/sampling helpers with two shared-prefix decoding branches; frozen pilot/full recipes, checked reference/readiness reuse and resumable L4 inference. EXP-018 performs no training. |
 | `src/active_ocr/query_intervention.py` | EXP-018 follow-up: exact observed-prefix query swaps, matched geometry, resumable L4 scoring, saved vocabulary logits and local screening; no training or free generation. |
+| `src/active_ocr/contrastive_diagnostic.py` | EXP-018 correct-prefix diagnostic; saved next-token scores and evaluator-only truth. |
+| `src/active_ocr/contrastive_components.py` | EXP-019 controls the text-choice versus stopping rule under generated histories. |
+| `src/active_ocr/contrastive_references.py` | EXP-020–021 reference/shot comparisons, exact cached query noise, checked baseline reuse and resumable L4 chunks. |
+| `experiments/recipes/read2016-known-box-query-contrast-full.json` | Frozen EXP-021 0/2/8-shot VAL42 settings; other completed recipes remain in `experiments/recipes/`. |
 | `experiments/recipes/read2016-page-text.json` | Frozen settings for the whole-page controls. |
 | `experiments/recipes/read2016-known-box-regions.json` | Separate EXP-012 crop, L4 training, inference and page-budget settings. |
 | `experiments/recipes/read2016-known-box-al-24.json` | EXP-013 independent strategy-first 24/48/72-page settings; other training/decoding values match EXP-012. |
@@ -27,7 +36,7 @@
 | `src/active_ocr/integrations/storage.py`, `pipeline.py`, `models.py` | Immutable source/run metadata, stored images, validation isolation, historical schema and fixture lifecycle. |
 | `src/active_ocr/entrypoints/cli.py`, `examples/simulate.py` | Offline synthetic demonstration; **not** the real GPU runner. |
 | `tests/` | Source/fixture/text invariants. `experiments/EXP-*.md` and `results/EXP-*.md` hold technical evidence and readable findings. |
-| `docs/verification/` | Historical independent review evidence; see the commit linked in each older experiment for removed joint-OCR source. |
+| `docs/verification/` | Infrastructure verification and historical independent review evidence; see the commit linked in each older experiment for removed joint-OCR source. |
 
 Local source data is in ignored `.local/assets/read2016-1.2.0/`; `.local/prepared/read2016-v1-8db5833/` holds its checked page copy and provenance, and `.local/verification/active-learning-source/runs/` holds the frozen run database. Older page-text subdirectories of ignored `.local/verification/` use execution IDs: `exp-011` corresponds to published EXP-008, `exp-012` to EXP-009, and `exp-013` to EXP-010. Current EXP-011 raw strategy evidence is under `al-strategies/`. New EXP-013 evidence uses `exp-013/region-exp013-v2-<strategy>-seed824/` alongside those preserved historical subdirectories. The published IDs are the names of the records in `experiments/` and `results/`; do not rename older local folders because their receipts reference them.
 
@@ -42,6 +51,23 @@ For the whole-page controls, the runner verifies the frozen manifest/image ident
 `page-text-nfc-v1` joins ordered reference lines with newlines and scores full predicted text using corpus character error rate (CER) and word error rate (WER); lower is better. Truncated/invalid outputs are empty predictions, never silently excluded. A `Prediction` uses a whole-page placeholder region solely to reuse the frozen local evaluator; this is **not a detected box**.
 
 The completed random-only EXP-012 result and exact local/remote receipts are in [its technical record](../experiments/EXP-012.md). EXP-012 itself ran random only; EXP-013 adds the other three methods with independent first batches at smaller equal budgets. Both known-box experiments use the frozen source, crop inputs, one training epoch and a 64-token line output cap. EXP-012 adds 64 pages per round; EXP-013 adds 24. Whole-page and known-box scores therefore answer different tasks; any future selector comparison needs equal page budgets and independent seeds within the same pipeline.
+
+## Compute backend
+
+NUS SoC is now the primary backend for future training/inference, with the fastest suitable
+available resource preferred. [The cluster skill](../.agents/skills/nus-soc-cluster/SKILL.md) links
+the [full credential-free guide](cluster/NUS_SOC_CLUSTER_GUIDE.md), live scheduling checks and
+[workflow verification](verification/nus-soc-cluster.md). The complete original guide stays ignored
+and private under `.local/private/`. Use normal SSH and Slurm in authorized discrete sessions;
+respect institutional rules and do not create an external scheduler or job-management service.
+
+The existing research entrypoints still contain Modal-specific decorators, images and Volumes.
+A verified standalone cluster check establishes that workload only; a later approved experiment
+must reuse its pure helpers and explicitly provide Slurm execution, inputs and durable receipts.
+Historical Modal recipes/results remain reproducible; Modal is an explicit fallback.
+Each cluster run also has a concise [command/session learning record](cluster/sessions/README.md),
+linked from its technical/check report; [the first workflow check](cluster/sessions/2026-10-18-workflow-check.md)
+shows the login-to-retrieval sequence and its actual Slurm failure/fix.
 
 ## Run and reproduce
 
@@ -70,22 +96,56 @@ explicit local preparation stage, a small eight-crop L4 check, and a full-evalua
 matching passed check. No fitting or retrieval is performed. See [EXP-014](../experiments/EXP-014.md)
 for commands and artifact paths; the separately recorded [EXP-015](../results/EXP-015.md) now supplies full VAL42 results.
 
-## Evidence and next research step
+## Evidence and current research direction
 
-Read [reader results](../results/README.md) for interpretation and the matching `experiments/` record for exact configuration, identity and raw-evidence locations. [EXP-011](../results/EXP-011.md) completed three paired seeds of Qwen whole-page random, k-center, entropy and least-confidence selection at 128 and 192 labelled pages; no selector consistently beat its matched random control at both budgets. [EXP-012](../results/EXP-012.md) completed a separate known-box Qwen random baseline at 0/64/128/192 pages: VAL42 CER fell from 0.8036 to 0.0944 and WER from 1.0871 to 0.3705. EXP-012 ran random only. EXP-013 now supplies a four-method known-box pilot at 24/48/72 pages; no selector led at every budget.
+The [results index](../results/README.md) covers EXP-001–021 and links both reader explanations and
+technical records. Earlier failed runs remain evidence, not missing or silently successful studies.
 
-These studies report official **validation**, not an independent document-disjoint final test. Document grouping and possible pretraining overlap remain unknown; the whole-page and known-box tasks also differ in inputs and recipe. Do not infer annotation savings, line detection or strategy superiority from these results.
+| Stage | Findings and records |
+|---|---|
+| EXP-001–008 | Joint box/text engineering worked in later attempts but OCR quality gates failed. [Grouped reports and all technical records](../results/README.md). Historical implementation is in Git. |
+| EXP-009–011 | Full-page LightOn/Qwen controls and three-seed strategy comparisons. No selector consistently outperformed matched random controls. [EXP-011 reader](../results/EXP-011.md), [technical](../experiments/EXP-011.md). |
+| EXP-012–013 | Known-box Qwen fitting/AL at 64-page and then 24-page increments. EXP-013 has 12 verified adapters; no selector leads every budget. [EXP-013 reader](../results/EXP-013.md), [technical](../experiments/EXP-013.md). |
+| EXP-014–017 | ICL testing, Qwen paired/text-only/mismatched controls and LightOn replication. Text context gives modest Qwen gains; mismatches harm; fixed Qwen-format LightOn ICL worsens. [EXP-016 reader](../results/EXP-016.md), [technical](../experiments/EXP-016.md); [EXP-017](../results/EXP-017.md). |
+| EXP-018 | Mismatch contrast improves generated-output CER, but clean-prefix and query-image diagnostics do not establish better glyph recognition. [Reader](../results/EXP-018.md), [technical](../experiments/EXP-018.md). |
+| EXP-019 | Contrast for text retains 140/144 saved pilot edits; stopping alone is insufficient. [Reader](../results/EXP-019.md), [technical](../experiments/EXP-019.md). |
+| EXP-020 | Fixed reference and 0/2/8-shot pilot: query contrast helps without examples; examples add benefit; long-output sensitivity matters. [Reader](../results/EXP-020.md), [technical](../experiments/EXP-020.md). |
+| EXP-021 | VAL42 confirms lower error with contrast and an additional two-shot gain. Query-noise and earlier mismatch references nearly tie; no generally superior reference is established. [Reader](../results/EXP-021.md), [technical](../experiments/EXP-021.md). |
 
-[EXP-014](../results/EXP-014.md) is the completed development/testing experiment for original-Qwen
-random ICL at 0/8/24 line examples from EXP-013's 24-page bank. Local and small L4 checks passed;
-[EXP-015](../results/EXP-015.md) completed and audited both full L4 passes: eight-shot CER/WER
-0.749012/1.050841, 24-shot 0.755954/1.035140. Both modestly improve on reused zero-shot
-0.803646/1.087103 but remain worse than the saved 24-page LoRA control 0.410374/0.825421.
-More shots gave mixed CER/WER results. No new training or production-code change was needed;
-all 1,722 predictions are saved and both apps stopped. Historical initialization and validation
-limitations remain recorded. [EXP-016](../experiments/EXP-016.md) completed the matched content-control study after local, L4-readiness and VAL8 gates. Transcript-only raw line CER .805965/.798095 is close to paired .798331/.808924; mismatched .968874/.948695 is worse than zero .863601, while saved LoRA24 is .430499. All 4,228 outputs are verified and all three apps stopped; no new training. [Its reader report](../results/EXP-016.md) explains the raw-line versus historical page metrics.
+EXP-021 uses original Qwen3-VL-4B-Instruct, the same seed-824 TRAIN24/589-line bank and 861 VAL42
+queries. Ordinary→query-contrast **raw line CER** at 0/2/8 shots is 86.3601→80.9515 /
+81.0403→76.4365 / 79.8331→75.4956%. Baselines zero/eight are verified reuse, not newly executed.
+Two supports save 763 more character edits than zero-shot contrast; eight save another 159.
+Contrast mainly reduces insertions while added supports reduce substitutions under contrast;
+these are alignment-dependent error patterns, not a visual/language causal decomposition.
+All 3,444 new outputs and 5,166 condition-line metric comparisons passed independent audit;
+the recorded two EXP-021 app states are stopped. No model/adapter was trained in EXP-014–021.
 
-[EXP-017](../results/EXP-017.md) extends the existing ICL worker to pinned LightOnOCR without new dependencies or another pipeline. Raw line CER is 1.523463 at zero-shot, 3.323747 at paired 8-shot and 3.597373 at paired 24-shot; text-only and mismatched conditions also worsen recognition. Every new token/context and metric count passed independent audit. Native prompt-free training makes the retained Qwen instruction a compatibility limitation, so this does not establish optimal LightOnOCR ICL performance. Raw evidence `.local/verification/exp-017/icl-exp017-lighton-seed824/`; original model `.local/assets/lightonocr-2-1b-base-c1bc8eb/`; no new adapters. All five apps stopped. A native-format LightOnOCR study remains deferred; the current completed follow-up is EXP-018.
+Do not mix historical page scores (cap-masked, joined lines) with raw NFC per-line corpus scores.
+The raw-line metric retains every generated string, including length-limited output. In this
+metric the saved LoRA24 reference remains much stronger than ICL/contrast. Official VAL8 and
+VAL42 are page-disjoint but previously examined validation; neither is an untouched final test.
+Document grouping and pretraining overlap are unknown. No annotation-saving, detection,
+independent generalization or repeatable strategy advantage follows from these pilots.
 
+**Next proposal only:** at the first ordinary/contrast token disagreement, force either observed
+choice and finish using a fixed ordinary or contrastive decoder. Score complete OCR outcomes,
+not image-sensitivity proxies. Existing EXP-021 first eight VAL42 pages provide 105 queries,
+92 divergent sequences, exact query noise and two existing endpoints; at most 184 new continuations
+would be needed. The purpose is to test early path steering versus continued correction before
+proposing a further decoding rule. This is unapproved and unlaunched. EXP-016's modality controls
+are already completed; changing only their shot count is not the research priority. Base/chat,
+blank-image fitting and broader matrices remain deferred. See [current synthesis](../research/exp-018-contrastive-icl-analysis.md).
 
-[EXP-018](../results/EXP-018.md) uses `experiments/recipes/read2016-known-box-icl-contrastive.json` with the existing contrastive runner. All 861 full predictions passed an independent audit, including token/cache/call provenance, image-split isolation and reused-control hashes. VAL8 and VAL42 are disjoint. All new outputs ended in EOS, and the one L4 app stopped. No new models or adapters were produced. [Research analysis and next plan](../research/exp-018-contrastive-icl-analysis.md) explain the remaining gap to LoRA and the completed 16-case query-image diagnostic. The latter did not establish its proposed improvement/harm relationship and had inadequate mask-free counterfactual coverage; no 64-case confirmation was run. Raw evidence `.local/verification/exp-018/query-intervention/pilot/`; current research is explanation of context/query effects, with a new design awaiting review.
+Current raw inference evidence is `.local/verification/exp-021/query-contrast-seed824/`, with remote
+originals `/exp021-query-contrast-469abd341bce/` on the existing output Volume. Source/prepared/frozen
+data locations above are unchanged; original Qwen weights are `.local/assets/qwen3-vl-4b-ebb281e/`,
+and LightOn weights `.local/assets/lightonocr-2-1b-base-c1bc8eb/`. Earlier trained artifacts are
+verified ignored mirrors under `.local/models/exp-ID/`; exact paths/hashes are in each technical
+record. Preserve historical verification-folder numbering and frozen execution copies.
+
+[AGENTS.md](../AGENTS.md) requires Superpowers for complex work and synchronized PROJECT,
+current instructions, indexes and relevant guide sections at every experiment/research handoff.
+Local PROJECT/TEAM are ignored; this guide and the linked records preserve public progress.
+Local changes are not GitHub updates until explicitly committed/pushed; see PROJECT for current
+checkout/evidence state and approval limits. No cloud execution is implied by documentation.

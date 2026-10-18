@@ -1,0 +1,40 @@
+{
+  "experiment": "EXP-021",
+  "study": "Confirm query contrast and paired context at0/2/8 shots on VAL42",
+  "parent_run": ".local/verification/exp-020/shots-seed824",
+  "model_assets": ".local/assets/qwen3-vl-4b-ebb281e",
+  "output_directory": ".local/verification/exp-021/query-contrast-seed824",
+  "evaluation": "VAL42: Seite0363–0404, all861 lines",
+  "arms": [
+    "zero_query_noise",
+    "two_ordinary",
+    "two_query_noise",
+    "eight_query_noise"
+  ],
+  "shots": [
+    0,
+    2,
+    8
+  ],
+  "seed": 824,
+  "alpha": 1,
+  "beta": 0.1,
+  "noise_step": 500,
+  "noise_schedule": "official VCD sigmoid(-6,6),1000 steps,beta=1e-5..5e-3; CPU float32; normalized query patches only; duplicated frame noise shared",
+  "noise_seed": "sha256([824,exp020-vcd-query,line_key]) first16hex modulo2**63",
+  "primary_evaluator": "line-text-nfc-raw-v1",
+  "scope": "Approved full VAL42 six-cell comparison:3444 new predictions,1722 verified ordinary baseline predictions reused; no fitting, tuning, new model/dataset or final test",
+  "parent_recipe_sha256": "906e51b15b15739ee33de3fa281f8b9d8f31e7bf14074ea9605222ad3dc7264c",
+  "shot_counts": {
+    "zero_query_noise": 0,
+    "two_ordinary": 2,
+    "two_query_noise": 2,
+    "eight_query_noise": 8
+  },
+  "support_rule": "First two of frozen eight per query; zero uses no support",
+  "full_source_run": ".local/verification/exp-018/icl-exp018-contrastive-seed824",
+  "full_source_recipe_sha256": "0889e2e55c22456059faabd48c7e423dc1b0ed23f1c0c82d45ff025a9a4a8ff9",
+  "evaluation_scope": "full",
+  "remote_prefix": "exp021-query-contrast-",
+  "chunk_lines": 64
+}

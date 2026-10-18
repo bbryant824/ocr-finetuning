@@ -1,0 +1,10 @@
+{
+  "study": "EXP-018 Steps 1-2: transcription audit and reference-prefix correctness",
+  "pilot_run": ".local/verification/contrastive-icl-pilot-2026-10-12",
+  "full_run": ".local/verification/exp-018/icl-exp018-contrastive-seed824",
+  "full_results_sha256": "38ebdec2d0fba866027459084e4c2933b61f07d04082e695f25085345c03b07c",
+  "model_assets": ".local/assets/qwen3-vl-4b-ebb281e",
+  "output_directory": ".local/verification/exp-018/correctness-diagnostic",
+  "source_plan": "research/exp-018-contrastive-icl-analysis.md#current-bounded-plan-explain-exp-018-before-improving-its-decoder",
+  "scope": "861 saved lines; all182 VAL8 lines, canonical reference prefixes; alpha1 beta0.1; no new generation, fitting, tuning or Step3"
+}

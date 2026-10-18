@@ -106,6 +106,16 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(validate(ROOT)[0], [])
         self.assertEqual(validate(self.root)[0], [])
 
+    def test_cluster_capability_is_not_an_agent_role(self):
+        skill = self.root / ".agents/skills/nus-soc-cluster/SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text(
+            "---\nname: nus-soc-cluster\ndescription: Use when running SoC Slurm jobs.\n---\n"
+        )
+        self.assertEqual(validate(self.root)[0], [])
+        self.assertNotIn("nus-soc-cluster", ROLES)
+        self.assertEqual(validate(self.root)[1]["skills"], 8)
+
     def test_stale_instruction_link(self):
         with (self.root / "AGENTS.md").open("a") as target:
             target.write("\nUse [old state](coordination/PROJECT_STATE.md).\n")

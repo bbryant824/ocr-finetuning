@@ -1,5 +1,9 @@
 # Historical OCR: random ICL versus the existing fine-tuned reference
 
+> Historical EXP-014–015 analysis/proposal; its dated evidence is preserved below. For the current
+> direction and approval state after EXP-021, use [research index](README.md) and
+> [current synthesis](exp-018-contrastive-icl-analysis.md). Older proposed work is not a release.
+
 **4 October 2026 · EXP-014 testing completed; EXP-015 full evaluation completed and audited after a fresh L4 check.**
 This supersedes the earlier initial protocol. Implementation extends the existing region runner;
 [EXP-014 testing](../results/EXP-014.md) records completed development/readiness; its

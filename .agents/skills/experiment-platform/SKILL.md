@@ -14,3 +14,6 @@ Never silently change source labels, splits, methodology or a frozen run. Report
 estimated GPU/time/cost separately, including unknowns. Keep task Progress/Result brief and link
 actual evidence instead of appending a parallel ops diary. No self-released extra runs. Follow the
 shared protocol only when dispatched.
+
+Use the shared NUS SoC cluster capability for the primary compute backend; follow AGENTS.md for
+resource choice, discrete-session authorization and explicit Modal fallback.

@@ -1,0 +1,23 @@
+{
+  "experiment": "EXP-020",
+  "study": "Which contrastive reference helps known-box handwriting ICL?",
+  "parent_run": ".local/verification/contrastive-icl-pilot-2026-10-12",
+  "contrast_results_sha256": "1666f1660c6e36e53334c771e10841f3d143a48c4f456323b127a64652030b3d",
+  "model_assets": ".local/assets/qwen3-vl-4b-ebb281e",
+  "output_directory": ".local/verification/exp-020/references-seed824",
+  "evaluation": "VAL8: Seite0355\u20130362, all182 lines",
+  "arms": [
+    "wrong_reordered",
+    "correct_reordered",
+    "query_noise"
+  ],
+  "shots": 8,
+  "seed": 824,
+  "alpha": 1,
+  "beta": 0.1,
+  "noise_step": 500,
+  "noise_schedule": "official VCD sigmoid(-6,6),1000 steps,beta=1e-5..5e-3; CPU float32; normalized query patches only; duplicated frame noise shared",
+  "noise_seed": "sha256([824,exp020-vcd-query,line_key]) first16hex modulo2**63",
+  "primary_evaluator": "line-text-nfc-raw-v1",
+  "scope": "Complete declared VAL8 reference comparison, 546 new outputs; unchanged model/bank/supports/crops/prompt/decoding; no tuning, fitting, final test or conditional VAL42 extension"
+}
